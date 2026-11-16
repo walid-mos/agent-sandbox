@@ -30,13 +30,19 @@ def rebind(target, source):
     print(f"session-binds: bound {source} on {target} again")
 
 
+def is_below(path, directory):
+    return os.path.commonpath([path, directory]) == directory
+
+
 if len(sys.argv) < 2:
     raise SystemExit("usage: session-binds.py session-pid [target=source ...]")
 session_pid, *binds = sys.argv[1:]
-# The session sees the Mac's Development directory at the Mac's own path, so each source resolves inside its mount namespace.
+pairs = [bind.split("=", 1) for bind in binds]
+# A source resolves inside the session only below a directory it binds at its own path, the Development directory that holds the Git checkouts.
+shared = [source for target, source in pairs if target == source]
+refreshable = [(target, source) for target, source in pairs if any(is_below(source, directory) for directory in shared)]
 os.setns(os.open(f"/proc/{session_pid}/ns/mnt", os.O_RDONLY), os.CLONE_NEWNS)
-for bind in binds:
-    target, source = bind.split("=", 1)
+for target, source in refreshable:
     current = identity(source)
     if current is None:
         raise SystemExit(f"session-binds: {source} is missing. Put the Mac checkout back on the branch that holds it, then run the watchdog again.")
