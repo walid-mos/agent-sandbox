@@ -1,6 +1,6 @@
 import { machines, props, openOverlay, closeOverlay } from "herdr";
 import { TERMINAL_MOD } from "./pots-terminal-layout.js";
-import { isMachineReady, machineLabel } from "./pots-terminal-drawer.js";
+import { isMachineReady, machineLabel } from "./pots-machines.js";
 import { listBox, listPopup, popupHeight } from "./pots-list-box.js";
 
 /** Opens the computer picker for `purpose`: `{ key, title, label, chosen(), choose(machine) }`, which the terminal mod's view finds by `key`. */

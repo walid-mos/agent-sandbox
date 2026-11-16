@@ -1,7 +1,8 @@
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, shared, setShared, props, run, terminals } from "herdr";
-import { MACHINE, OPENING, chosenMachine, terminalMachine, isDrawerOpen, isMachineReady, machineLabel, endTerminal, isTerminalClosing } from "./pots-terminal-drawer.js";
+import { MACHINE, OPENING, chosenMachine, terminalMachine, isDrawerOpen, endTerminal, isTerminalClosing } from "./pots-terminal-drawer.js";
+import { isMachineReady, machineLabel } from "./pots-machines.js";
 import { barButton } from "./pots-icons.js";
 import { AGENT_PICKER, NewAgent } from "./pots-new-agent.js";
 import { MachinePicker, pickMachine } from "./pots-machine-picker.js";

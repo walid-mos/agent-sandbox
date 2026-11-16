@@ -1,6 +1,6 @@
 import { Button } from "gpui-base";
 import { knownAgents, run, openOverlay, closeOverlay, props, theme } from "herdr";
-import { isMachineReady, machineLabel } from "./pots-terminal-drawer.js";
+import { isMachineReady, machineLabel } from "./pots-machines.js";
 import { TERMINAL_MOD } from "./pots-terminal-layout.js";
 import { barButton } from "./pots-icons.js";
 import { POPUP_MAX_PX, listBox, listPopup } from "./pots-list-box.js";
