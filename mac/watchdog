@@ -27,6 +27,6 @@ fi
 session=$(running_session)
 if ! session_exec "$session" "$POTS_REPO/session/bootstrap" --router-current; then
 	session_exec "$session" "$POTS_REPO/session/bootstrap" --router-only
-	sandbox_docker exec --user root "$session" s6-svc -r /run/service/custom-svc-pots-router
+	restart_services "$session" pots-router
 fi
 "$POTS_REPO/mac/tailnet-ssh"

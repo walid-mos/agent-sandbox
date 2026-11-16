@@ -138,7 +138,7 @@ herdr-app do layout.switch '{"name":"command-center-pots"}'
 
 The same last command with `command-center` returns to the Principal terminal.
 
-The watchdog starts at user login. Every minute it brings the checkout and the pane up to date, as described above, then checks, for every sandbox under `sandboxes/`, that its VM, its SealSkin server and its session are running, then that [the session still has the checkout's directories bound](mac/session-binds) and that its tailnet ssh port points at the VM. It therefore creates the VM of a directory added there. Its LaunchAgent configuration comes from [the installer](mac/install-watchdog). It does not update the session's tools, mint credentials or rebootstrap the session. Loading the agent with the VM stopped brings all three back, which is the path a login takes. A real Mac reboot has not been exercised.
+The watchdog starts at user login. Every minute it brings the checkout and the pane up to date, as described above, then checks, for every sandbox under `sandboxes/`, that its VM, its SealSkin server and its session are running, then that [the session still has the checkout's directories bound](mac/session-binds) and that its tailnet ssh port points at the VM. It therefore creates the VM of a directory added there. Its LaunchAgent configuration comes from [the installer](mac/install-watchdog). Apart from Magpie, which it keeps at [the bootstrap pin](session/bootstrap), it does not update the session's tools, mint credentials or rebootstrap the session. Loading the agent with the VM stopped brings all three back, which is the path a login takes. A real Mac reboot has not been exercised.
 
 Keep the Mac checkout on a branch that holds this code. Every session binds directories of the checkout and the Mac reaches each sandbox through its scripts, so a branch without them cuts all sandboxes off until the branch is back. Git recreates the directories on the way back, and the watchdog's next check binds them into the running sessions again, with no restart.
 
@@ -207,7 +207,7 @@ Bootstrap seeds the router. Seed it alone from the Mac checkout while the Mac's 
 
 The seed remains the source of provider definitions, groups and rules. It copies no key or sign-in. Rerun it when those definitions change on the Mac. [The restore step](session/router-restore) applies the seed, runs the same credential sync as the launcher, and verifies exact Claude and Sol answers.
 
-Credential production stays outside Magpie. The human stores the Claude setup token in Infisical, and the external Codex publisher stores its access-only publication there. [One table](session/router-credentials.mjs) names each provider, its vault location and its Magpie input. `with-vault --router` reads only those listed credentials and supplies no GitHub or vault-login token to the consumer.
+Credential production stays outside Magpie. The human stores the Claude setup token in Infisical, and the external Codex publisher stores its access-only publication there. [One table](session/router-credentials.mjs) names each provider, its vault location and its Magpie input. The sync passes on only those listed credentials, and the Magpie commands it runs receive no GitHub or vault-login token.
 
 The consumer imports API keys with `magpie provider keys PROVIDER add -` and the Claude setup token with `magpie accounts import claude /dev/stdin --yes`. Values travel on stdin. Existing keys are skipped, and Magpie retains previous imported keys and setup-token accounts under its native routing rules. The sandbox does not generate or renew either subscription credential.
 
@@ -215,7 +215,7 @@ For Codex, [the adapter](session/router-codex.mjs) validates the publication and
 
 [The launcher](session/router.mjs) runs the shared sync at startup and on refresh. Its schedule follows the publication expiry, and failures retry without stopping the gateway. This also lets a first installation wait for its seed. A stale Codex publication cannot replace the previous file, and an expired access token cannot be renewed in the sandbox. Existing Codex and Pi sign-ins stay outside the managed directory.
 
-After the Mac watchdog pulls a merge, it checks both the installed Magpie and the running gateway against [the bootstrap pin](session/bootstrap). A mismatch installs the verified binary with `--router-only`, replaces the executable atomically, and restarts only `pots-router`. The next start imports fresh vault values. The upgrade keeps the same home, sign-ins, provider definitions and groups, without restoring the seed again. The watchdog retries an incomplete upgrade on its next check. No manual Mac command or restart of Principal, Factory, the Pots gateway or the worker watcher is required.
+On every check, the Mac watchdog compares both the installed Magpie and the running gateway against [the bootstrap pin](session/bootstrap). A mismatch installs the verified binary with `--router-only`, replaces the executable atomically, and restarts only `pots-router`. The next start imports fresh vault values. The upgrade keeps the same home, sign-ins, provider definitions and groups, without restoring the seed again. The watchdog retries an incomplete upgrade on its next check. No manual Mac command or restart of Principal, Factory, the Pots gateway or the worker watcher is required.
 
 ## The bot and its Pi workers
 
@@ -262,7 +262,7 @@ The command records the commit each pass started on in `NAME.passes` beside the 
 
 ## GitHub authentication
 
-[The session wrapper](session/with-vault) authenticates as Agents Sandboxes and injects only the secrets its sandbox names. Those are the token of each owner from `/tools/github` and the names listed under `secrets`. `with-vault --with GROUP` adds the names of that group under `onRequest`, for the one command that needs them. `with-vault --secret PATH/NAME` gives one command that single vault secret and the basic process settings, without the sandbox's list; the router's Codex sync uses it. A listed name that the vault lacks stops the command. It removes the Universal Auth client secret from that environment after login. The stored credential remains available inside the session.
+[The session wrapper](session/with-vault) authenticates as Agents Sandboxes and injects only the secrets its sandbox names. Those are the token of each owner from `/tools/github` and the names listed under `secrets`. `with-vault --with GROUP` adds the names of that group under `onRequest`, for the one command that needs them. A listed name that the vault lacks stops the command. It removes the Universal Auth client secret from that environment after login. The stored credential remains available inside the session.
 
 The access token of that login stays in the command environment as `INFISICAL_TOKEN`, so a wrapped command can run `infisical run` on another vault path. Every child process inherits it, and a tool that writes its environment into a log or an error report leaks it. Keep it out of app containers by passing their variables by name, as [Development services](#development-services-and-memory) describes.
 

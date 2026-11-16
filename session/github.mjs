@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { answerCredentialRequest } from './git-credential.mjs';
 import { main } from './main.mjs';
 import { owners, sandbox } from './sandbox.mjs';
 
@@ -14,17 +14,6 @@ function tokenFor(repository) {
   const token = process.env[name];
   if (!token) throw new Error(`github: ${name} is not in the environment. Run this through with-vault.`);
   return token;
-}
-
-function credential([action]) {
-  if (action !== 'get') return;
-  const fields = Object.fromEntries(readFileSync(0, 'utf8').split('\n').filter(Boolean).map(line => {
-    const equals = line.indexOf('=');
-    return [line.slice(0, equals), line.slice(equals + 1)];
-  }));
-  if (fields.protocol !== 'https' || fields.host !== 'github.com') return;
-  const token = tokenFor(fields.path ?? '');
-  process.stdout.write(`username=x-access-token\npassword=${token}\n\n`);
 }
 
 function checkoutRepository() {
@@ -52,7 +41,7 @@ function gh([executable, ...ghArguments]) {
 }
 
 main(import.meta, () => {
-  if (operation === 'credential') credential(arguments_);
+  if (operation === 'credential') answerCredentialRequest(arguments_[0], tokenFor);
   else if (operation === 'gh') gh(arguments_);
   else throw new Error('github: expected credential or gh');
 });

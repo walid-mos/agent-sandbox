@@ -35,7 +35,7 @@ export function publication(text) {
   if (!Number.isFinite(claims?.exp) || claims?.['https://api.openai.com/auth']?.chatgpt_account_id !== entry.accountId) throw new Error(MALFORMED);
   const expires = Math.min(entry.expires, claims.exp * 1000);
   if (expires <= Date.now() + MIN_VALIDITY_MS) {
-    throw new Error('router-codex: publication expired or within five minutes of expiry. Run pi-token-sync --publish on the publishing machine.');
+    throw new Error(`router-codex: publication expired or within ${MIN_VALIDITY_MS / 60000} minutes of expiry. Run pi-token-sync --publish on the publishing machine.`);
   }
   return { access: entry.access, accountId: entry.accountId, expires };
 }
