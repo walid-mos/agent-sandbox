@@ -48,6 +48,14 @@ session_exec() {
 	sandbox_docker exec $input --user root "$container" s6-setuidgid "$POTS_SESSION_USER" env HOME="$POTS_SESSION_HOME" "$@"
 }
 
+restart_services() {
+	container=$1
+	shift
+	for service in "$@"; do
+		sandbox_docker exec --user root "$container" s6-svc -r "/run/service/custom-svc-$service"
+	done
+}
+
 SERVER_READY_ATTEMPTS=60
 
 wait_for_server() {
