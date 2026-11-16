@@ -2,9 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { main } from './main.mjs';
 
-export const CODEX_PUBLICATION = { path: '/clients/pi', name: 'PI_OAUTH_CODEX' };
 export const CODEX_HOME = join(homedir(), '.local/state/agent-sandbox/codex');
 export const MIN_VALIDITY_MS = 5 * 60 * 1000;
 const OWNER_FILE = '.agent-sandbox';
@@ -89,11 +87,8 @@ function save(entry) {
   }
 }
 
-main(import.meta, () => {
-  const text = process.env[CODEX_PUBLICATION.name];
-  delete process.env[CODEX_PUBLICATION.name];
-  if (!text) throw new Error('router-codex: run through node session/router.mjs sync.');
+export function synchronizeCodex(text) {
   const entry = publication(text);
   save(entry);
-  process.stdout.write(`${JSON.stringify({ expires: entry.expires })}\n`);
-});
+  return entry.expires;
+}

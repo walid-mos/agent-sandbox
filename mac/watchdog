@@ -24,4 +24,9 @@ if ! sandbox_docker inspect --format '{{.State.Running}}' "$POTS_SERVER_CONTAINE
 fi
 "$POTS_REPO/bin/pots-session" ensure > /dev/null
 "$POTS_REPO/mac/session-binds"
+session=$(running_session)
+if ! session_exec "$session" "$POTS_REPO/session/bootstrap" --router-current; then
+	session_exec "$session" "$POTS_REPO/session/bootstrap" --router-only
+	sandbox_docker exec --user root "$session" s6-svc -r /run/service/custom-svc-pots-router
+fi
 "$POTS_REPO/mac/tailnet-ssh"

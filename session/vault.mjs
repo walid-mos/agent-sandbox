@@ -1,15 +1,16 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { basicEnvironment } from './environment.mjs';
+import { basicEnvironment, RUNTIME_SETTINGS } from './environment.mjs';
 import { main } from './main.mjs';
 
 const VAULT_CONFIG = '/etc/agent-sandbox/vault.json';
 const GITHUB_PATH = '/tools/github';
 const CLIENT_SECRET = 'INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET';
-const USAGE = 'usage: with-vault [--with GROUP | --source REPOSITORY | --secret PATH/NAME] command [argument...]';
-const REQUESTS = { '--with': sandboxRequest, '--source': sourceFetchRequest, '--secret': secretRequest };
+const USAGE = 'usage: with-vault [--with GROUP | --source REPOSITORY | --router] command [argument...]';
+const REQUESTS = { '--with': sandboxRequest, '--source': sourceFetchRequest };
 const [credentialsFile, ...rest] = process.argv.slice(2);
-const [request, requestArgument, commandLine] = Object.hasOwn(REQUESTS, rest[0]) ? [REQUESTS[rest[0]], rest[1], rest.slice(2)] : [sandboxRequest, undefined, rest];
+const [request, requestArgument, commandLine] = rest[0] === '--router' ? [routerRequest, undefined, rest.slice(1)] :
+  Object.hasOwn(REQUESTS, rest[0]) ? [REQUESTS[rest[0]], rest[1], rest.slice(2)] : [sandboxRequest, undefined, rest];
 
 function assignments(text) {
   return Object.fromEntries(text.split('\n').filter(Boolean).map(line => {
@@ -71,11 +72,9 @@ async function sourceFetchRequest(repository) {
   };
 }
 
-function secretRequest(reference) {
-  const slash = reference?.lastIndexOf('/') ?? -1;
-  const name = reference?.slice(slash + 1);
-  if (slash < 0 || !name) throw new Error(USAGE);
-  return { groups: [{ [reference.slice(0, slash) || '/']: [name] }], environment: basicEnvironment };
+async function routerRequest() {
+  const [{ sandbox }, { credentialFolders }] = await Promise.all([import('./sandbox.mjs'), import('./router-credentials.mjs')]);
+  return { groups: [credentialFolders(sandbox)], environment: session => basicEnvironment(session, RUNTIME_SETTINGS) };
 }
 
 async function sandboxRequest(group) {

@@ -3,26 +3,9 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lib.sh"
 
-CLAUDE_SYNC="$HOME/.pi/agent/bin/magpie-claude-token-sync"
-CLAUDE_MODEL=claude/claude-haiku-5-5
-CODEX_MODEL=codex/gpt-6.1-sol
 ANSWER_SECONDS=120
 ROUTER_READY_ATTEMPTS=30
 seed=$1
-
-# A router that was just restarted takes a moment to listen.
-wait_for_router() {
-	curl --silent --fail --output /dev/null --retry "$ROUTER_READY_ATTEMPTS" --retry-delay 1 --retry-connrefused "$POTS_ROUTER_API/models"
-}
-
-# The harness worker registers the token it finds in its environment, then asks the running router for one answer from that account.
-sync_claude() {
-	"$here/with-vault" --with claude python3 "$CLAUDE_SYNC" --vault-child
-}
-
-is_verified() {
-	printf '%s' "$1" | jq --exit-status '.verified_http == 200' > /dev/null
-}
 
 router_answers() {
 	question=$(jq --null-input --compact-output --arg model "$1" '{model:$model,messages:[{role:"user",content:"Reply only OK."}],max_tokens:16,stream:false}')
@@ -31,32 +14,19 @@ router_answers() {
 	printf '%s' "$answer" | jq --exit-status --arg model "$1" '.model == $model and ((.choices // []) | length > 0)' > /dev/null
 }
 
-if ! wait_for_router; then
-	echo "router-restore: no router answers on $POTS_ROUTER_ADDRESS. Run session-bootstrap, which installs and starts it." >&2
+if ! curl --silent --fail --output /dev/null --retry "$ROUTER_READY_ATTEMPTS" --retry-delay 1 --retry-connrefused "$POTS_ROUTER_API/models"; then
+	echo "router-restore: no router answers on $POTS_ROUTER_ADDRESS. Run session-bootstrap." >&2
 	exit 1
 fi
-# The passphrase of the seed arrives on standard input, which magpie restore reads.
 magpie restore --no-agents --no-library --no-sign-ins "$seed"
 rm -f "$seed"
 magpie update auto off > /dev/null
-# The seed carries the groups the Mac's router was given, not its choice to offer no other.
 magpie group auto off > /dev/null
-"$here/with-vault" node "$here/router-keys.mjs"
-report=$(sync_claude)
-if ! is_verified "$report"; then
-	# A router that never served Claude answers 404 to the worker's own question until a plain question has listed the Claude models.
-	router_answers "$CLAUDE_MODEL" || true
-	report=$(sync_claude)
-fi
-if ! is_verified "$report"; then
-	reason=$(printf '%s' "$report" | jq --raw-output '.error // "it reported no verified account"')
-	echo "router-restore: the router gave no Claude answer with the vault token: $reason Check that the pots-router service runs, then run router-seed again." >&2
-	exit 1
-fi
-echo "router-restore: Claude answers through the router"
 node "$here/router.mjs" sync
-if ! router_answers "$CODEX_MODEL"; then
-	echo "router-restore: $CODEX_MODEL gave no verified answer with the central vault publication. Check publisher freshness. After installing this change, restart pots-router through session-bootstrap to adopt CODEX_HOME, then rerun router-seed." >&2
-	exit 1
-fi
-echo "router-restore: $CODEX_MODEL answers through the router"
+for model in claude/claude-haiku-5-5 codex/gpt-6.1-sol; do
+	if ! router_answers "$model"; then
+		echo "router-restore: $model gave no verified answer with the vault credentials. Check credential freshness." >&2
+		exit 1
+	fi
+	echo "router-restore: $model answers through the router"
+done
