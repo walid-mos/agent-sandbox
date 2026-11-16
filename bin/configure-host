@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
 
 repository = Path(__file__).resolve().parents[1]
-runtime = Path.home() / ".config/agent-sandbox"
+runtime = Path(os.environ.get("POTS_RUNTIME") or Path.home() / ".config/agent-sandbox")
 runtime.mkdir(parents=True, exist_ok=True)
 host = runtime / "host.json"
 if not host.exists():
