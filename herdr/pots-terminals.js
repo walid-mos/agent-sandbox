@@ -6,11 +6,7 @@ import { TERMINAL_MOD } from "./pots-terminal-layout.js";
 import { icon } from "./pots-icons.js";
 import { stopPress } from "./ui.js";
 import { NewAgent } from "./pots-new-agent.js";
-
-const PICKER_MAX_PX = 420;
-const PICKER_PAD_PX = 5;
-const ROW_PX = 32;
-const ROW_GAP_PX = 2;
+import { POPUP_MAX_PX, listBox, listPopup, popupHeight } from "./pots-list-box.js";
 
 function terminalButton({ id, text, iconName, action, isDisabled = false, isSelected = false }) {
   const colors = theme();
@@ -30,8 +26,7 @@ export const terminalToggle = () => terminalButton({
 
 function pickMachine(purpose) {
   return openOverlay({
-    mod: TERMINAL_MOD, kind: "popup", width: 300,
-    height: Math.min(PICKER_MAX_PX, machines().length * (ROW_PX + ROW_GAP_PX) + ROW_PX + 2 * PICKER_PAD_PX),
+    mod: TERMINAL_MOD, kind: "popup", width: 300, height: popupHeight(machines().length),
     props: { picker: purpose },
   });
 }
@@ -55,7 +50,7 @@ export default class TerminalControls extends View {
     if (!isMachineReady(machine.name)) return;
     closeOverlay(props().overlay);
     if (props().picker === "agent") {
-      openOverlay({ mod: TERMINAL_MOD, kind: "popup", width: 320, height: PICKER_MAX_PX, props: { agentMachine: machine.name } });
+      openOverlay({ mod: TERMINAL_MOD, kind: "popup", width: 320, height: POPUP_MAX_PX, props: { agentMachine: machine.name } });
       return;
     }
     setShared(MACHINE, machine.name);
@@ -63,34 +58,20 @@ export default class TerminalControls extends View {
   }
 
   picker() {
-    const colors = theme();
     const choices = machines();
     const isAgent = props().picker === "agent";
     const chosen = isAgent ? undefined : chosenMachine();
     this.selected = Math.max(0, Math.min(this.selected, choices.length - 1));
-    return v_flex().id("terminal-machines").w_full().max_h(PICKER_MAX_PX).overflow_y_scrollbar().p(PICKER_PAD_PX).gap(ROW_GAP_PX)
-      .bg(colors.popover).track_focus(this.handle).role("list_box").accessibility_label(isAgent ? "New agent computer" : "Terminal computer")
-      .on_key_down((event, cx) => {
-        if (!choices.length) return;
-        if (event.key === "down") this.selected = (this.selected + 1) % choices.length;
-        else if (event.key === "up") this.selected = (this.selected + choices.length - 1) % choices.length;
-        else if ((event.key === "enter" || event.key === "space") && choices[this.selected]) this.choose(choices[this.selected]);
-        else return;
-        cx.stop_propagation(); cx.notify();
-      })
-      .child(div().h(ROW_PX).px(9).text_size(12).text_color(colors.muted).child(isAgent ? "New agent on…" : "Terminal on…"))
-      .when(!choices.length, element => element.child(div().text_size(12).p(5).text_color(colors.muted).child("No computers available. Open Machines settings.")))
-      .children(choices.map((machine, index) => {
-        const isReady = machine.layout === "ready";
-        const isChosen = machine.name === chosen;
-        return h_flex().id(`terminal-machine-${index}`).h(ROW_PX).px(9).gap(10).items_center().rounded(5)
-          .role("list_box_option").aria_selected(isChosen).disabled(!isReady)
-          .accessibility_label(`${machineLabel(machine.name)}${isReady ? "" : ` · ${machine.layout}`}`)
-          .when(index === this.selected, element => element.bg(colors.selected).aria_active_descendant())
-          .text_size(12).text_color(isReady ? colors.foreground : colors.dim)
-          .when(isReady, element => element.hover(style => style.bg(colors.hover)).cursor_pointer()).on_click(() => this.choose(machine))
-          .child(div().flex_1().child(machineLabel(machine.name)))
-          .child(div().text_color(colors.muted).child(!isReady ? machine.layout : isChosen ? "Selected" : ""));
+    return listPopup({ id: "terminal-machines", title: isAgent ? "New agent on…" : "Terminal on…", message: choices.length ? "" : "No computers available. Open Machines settings." })
+      .child(listBox({
+        id: "terminal-machine-choices", label: isAgent ? "New agent computer" : "Terminal computer", handle: this.handle, selected: this.selected,
+        options: choices.map((machine, index) => {
+          const isReady = isMachineReady(machine.name);
+          const isChosen = machine.name === chosen;
+          return { id: `terminal-machine-${index}`, text: machineLabel(machine.name), detail: !isReady ? machine.layout : isChosen ? "Selected" : "", isEnabled: isReady, isSelected: isChosen };
+        }),
+        select: index => { this.selected = index; },
+        choose: index => this.choose(choices[index]),
       }));
   }
 
