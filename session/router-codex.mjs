@@ -23,17 +23,14 @@ function parse(text, message = MALFORMED) {
   }
 }
 
-function requirePublication(entry) {
-  if (!entry || typeof entry !== 'object' || Object.hasOwn(entry, 'refresh') || Object.hasOwn(entry, 'refresh_token') ||
-      typeof entry.access !== 'string' || !entry.access || /\s/u.test(entry.access) ||
-      typeof entry.accountId !== 'string' || !entry.accountId || /\s/u.test(entry.accountId) || !Number.isFinite(entry.expires)) {
-    throw new Error(MALFORMED);
-  }
-}
+const isToken = value => typeof value === 'string' && value.length > 0 && !/\s/u.test(value);
 
 export function publication(text) {
   const entry = parse(text);
-  requirePublication(entry);
+  if (!entry || typeof entry !== 'object' || Object.hasOwn(entry, 'refresh') || Object.hasOwn(entry, 'refresh_token') ||
+      !isToken(entry.access) || !isToken(entry.accountId) || !Number.isFinite(entry.expires)) {
+    throw new Error(MALFORMED);
+  }
   const parts = entry.access.split('.');
   if (parts.length !== 3) throw new Error(MALFORMED);
   const claims = parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
