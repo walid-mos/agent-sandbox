@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { main } from './main.mjs';
 
 export const CODEX_PUBLICATION = { path: '/clients/pi', name: 'PI_OAUTH_CODEX' };
@@ -11,6 +11,7 @@ const OWNER_FILE = '.agent-sandbox';
 const OWNER = 'router-codex';
 const AUTH_FILE = 'auth.json';
 const MALFORMED = 'router-codex: malformed access-only publication. Check the publisher. No credential values were printed.';
+const FOREIGN = 'router-codex: directory belongs to another credential source.';
 
 function parse(text) {
   try {
@@ -49,15 +50,27 @@ function requirePrivate(path) {
   }
 }
 
-function prepareHome() {
-  if (!existsSync(CODEX_HOME)) {
-    mkdirSync(CODEX_HOME, { recursive: true, mode: 0o700 });
-    writeFileSync(join(CODEX_HOME, OWNER_FILE), OWNER, { mode: 0o600, flag: 'wx' });
+// The directory appears with its marker in one rename, so a concurrent sync never sees it unmarked.
+function createHome() {
+  mkdirSync(dirname(CODEX_HOME), { recursive: true, mode: 0o700 });
+  const staging = mkdtempSync(`${CODEX_HOME}.`);
+  try {
+    writeFileSync(join(staging, OWNER_FILE), OWNER, { mode: 0o600, flag: 'wx' });
+    renameSync(staging, CODEX_HOME);
+  } catch (error) {
+    if (!existsSync(CODEX_HOME)) throw error;
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
   }
+}
+
+function prepareHome() {
+  if (!existsSync(CODEX_HOME)) createHome();
   requirePrivate(CODEX_HOME);
   const marker = join(CODEX_HOME, OWNER_FILE);
+  if (!existsSync(marker)) throw new Error(FOREIGN);
   requirePrivate(marker);
-  if (readFileSync(marker, 'utf8') !== OWNER) throw new Error('router-codex: directory belongs to another credential source.');
+  if (readFileSync(marker, 'utf8') !== OWNER) throw new Error(FOREIGN);
   const authPath = join(CODEX_HOME, AUTH_FILE);
   if (!existsSync(authPath)) return;
   requirePrivate(authPath);
