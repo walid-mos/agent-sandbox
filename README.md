@@ -35,7 +35,7 @@ export SANDBOX=sealskin
 ./bin/sealskin-up
 ```
 
-`vm-up` writes the Colima profile from [the Colima template](colima/colima.yaml) and the sandbox's `vm` values, then starts the VM when it is stopped. It installs Sysbox, the container runtime, and enables the firewall service. Review the template and [the firewall configuration](vm/network.env) before starting. `sealskin-up` starts the server and applies the app template.
+`vm-up` writes the Colima profile from [the Colima template](colima/colima.yaml) and the sandbox's `vm` values, then starts the VM when it is stopped. It installs Sysbox, the container runtime, and enables the firewall service. Review the template and [the firewall configuration](vm/network.env) before starting. `sealskin-up` starts the server and applies the app template. Applying configuration restarts the SealSkin server and waits for it to load the template and installed app before returning.
 
 Complete SealSkin's initial admin setup through its Mac-local endpoint, `https://127.0.0.1:PORT`, where `PORT` is the sandbox's `serverPort`. The session API requires SealSkin's `/config/root_key`, and the installed Pots app is assigned to `admin`. This repository does not automate that initial admin setup.
 
@@ -45,8 +45,6 @@ Then create the session and bootstrap its tools:
 ./bin/pots-session ensure
 ./bin/session-bootstrap
 ```
-
-A server that has just started answers 404 to `ensure` until it has read the installed app. Run `ensure` again, or leave it to the watchdog.
 
 `session-bootstrap` brings a session up in this order, and rerunning it is safe.
 
