@@ -7,7 +7,7 @@ import { POPUP_MAX_PX, listBox, listPopup } from "./pots-list-box.js";
 import { pickMachine } from "./pots-machine-picker.js";
 
 export const AGENT_PICKER = {
-  key: "agent", title: "New agent on…", label: "New agent computer", chosen: () => undefined,
+  key: "agent", title: "New agent on…", label: "New agent computer",
   choose: machine => openOverlay({ mod: TERMINAL_MOD, kind: "popup", width: 320, height: POPUP_MAX_PX, props: { agents: { machine } } }),
 };
 
