@@ -17,7 +17,7 @@ async function syncCodex() {
   });
   let report = '';
   worker.stdout.setEncoding('utf8').on('data', chunk => { report += chunk; });
-  const [status] = await once(worker, 'exit');
+  const [status] = await once(worker, 'close');
   if (status !== 0) throw new Error('router: Codex vault sync failed. Check the publication and machine credentials, then run router-seed.');
   let expires;
   try {
