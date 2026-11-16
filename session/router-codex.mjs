@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { main } from './main.mjs';
 
 export const CODEX_PUBLICATION = { path: '/clients/pi', name: 'PI_OAUTH_CODEX' };
@@ -11,12 +11,15 @@ const OWNER_FILE = '.agent-sandbox';
 const OWNER = 'router-codex';
 const AUTH_FILE = 'auth.json';
 const MALFORMED = 'router-codex: malformed access-only publication. Check the publisher. No credential values were printed.';
+const FOREIGN = 'router-codex: directory belongs to another credential source.';
+const UNREADABLE = 'router-codex: the managed auth.json is not JSON, so it is kept. Remove it when it holds no native sign-in. No credential values were printed.';
 
-function parse(text) {
+// A parse error quotes its input, which holds credential values, so a fixed message replaces it.
+function parse(text, message = MALFORMED) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(MALFORMED);
+    throw new Error(message);
   }
 }
 
@@ -49,19 +52,31 @@ function requirePrivate(path) {
   }
 }
 
-function prepareHome() {
-  if (!existsSync(CODEX_HOME)) {
-    mkdirSync(CODEX_HOME, { recursive: true, mode: 0o700 });
-    writeFileSync(join(CODEX_HOME, OWNER_FILE), OWNER, { mode: 0o600, flag: 'wx' });
+// The directory appears with its marker in one rename, so a concurrent sync never sees it unmarked.
+function createHome() {
+  mkdirSync(dirname(CODEX_HOME), { recursive: true, mode: 0o700 });
+  const staging = mkdtempSync(`${CODEX_HOME}.`);
+  try {
+    writeFileSync(join(staging, OWNER_FILE), OWNER, { mode: 0o600, flag: 'wx' });
+    renameSync(staging, CODEX_HOME);
+  } catch (error) {
+    if (!existsSync(CODEX_HOME)) throw error;
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
   }
+}
+
+function prepareHome() {
+  if (!existsSync(CODEX_HOME)) createHome();
   requirePrivate(CODEX_HOME);
   const marker = join(CODEX_HOME, OWNER_FILE);
+  if (!existsSync(marker)) throw new Error(FOREIGN);
   requirePrivate(marker);
-  if (readFileSync(marker, 'utf8') !== OWNER) throw new Error('router-codex: directory belongs to another credential source.');
+  if (readFileSync(marker, 'utf8') !== OWNER) throw new Error(FOREIGN);
   const authPath = join(CODEX_HOME, AUTH_FILE);
   if (!existsSync(authPath)) return;
   requirePrivate(authPath);
-  const current = parse(readFileSync(authPath, 'utf8'));
+  const current = parse(readFileSync(authPath, 'utf8'), UNREADABLE);
   if (current?.tokens?.refresh_token || current?.tokens?.id_token) throw new Error('router-codex: refusing to replace a native sign-in.');
 }
 
@@ -80,7 +95,7 @@ function save(entry) {
 main(import.meta, () => {
   const text = process.env[CODEX_PUBLICATION.name];
   delete process.env[CODEX_PUBLICATION.name];
-  if (!text) throw new Error('router-codex: run through session/with-vault --with codex.');
+  if (!text) throw new Error('router-codex: run through node session/router.mjs sync.');
   const entry = publication(text);
   save(entry);
   process.stdout.write(`${JSON.stringify({ expires: entry.expires })}\n`);
