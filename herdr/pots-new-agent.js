@@ -1,5 +1,4 @@
-import { Button } from "gpui-base";
-import { knownAgents, run, openOverlay, closeOverlay, props, theme } from "herdr";
+import { knownAgents, run, openOverlay, closeOverlay, props } from "herdr";
 import { isMachineReady, machineLabel } from "./pots-machines.js";
 import { TERMINAL_MOD } from "./pots-terminal-layout.js";
 import { barButton } from "./pots-icons.js";
@@ -25,7 +24,7 @@ export class NewAgent {
     this.handle.focus();
     cx.spawn(async cx => {
       try { this.agents = await knownAgents({ on: machine }); }
-      catch { this.error = `Could not check agents on ${machineLabel(machine)}. Cancel and try again.`; }
+      catch (error) { this.error = `Could not check agents on ${machineLabel(machine)}: ${error.message}. Cancel and try again.`; }
       finally { this.isLoading = false; cx.notify(); }
     });
   }
@@ -37,7 +36,6 @@ export class NewAgent {
   }
 
   render() {
-    const colors = theme();
     const isReady = isMachineReady(this.machine);
     const message = !isReady ? `${machineLabel(this.machine)} is unavailable. Cancel and choose another computer.`
       : this.error || (this.isLoading ? "Checking installed agents…" : this.agents.length ? "" : "No agents configured in Herdr.");
@@ -51,8 +49,6 @@ export class NewAgent {
         select: index => { this.selected = index; },
         choose: index => this.launch(this.agents[index]),
       }))
-      .child(Button.new("pots-agent-cancel").h(28).text_size(12).text_color(colors.foreground)
-        .focus(style => style.border(2).border_color(colors.accent))
-        .on_click(() => closeOverlay(props().overlay)).child("Cancel"));
+      .child(barButton({ id: "pots-agent-cancel", text: "Cancel", action: () => closeOverlay(props().overlay) }));
   }
 }

@@ -66,7 +66,7 @@ def chord(key):
 def drawer_modules():
     found, pending = set(), [TERMINAL_ENTRY]
     while pending:
-        for name in re.findall(r'\b(?:from|import)\s+"\./([^"]+)"', (SOURCE / pending.pop()).read_text()):
+        for name in re.findall(r'\b(?:from|import)\s+["\']\./([^"\']+)["\']', (SOURCE / pending.pop()).read_text()):
             if name in found or name in COMMAND_CENTER_FILES:
                 continue
             if not (SOURCE / name).is_file():
