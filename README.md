@@ -266,7 +266,7 @@ The command records the commit each pass started on in `NAME.passes` beside the 
 
 ## GitHub authentication
 
-[The session wrapper](session/with-vault) authenticates as Agents Sandboxes and injects only the secrets its sandbox names. Those are the token of each owner from `/tools/github` and the names listed under `secrets`. `with-vault --with GROUP` adds the names of that group under `onRequest`, for the one command that needs them. A listed name that the vault lacks stops the command. It removes the Universal Auth client secret from that environment after login. The stored credential remains available inside the session.
+[The session wrapper](session/with-vault) authenticates as Agents Sandboxes and injects only the secrets its sandbox names. Those are the token of each owner from `/tools/github` and the names listed under `secrets`. `with-vault --with GROUP` adds the names of that group under `onRequest`, for the one command that needs them. `with-vault --secret PATH/NAME` gives one command that single vault secret and the basic process settings, without the sandbox's list; the router's Codex sync uses it. A listed name that the vault lacks stops the command. It removes the Universal Auth client secret from that environment after login. The stored credential remains available inside the session.
 
 The access token of that login stays in the command environment as `INFISICAL_TOKEN`, so a wrapped command can run `infisical run` on another vault path. Every child process inherits it, and a tool that writes its environment into a log or an error report leaks it. Keep it out of app containers by passing their variables by name, as [Development services](#development-services-and-memory) describes.
 
