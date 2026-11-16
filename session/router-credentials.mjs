@@ -38,16 +38,22 @@ function magpie(arguments_, input = '') {
   return stdout;
 }
 
+function synchronize(entry) {
+  const [[, value]] = readVault([{ [entry.path]: [entry.name] }]).secrets;
+  if (!value) throw new Error(`router-credentials: ${entry.path}/${entry.name} is empty in the vault.`);
+  return INPUTS[entry.input](value, entry.provider);
+}
+
 main(import.meta, () => {
-  const entries = credentialsFor();
-  const folders = {};
-  for (const { path, name } of entries) (folders[path] ??= []).push(name);
-  const secrets = new Map(readVault([folders]).secrets);
-  const pairs = entries.map(entry => {
-    const value = secrets.get(entry.name);
-    if (!value) throw new Error(`router-credentials: ${entry.path}/${entry.name} is empty in the vault.`);
-    return [entry, value];
+  const results = credentialsFor().map(entry => {
+    try {
+      return synchronize(entry);
+    } catch (error) {
+      process.stderr.write(`router-credentials: ${entry.provider} not synchronized: ${error.message}\n`);
+      return { failed: true };
+    }
   });
-  const report = Object.assign({}, ...pairs.map(([entry, value]) => INPUTS[entry.input](value, entry.provider)));
+  const report = Object.assign({}, ...results);
   process.stdout.write(`${JSON.stringify(report)}\n`);
+  if (report.failed) process.exitCode = 1;
 });
