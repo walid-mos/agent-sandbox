@@ -49,10 +49,14 @@ async function serve([address]) {
   };
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => gateway.kill(signal));
   schedule();
-  const [status] = await once(gateway, 'exit');
-  isStopped = true;
-  clearTimeout(timer);
-  await activeSync;
+  let status;
+  try {
+    [status] = await once(gateway, 'exit');
+  } finally {
+    isStopped = true;
+    clearTimeout(timer);
+    await activeSync;
+  }
   process.exitCode = status ?? 1;
 }
 
