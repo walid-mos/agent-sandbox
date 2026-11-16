@@ -60,7 +60,7 @@ launch_docker() {
 }
 
 stop_docker() {
-	sandbox_docker stop --time "$DOCKER_STOP_SECONDS" "$POTS_SESSION_CONTAINER" > /dev/null 2>&1 || true
+	[ -z "$1" ] || sandbox_docker stop --time "$DOCKER_STOP_SECONDS" "$1" > /dev/null
 }
 
 launch() {
@@ -69,7 +69,7 @@ launch() {
 
 stop() {
 	stopping=$(session_container)
-	"stop_$POTS_LAUNCHER"
+	"stop_$POTS_LAUNCHER" "$stopping"
 	if [ -n "$stopping" ]; then
 		sandbox_docker wait "$stopping" > /dev/null 2>&1 || true
 	fi
