@@ -1,5 +1,5 @@
 import { div, svg } from "gpui-kit";
-import { h_flex } from "gpui-base";
+import { Button, h_flex } from "gpui-base";
 import { theme } from "herdr";
 import { TEXT, stopPress } from "./ui.js";
 
@@ -30,4 +30,17 @@ export function ghostButton({ id, iconName, text = "", action, color }) {
     .on_mouse_down("left", stopPress).on_click(action)
     .child(icon(iconName))
     .when(Boolean(text), element => element.child(div().text_size(TEXT.small).child(text)));
+}
+
+/** A button of a bar, such as Terminal or End, shown selected while `isSelected` and dim and inert while `isDisabled`. */
+export function barButton({ id, text, iconName, action, isDisabled = false, isSelected = false }) {
+  const colors = theme();
+  return Button.new(id).h(BUTTON_PX).min_w(BUTTON_PX).px(7).gap(5).flex_none().h_flex().items_center().justify_center().rounded(6)
+    .text_size(12).text_color(isDisabled ? colors.dim : colors.foreground)
+    .bg(isSelected ? colors.selected : colors.chrome).selected(isSelected).disabled(isDisabled)
+    .accessibility_label(text).tooltip(text).cursor_pointer()
+    .hover(style => style.bg(colors.hover)).focus(style => style.border(2).border_color(colors.accent))
+    .on_mouse_down("left", stopPress).on_click(action)
+    .when(Boolean(iconName), element => element.child(icon(iconName)))
+    .child(text);
 }

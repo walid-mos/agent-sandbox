@@ -1,6 +1,7 @@
-import { hc, home, layout, machines, focused, terminals, run, shared, setShared, notify } from "herdr";
+import { hc, home, layout, focused, terminals, run, shared, setShared, notify } from "herdr";
 import { DRAWER, findNode, withDrawer, withSession, sessionAddresses, withoutSession } from "./pots-terminal-layout.js";
 import { commitLayout } from "./pots-layout-file.js";
+import { isMachineReady, machineLabel } from "./pots-machines.js";
 
 export const MACHINE = "pots.terminal.machine";
 export const OPENING = "pots.terminal.opening";
@@ -17,15 +18,12 @@ function reportFailure(title, error) {
   notify({ title, body: error.message, level: "error" });
 }
 
-export const machineLabel = machine => machine ?? "This computer";
-
 export const chosenMachine = () => shared(MACHINE) ?? null;
 export function isDrawerOpen() {
   const drawer = findNode(layout(), DRAWER);
   return Boolean(drawer && !drawer.hidden);
 }
 export const terminalMachine = address => address.includes("/") ? address.slice(0, address.lastIndexOf("/")) : null;
-export const isMachineReady = name => machines().some(machine => machine.name === name && machine.layout === "ready");
 
 const closingAddresses = () => shared(CLOSING) ?? [];
 export const isTerminalClosing = address => closingAddresses().includes(address);
