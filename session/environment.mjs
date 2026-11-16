@@ -5,3 +5,10 @@ export const RUNTIME_SETTINGS = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_
 
 export const basicEnvironment = (environment, extra = []) =>
   Object.fromEntries(Object.entries(environment).filter(([name]) => BASIC.includes(name) || extra.includes(name)));
+
+export function assignments(text) {
+  return Object.fromEntries(text.split('\n').filter(Boolean).map(line => {
+    const equals = line.indexOf('=');
+    return [line.slice(0, equals), line.slice(equals + 1)];
+  }));
+}

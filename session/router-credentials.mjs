@@ -43,11 +43,11 @@ main(import.meta, () => {
   const folders = {};
   for (const { path, name } of entries) (folders[path] ??= []).push(name);
   const secrets = new Map(readVault([folders]).secrets);
-  const values = entries.map(entry => {
+  const pairs = entries.map(entry => {
     const value = secrets.get(entry.name);
     if (!value) throw new Error(`router-credentials: ${entry.path}/${entry.name} is empty in the vault.`);
-    return value;
+    return [entry, value];
   });
-  const report = Object.assign({}, ...entries.map((entry, index) => INPUTS[entry.input](values[index], entry.provider)));
+  const report = Object.assign({}, ...pairs.map(([entry, value]) => INPUTS[entry.input](value, entry.provider)));
   process.stdout.write(`${JSON.stringify(report)}\n`);
 });

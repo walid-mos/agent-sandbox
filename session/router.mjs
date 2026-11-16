@@ -32,14 +32,12 @@ const retrySync = () => synchronize().catch(error => {
   return RETRY_MS;
 });
 
-async function refreshUntilExit(gateway, delay) {
-  let isStopped = false;
-  const exited = once(gateway, 'exit').then(([status]) => { isStopped = true; return status ?? 1; });
-  while (!isStopped) {
-    await Promise.race([exited, pause(delay, undefined, { ref: false })]);
-    if (!isStopped) delay = await retrySync();
+async function refreshUntilExit(gateway) {
+  const exited = once(gateway, 'exit').then(([status]) => status ?? 1);
+  for (let delay = 0; ; delay = await retrySync()) {
+    const status = await Promise.race([exited, pause(delay, undefined, { ref: false })]);
+    if (status !== undefined) return status;
   }
-  return exited;
 }
 
 async function serve([address]) {
@@ -47,7 +45,7 @@ async function serve([address]) {
   const env = { ...basicEnvironment(process.env, RUNTIME_SETTINGS), MAGPIE_ADDR: address, DISABLE_AUTOUPDATER: '1', CODEX_HOME };
   const gateway = spawn('magpie', ['serve'], { env, stdio: 'inherit' });
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => gateway.kill(signal));
-  process.exitCode = await refreshUntilExit(gateway, 0);
+  process.exitCode = await refreshUntilExit(gateway);
 }
 
 main(import.meta, () => runOperation({ serve, sync: synchronize }, 'usage: router serve ADDRESS | router sync'));

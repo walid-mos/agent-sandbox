@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { basicEnvironment } from './environment.mjs';
+import { assignments, basicEnvironment } from './environment.mjs';
 import { main } from './main.mjs';
 
 const VAULT_CONFIG = '/etc/agent-sandbox/vault.json';
@@ -8,13 +8,6 @@ const GITHUB_PATH = '/tools/github';
 const CLIENT_SECRET = 'INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET';
 const USAGE = 'usage: with-vault [--with GROUP | --source REPOSITORY] command [argument...]';
 const REQUESTS = { '--with': sandboxRequest, '--source': sourceFetchRequest };
-
-function assignments(text) {
-  return Object.fromEntries(text.split('\n').filter(Boolean).map(line => {
-    const equals = line.indexOf('=');
-    return [line.slice(0, equals), line.slice(equals + 1)];
-  }));
-}
 
 function infisical(arguments_, env) {
   return execFileSync('infisical', arguments_, { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'inherit'] }).trim();
@@ -66,7 +59,7 @@ async function sourceFetchRequest(repository) {
   if (!source) throw new Error('with-vault: repository is outside the approved agent sources.');
   return {
     groups: [{ [GITHUB_PATH]: [source.credential] }],
-    environment: session => basicEnvironment(session),
+    environment: basicEnvironment,
   };
 }
 
