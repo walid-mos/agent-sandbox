@@ -12,5 +12,5 @@ export async function main({ main: isEntryPoint }, body) {
 export function runOperation(operations, usage) {
   const [operation, ...arguments_] = process.argv.slice(2);
   if (!Object.hasOwn(operations, operation)) throw new Error(usage);
-  operations[operation](arguments_);
+  return operations[operation](arguments_);
 }

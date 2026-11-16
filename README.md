@@ -207,24 +207,18 @@ Bootstrap seeds the router. Seed it alone from the Mac checkout while the Mac's 
 
 `router-seed` copies the Mac router's providers, groups, rules and settings into the session, with no key and no sign-in. [The restore step](session/router-restore) gives each provider the key the sandbox lists for it, turns off Magpie's own updates and found groups, and registers the Claude token of the `claude` group under `onRequest`. It waits for the router to listen, verifies a Claude answer and a direct `codex/gpt-6.1-sol` answer, and fails when either is missing or Codex returns another model. Rerun it after changing groups or rules on the Mac, and after rotating a provider key or the Claude token.
 
-Each sandbox's Magpie needs its own ChatGPT sign-in. Bootstrap installs the tools and starts the router before seeding, so a first bootstrap can stop at the Codex check. From the Mac, select each sandbox and complete its sign-in once, then rerun bootstrap to finish creating its bot. For an already bootstrapped sandbox, rerun `router-seed` alone.
+Codex credentials come from the same central publication as Pi clients. The signed-in publisher runs `pi-token-sync --publish` and writes access, accountId and expires to `/clients/pi/PI_OAUTH_CODEX` in Infisical. Only that publishing machine owns and renews the refresh token. The sandbox identity needs read access to this path. No sandbox browser login is required.
 
-```sh
-export SANDBOX=sealskin
-./bin/sandbox-exec magpie accounts add codex
-./bin/session-bootstrap
-```
+[The router launcher](session/router.mjs) synchronizes that publication before starting Magpie and every hour thereafter. Within an hour of expiry it schedules the next attempt five minutes before expiry. Failed updates retry every minute and preserve the previous file. [The writer](session/router-codex.mjs) rejects malformed, refresh-bearing, expired or nearly expired publications before touching any file, checks the access token's account ID and expiry, and writes its own private Codex `auth.json` atomically under `~/.local/state/agent-sandbox/codex`. `with-vault --secret` gives this writer only the publication and basic process settings. Magpie's environment excludes vault and GitHub credentials.
 
-Repeat with each further sandbox name.
+The router alone sets `CODEX_HOME` to that managed directory. Magpie 0.1.3350 reads the standard Codex file, uses `account_id` when no ID token is present, and rereads it when tokens change. The file holds empty ID and refresh tokens. Its five-minute expiry guard prevents a stale publication from becoming a new credential. If the publisher stops updating, Codex access eventually fails and the logs name the vault sync failure. Restore still passes `--no-sign-ins`. Existing `~/.codex`, Pi auth and Magpie native sign-ins stay untouched, and no request goes through the Mac's Magpie.
 
-The sign-in belongs to that session's writable home. Magpie owns its renewal, and restore passes `--no-sign-ins`, so bootstrap and reseed preserve it. A revoked sign-in needs the same local login again. Never copy a refresh token between machines or run `magpie accounts import codex` on a user's source credentials, because import signs the source tool out.
-
-Pi clients outside the sandbox router use the separate central access-token distribution. The signed-in publisher writes `/clients/pi/PI_OAUTH_CODEX` in Infisical, and the harness's `pi-token-pull` reads the binding's `clients.pi.oauth.codex` into Pi's `auth.json`, preserving a machine's own refresh-bearing login. Workspace VMs already schedule hourly pulls. Magpie 0.1.3350 has no supported access-only account registration, so pulling a Pi token does not connect the sandbox's bot or workers to OpenAI. The publisher must refresh the central token for those Pi clients, and every sandbox router must retain its own sign-in. No request goes through the Mac's Magpie.
+After installing this change, restart `pots-router` through bootstrap before seeding. `router-seed` alone updates the managed credential and verifies a direct Sol answer, but an older running service needs that first restart to adopt `CODEX_HOME`. Pi clients outside the router continue to use the harness's `pi-token-pull`.
 
 | Limit | Consequence |
 | --- | --- |
 | Magpie reads a provider key from its arguments only | The key shows in the session's process list while the seed runs |
-| Magpie cannot register the central access-only token | Each sandbox needs its own ChatGPT sign-in, and reseed checks direct Sol access |
+| The central publisher must keep publishing fresh access tokens | A failed hourly sync retries each minute and cannot renew a token locally |
 | The Claude step runs the harness's `magpie-claude-token-sync` worker | A harness clone without it cannot register the token |
 
 ## The bot and its Pi workers
@@ -272,7 +266,7 @@ The command records the commit each pass started on in `NAME.passes` beside the 
 
 ## GitHub authentication
 
-[The session wrapper](session/with-vault) authenticates as Agents Sandboxes and injects only the secrets its sandbox names. Those are the token of each owner from `/tools/github` and the names listed under `secrets`. `with-vault --with GROUP` adds the names of that group under `onRequest`, for the one command that needs them. A listed name that the vault lacks stops the command. It removes the Universal Auth client secret from that environment after login. The stored credential remains available inside the session.
+[The session wrapper](session/with-vault) authenticates as Agents Sandboxes and injects only the secrets its sandbox names. Those are the token of each owner from `/tools/github` and the names listed under `secrets`. `with-vault --with GROUP` adds the names of that group under `onRequest`, for the one command that needs them. `with-vault --secret PATH/NAME` gives one command that single vault secret and the basic process settings, without the sandbox's list; the router's Codex sync uses it. A listed name that the vault lacks stops the command. It removes the Universal Auth client secret from that environment after login. The stored credential remains available inside the session.
 
 The access token of that login stays in the command environment as `INFISICAL_TOKEN`, so a wrapped command can run `infisical run` on another vault path. Every child process inherits it, and a tool that writes its environment into a log or an error report leaks it. Keep it out of app containers by passing their variables by name, as [Development services](#development-services-and-memory) describes.
 
