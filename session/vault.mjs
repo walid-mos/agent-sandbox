@@ -66,7 +66,7 @@ async function sourceFetchRequest(repository) {
   if (!source) throw new Error('with-vault: repository is outside the approved agent sources.');
   return {
     groups: [{ [GITHUB_PATH]: [source.credential] }],
-    environment: session => ({ ...basicEnvironment(session), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0' }),
+    environment: session => basicEnvironment(session),
   };
 }
 
