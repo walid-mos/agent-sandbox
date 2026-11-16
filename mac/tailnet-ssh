@@ -3,7 +3,8 @@ set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
 
 # Lima picks a new Mac-local ssh port at each VM start, so the tailnet port is pointed at it again whenever it moved.
-port=$(jq -r .tailnetSshPort "$POTS_CONFIG")
+port=$(jq -r '.tailnetSshPort // empty' "$POTS_CONFIG")
+[ -n "$port" ] || exit 0
 target=localhost:$(colima ssh-config --profile "$POTS_PROFILE" | awk '$1 == "Port" { print $2 }')
 served=$(tailscale serve status --json | jq -r --arg port "$port" '.TCP[$port].TCPForward // empty')
 [ "$served" = "$target" ] || tailscale serve --bg --tcp "$port" "tcp://$target" > /dev/null

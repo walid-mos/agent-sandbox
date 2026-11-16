@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import shutil
+import sys
 
 repository = Path(__file__).resolve().parents[1]
 runtime = Path.home() / ".config/agent-sandbox"
@@ -9,7 +10,10 @@ runtime.mkdir(parents=True, exist_ok=True)
 host = runtime / "host.json"
 if not host.exists():
     host.write_text(json.dumps({"developmentDirectory": str(Path.home() / "Development")}, indent=2) + "\n")
+example = sys.argv[1] if len(sys.argv) > 1 else "docker"
+if not (repository / "sandboxes.example" / example).is_dir():
+    raise SystemExit(f"usage: configure-host [{'|'.join(sorted(path.name for path in (repository / 'sandboxes.example').iterdir()))}]")
 sandboxes = runtime / "sandboxes"
 if not sandboxes.exists():
-    shutil.copytree(repository / "sandboxes.example", sandboxes)
+    shutil.copytree(repository / "sandboxes.example" / example, sandboxes / example)
 print(f"Review {host} and {sandboxes} before starting a VM.")
