@@ -1,7 +1,18 @@
 import { Button } from "gpui-base";
-import { knownAgents, run, closeOverlay, props, theme } from "herdr";
+import { knownAgents, run, openOverlay, closeOverlay, props, theme } from "herdr";
 import { isMachineReady, machineLabel } from "./pots-terminal-drawer.js";
-import { listBox, listPopup } from "./pots-list-box.js";
+import { TERMINAL_MOD } from "./pots-terminal-layout.js";
+import { barButton } from "./pots-icons.js";
+import { POPUP_MAX_PX, listBox, listPopup } from "./pots-list-box.js";
+import { pickMachine } from "./pots-machine-picker.js";
+
+export const AGENT_PICKER = {
+  key: "agent", title: "New agent on…", label: "New agent computer", chosen: () => undefined,
+  choose: machine => openOverlay({ mod: TERMINAL_MOD, kind: "popup", width: 320, height: POPUP_MAX_PX, props: { agents: { machine } } }),
+};
+
+export const pickAgentMachine = () => pickMachine(AGENT_PICKER);
+export const newAgentToggle = () => barButton({ id: "pots-new-agent", text: "New agent…", action: pickAgentMachine });
 
 export class NewAgent {
   constructor(machine, cx) {
