@@ -44,11 +44,10 @@ async function refreshUntilExit(gateway, delay) {
 
 async function serve([address]) {
   if (!address) throw new Error('router: expected the address to listen on, which session/router passes.');
-  const delay = await retrySync();
   const env = { ...basicEnvironment(process.env, RUNTIME_SETTINGS), MAGPIE_ADDR: address, DISABLE_AUTOUPDATER: '1', CODEX_HOME };
   const gateway = spawn('magpie', ['serve'], { env, stdio: 'inherit' });
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => gateway.kill(signal));
-  process.exitCode = await refreshUntilExit(gateway, delay);
+  process.exitCode = await refreshUntilExit(gateway, 0);
 }
 
 main(import.meta, () => runOperation({ serve, sync: synchronize }, 'usage: router serve ADDRESS | router sync'));
