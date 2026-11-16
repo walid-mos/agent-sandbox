@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -41,7 +42,7 @@ COMMAND_CENTER_FILES = ("ui.js", "state.js")
 SANDBOXES_FILE = "sandboxes.js"
 ICONS = "icons"
 MOD = {"place": "none", "title": "Pots", "focusable": True}
-TERMINAL_FILES = ("pots-terminal-drawer.js", "pots-terminal-layout.js", "pots-layout-file.js", "pots-icons.js", "pots-new-agent.js", *COMMAND_CENTER_FILES)
+TERMINAL_ENTRY = "pots-terminals.js"
 TERMINAL_MOD = {"place": "none", "title": "Terminals"}
 LAYOUT_KEYS = "layout:command-center-pots"
 KEY_SECTIONS = ("global", "terminal", f"mod:{POTS.name}", f"mod:{TERMINALS.name}", LAYOUT_KEYS)
@@ -62,18 +63,32 @@ def chord(key):
     return (*sorted(aliases.get(part, part) for part in parts[:-1]), parts[-1])
 
 
+def drawer_modules():
+    found, pending = set(), [TERMINAL_ENTRY]
+    while pending:
+        for name in re.findall(r'^import [^\n]* from "\./([^"]+)";', (SOURCE / pending.pop()).read_text(), re.M):
+            if name in found or name in COMMAND_CENTER_FILES:
+                continue
+            if not (SOURCE / name).is_file():
+                sys.exit(f"install-herdr: the terminal drawer imports {name}, which herdr/ does not hold.")
+            found.add(name)
+            pending.append(name)
+    return (*sorted(found), *COMMAND_CENTER_FILES)
+
+
 # Every module in herdr/ installs under its own name, so herdr/ holds only pane modules and main.js is the entry.
 modules = [*SOURCE.glob("*.js"), *(CENTER / name for name in COMMAND_CENTER_FILES)]
 icons = [path for path in (SOURCE / ICONS).rglob("*") if path.is_file()]
-# The terminal entry installs as main.js so Herdr loads the drawers' mod, which carries only the modules the drawer needs.
+# The terminal entry installs as main.js so Herdr loads the drawers' mod, which carries only the modules the drawer imports.
 sources = {module.name: module for module in modules}
+TERMINAL_FILES = drawer_modules()
 files = [
     *((POTS / module.name, module.read_bytes()) for module in modules),
     *((POTS / icon.relative_to(SOURCE), icon.read_bytes()) for icon in icons),
     (POTS / SANDBOXES_FILE, f"export const SANDBOXES = {json.dumps(sandboxes)};\nexport const CONTROL = {json.dumps(str(CONTROL))};\n".encode()),
     (POTS / "mod.json", (json.dumps(MOD) + "\n").encode()),
     *((TERMINALS / name, sources[name].read_bytes()) for name in TERMINAL_FILES),
-    (TERMINALS / "main.js", (SOURCE / "pots-terminals.js").read_bytes()),
+    (TERMINALS / "main.js", (SOURCE / TERMINAL_ENTRY).read_bytes()),
     (TERMINALS / "mod.json", (json.dumps(TERMINAL_MOD) + "\n").encode()),
 ]
 written = [target for target, content in files if install(target, content)]
