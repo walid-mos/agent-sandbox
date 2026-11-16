@@ -4,9 +4,6 @@ import { basicEnvironment } from './environment.mjs';
 import { main } from './main.mjs';
 
 const VAULT_CONFIG = '/etc/agent-sandbox/vault.json';
-if (!existsSync(VAULT_CONFIG)) throw new Error('with-vault: add vault.json, with project and environment, to this sandbox\'s directory under ~/.config/agent-sandbox/sandboxes.');
-const { project: VAULT_PROJECT, environment: VAULT_ENV } = JSON.parse(readFileSync(VAULT_CONFIG, 'utf8'));
-if (!VAULT_PROJECT || !VAULT_ENV) throw new Error(`with-vault: set project and environment in ${VAULT_CONFIG}.`);
 const GITHUB_PATH = '/tools/github';
 const CLIENT_SECRET = 'INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET';
 const USAGE = 'usage: with-vault [--with GROUP | --source REPOSITORY | --secret PATH/NAME] command [argument...]';
@@ -25,8 +22,15 @@ function infisical(arguments_, env) {
   return execFileSync('infisical', arguments_, { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'inherit'] }).trim();
 }
 
-function folder(path, env) {
-  const output = infisical(['export', '--projectId', VAULT_PROJECT, '--env', VAULT_ENV, '--path', path, '--format', 'json', '--silent'], env);
+function vaultConfig() {
+  if (!existsSync(VAULT_CONFIG)) throw new Error('with-vault: add vault.json, with project and environment, to this sandbox\'s directory under ~/.config/agent-sandbox/sandboxes.');
+  const { project, environment } = JSON.parse(readFileSync(VAULT_CONFIG, 'utf8'));
+  if (!project || !environment) throw new Error(`with-vault: set project and environment in ${VAULT_CONFIG}.`);
+  return { project, environment };
+}
+
+function folder(path, env, vault) {
+  const output = infisical(['export', '--projectId', vault.project, '--env', vault.environment, '--path', path, '--format', 'json', '--silent'], env);
   // A parse error quotes its input, which holds secret values, so a fixed message replaces it.
   try {
     return new Map(JSON.parse(output).map(secret => [secret.key, secret.value]));
@@ -35,8 +39,8 @@ function folder(path, env) {
   }
 }
 
-function listed(path, names, env) {
-  const secrets = folder(path, env);
+function listed(path, names, env, vault) {
+  const secrets = folder(path, env, vault);
   const missing = names.filter(name => typeof secrets.get(name) !== 'string');
   if (missing.length > 0) {
     throw new Error(`with-vault: ${missing.join(', ')} not found in ${path}. Add it to the vault or remove it from the sandbox's list.`);
@@ -83,9 +87,10 @@ async function sandboxRequest(group) {
 }
 
 main(import.meta, async () => {
+  const vault = vaultConfig();
   if (commandLine.length === 0) throw new Error(USAGE);
   const { groups, environment } = await request(requestArgument);
   const session = vaultSession();
-  const secrets = groups.flatMap(Object.entries).flatMap(([path, names]) => listed(path, names, session));
+  const secrets = groups.flatMap(Object.entries).flatMap(([path, names]) => listed(path, names, session, vault));
   process.execve('/usr/bin/env', ['env', ...commandLine], { ...environment(session), ...Object.fromEntries(secrets) });
 });
