@@ -20,13 +20,17 @@ function parse(text) {
   }
 }
 
-export function publication(text) {
-  const entry = parse(text);
+function requirePublication(entry) {
   if (!entry || typeof entry !== 'object' || Object.hasOwn(entry, 'refresh') || Object.hasOwn(entry, 'refresh_token') ||
       typeof entry.access !== 'string' || !entry.access || /\s/u.test(entry.access) ||
       typeof entry.accountId !== 'string' || !entry.accountId || /\s/u.test(entry.accountId) || !Number.isFinite(entry.expires)) {
     throw new Error(MALFORMED);
   }
+}
+
+export function publication(text) {
+  const entry = parse(text);
+  requirePublication(entry);
   const parts = entry.access.split('.');
   if (parts.length !== 3) throw new Error(MALFORMED);
   const claims = parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
