@@ -5,4 +5,4 @@ set -eu
 if ! command -v magpie > /dev/null; then
 	idle_until_bootstrap pots-router
 fi
-exec node "$(dirname "$0")/router.mjs" "$POTS_ROUTER_ADDRESS"
+exec node "$(dirname "$0")/router.mjs" serve "$POTS_ROUTER_ADDRESS"

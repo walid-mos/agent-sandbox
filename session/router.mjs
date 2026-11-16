@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { basicEnvironment } from './environment.mjs';
-import { main } from './main.mjs';
+import { main, runOperation } from './main.mjs';
 import { CODEX_HOME, MIN_VALIDITY_MS } from './router-codex.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -11,9 +11,9 @@ const SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 const SYNC_TIMEOUT_MS = 60 * 1000;
 
-export async function syncCodex() {
+async function syncCodex() {
   const worker = spawn(join(HERE, 'with-vault'), ['--with', 'codex', process.execPath, join(HERE, 'router-codex.mjs')], {
-    stdio: ['ignore', 'pipe', 'ignore'], timeout: SYNC_TIMEOUT_MS,
+    stdio: ['ignore', 'pipe', 'inherit'], timeout: SYNC_TIMEOUT_MS,
   });
   let report = '';
   worker.stdout.setEncoding('utf8').on('data', chunk => { report += chunk; });
@@ -30,8 +30,7 @@ export async function syncCodex() {
   return Math.max(RETRY_MS, Math.min(SYNC_INTERVAL_MS, expires - Date.now() - MIN_VALIDITY_MS));
 }
 
-main(import.meta, async () => {
-  const [address] = process.argv.slice(2);
+async function serve([address]) {
   if (!address) throw new Error('router: expected the address to listen on, which session/router passes.');
   let nextSync = await syncCodex();
   const environment = { ...basicEnvironment(process.env), MAGPIE_ADDR: address, DISABLE_AUTOUPDATER: '1', CODEX_HOME };
@@ -55,4 +54,9 @@ main(import.meta, async () => {
   clearTimeout(timer);
   await activeSync;
   process.exitCode = status ?? 1;
-});
+}
+
+const OPERATIONS = { serve, sync: syncCodex };
+const USAGE = 'usage: router serve ADDRESS | router sync';
+
+main(import.meta, () => runOperation(OPERATIONS, USAGE));
