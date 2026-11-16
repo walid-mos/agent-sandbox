@@ -53,8 +53,12 @@ install_cli_tools() {
 		"gh_${GH_VERSION}_linux_$architecture/bin/gh"
 }
 
+router_installed() {
+	magpie --version 2> /dev/null | grep -qx "magpie $MAGPIE_VERSION"
+}
+
 install_router() {
-	if magpie --version 2> /dev/null | grep -q "$MAGPIE_VERSION"; then return 0; fi
+	if router_installed; then return 0; fi
 	binary=magpie-cli-linux-$architecture
 	staging=$(mktemp -d)
 	download_verified "$MAGPIE_RELEASES/v$MAGPIE_VERSION/$binary" "$MAGPIE_RELEASES/v$MAGPIE_VERSION/SHA256SUMS" "$staging"
@@ -92,7 +96,7 @@ install_harness() {
 
 case "${1:-}" in
 	--router-current)
-		magpie --version 2> /dev/null | grep -qx "magpie $MAGPIE_VERSION" &&
+		router_installed &&
 			curl --silent --fail --max-time 5 "http://$POTS_ROUTER_ADDRESS/api/hello" | jq --exit-status --arg version "$MAGPIE_VERSION" '.version == $version' > /dev/null
 		exit $? ;;
 	--router-only) install_router; exit ;;
