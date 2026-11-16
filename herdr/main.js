@@ -2,7 +2,7 @@ import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { nextCommand, theme } from "herdr";
 import { TerminalDrawer } from "./pots-terminal-drawer.js";
-import { terminalToggle, pickTerminalMachine } from "./pots-terminals.js";
+import { terminalToggle, pickTerminalMachine, newAgentToggle, pickAgentMachine } from "./pots-terminals.js";
 import { TEXT, stopPress } from "./ui.js";
 import { PotsPanel, isCompact } from "./pots-panel.js";
 import { SANDBOXES } from "./sandboxes.js";
@@ -31,6 +31,7 @@ export default class Pots extends View {
         if (command === "terminal-new") this.terminals.open(cx);
         if (command === "terminal-next") this.terminals.next();
         if (command === "terminal-machine") pickTerminalMachine();
+        if (command === "new-agent") pickAgentMachine();
         cx.notify();
       }
     });
@@ -65,13 +66,14 @@ export default class Pots extends View {
   render() {
     const colors = theme();
     const panel = this.panels.get(chosenSandbox());
-    const bar = () => h_flex().w_full().flex_none().gap(4).px(10).py(6).border_b(1).border_color(colors.border);
+    const bar = () => h_flex().w_full().flex_none().flex_wrap().gap(4).px(10).py(6).border_b(1).border_color(colors.border);
     const tabs = SANDBOXES.length > 1 ? SANDBOXES.map(sandbox => this.sandboxTab(sandbox)) : [];
     const toggles = panel.sections().map(section => this.sectionToggle(section));
     const compact = isCompact(this.width);
-    // A compact pane is too narrow for the tabs and the toggles on one bar, so each gets its own.
-    const top = bar().child(terminalToggle()).children(tabs);
-    const bars = tabs.length && compact ? [top, bar().children(toggles)] : [top.child(div().flex_1()).children(toggles)];
+    const top = bar().child(newAgentToggle()).child(terminalToggle());
+    const bars = compact
+      ? [top, ...(tabs.length ? [bar().children(tabs)] : []), bar().children(toggles)]
+      : [top.children(tabs).child(div().flex_1()).children(toggles)];
     return v_flex().id("pots").size_full().min_w(0).min_h(0).bg(colors.background)
       .on_size_change((size, cx) => { if (size.width !== this.width) { this.width = size.width; cx.notify(); } })
       .children(bars).child(panel.render(this.openSections, compact));

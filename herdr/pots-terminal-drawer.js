@@ -17,7 +17,7 @@ function reportFailure(title, error) {
   notify({ title, body: error.message, level: "error" });
 }
 
-export const machineLabel = machine => machine ?? "Mac";
+export const machineLabel = machine => machine ?? "This computer";
 
 export const chosenMachine = () => shared(MACHINE) ?? null;
 export function isDrawerOpen() {
