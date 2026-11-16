@@ -12,12 +12,14 @@ const OWNER = 'router-codex';
 const AUTH_FILE = 'auth.json';
 const MALFORMED = 'router-codex: malformed access-only publication. Check the publisher. No credential values were printed.';
 const FOREIGN = 'router-codex: directory belongs to another credential source.';
+const UNREADABLE = 'router-codex: the managed auth.json is not JSON, so it is kept. Remove it when it holds no native sign-in. No credential values were printed.';
 
-function parse(text) {
+// A parse error quotes its input, which holds credential values, so a fixed message replaces it.
+function parse(text, message = MALFORMED) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(MALFORMED);
+    throw new Error(message);
   }
 }
 
@@ -74,7 +76,7 @@ function prepareHome() {
   const authPath = join(CODEX_HOME, AUTH_FILE);
   if (!existsSync(authPath)) return;
   requirePrivate(authPath);
-  const current = parse(readFileSync(authPath, 'utf8'));
+  const current = parse(readFileSync(authPath, 'utf8'), UNREADABLE);
   if (current?.tokens?.refresh_token || current?.tokens?.id_token) throw new Error('router-codex: refusing to replace a native sign-in.');
 }
 
