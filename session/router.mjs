@@ -10,6 +10,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 const SYNC_TIMEOUT_MS = 60 * 1000;
+const RUNTIME_SETTINGS = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME', 'XDG_RUNTIME_DIR',
+  'TZ', 'NPM_CONFIG_PREFIX', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+  'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS'];
+
+function routerEnvironment(address) {
+  const runtime = Object.fromEntries(Object.entries(process.env).filter(([name]) => RUNTIME_SETTINGS.includes(name)));
+  return { ...basicEnvironment(process.env), ...runtime, MAGPIE_ADDR: address, DISABLE_AUTOUPDATER: '1', CODEX_HOME };
+}
 
 async function syncCodex() {
   const worker = spawn(join(HERE, 'with-vault'), ['--secret', `${CODEX_PUBLICATION.path}/${CODEX_PUBLICATION.name}`, process.execPath, join(HERE, 'router-codex.mjs')], {
@@ -33,8 +41,7 @@ async function syncCodex() {
 async function serve([address]) {
   if (!address) throw new Error('router: expected the address to listen on, which session/router passes.');
   let nextSync = await syncCodex();
-  const environment = { ...basicEnvironment(process.env), MAGPIE_ADDR: address, DISABLE_AUTOUPDATER: '1', CODEX_HOME };
-  const gateway = spawn('magpie', ['serve'], { env: environment, stdio: 'inherit' });
+  const gateway = spawn('magpie', ['serve'], { env: routerEnvironment(address), stdio: 'inherit' });
   let timer;
   let activeSync;
   let isStopped = false;
