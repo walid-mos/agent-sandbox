@@ -49,5 +49,5 @@ main(import.meta, () => {
     return value;
   });
   const report = Object.assign({}, ...entries.map((entry, index) => INPUTS[entry.input](values[index], entry.provider)));
-  process.stdout.write(`${JSON.stringify({ ...report, providers: entries.map(entry => entry.provider) })}\n`);
+  process.stdout.write(`${JSON.stringify(report)}\n`);
 });
