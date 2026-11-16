@@ -1,22 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { basicEnvironment } from './environment.mjs';
+import { assignments, basicEnvironment } from './environment.mjs';
 import { main } from './main.mjs';
 
 const VAULT_CONFIG = '/etc/agent-sandbox/vault.json';
 const GITHUB_PATH = '/tools/github';
 const CLIENT_SECRET = 'INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET';
-const USAGE = 'usage: with-vault [--with GROUP | --source REPOSITORY | --secret PATH/NAME] command [argument...]';
-const REQUESTS = { '--with': sandboxRequest, '--source': sourceFetchRequest, '--secret': secretRequest };
-const [credentialsFile, ...rest] = process.argv.slice(2);
-const [request, requestArgument, commandLine] = Object.hasOwn(REQUESTS, rest[0]) ? [REQUESTS[rest[0]], rest[1], rest.slice(2)] : [sandboxRequest, undefined, rest];
-
-function assignments(text) {
-  return Object.fromEntries(text.split('\n').filter(Boolean).map(line => {
-    const equals = line.indexOf('=');
-    return [line.slice(0, equals), line.slice(equals + 1)];
-  }));
-}
+const USAGE = 'usage: with-vault [--with GROUP | --source REPOSITORY] command [argument...]';
+const REQUESTS = { '--with': sandboxRequest, '--source': sourceFetchRequest };
 
 function infisical(arguments_, env) {
   return execFileSync('infisical', arguments_, { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'inherit'] }).trim();
@@ -56,7 +47,8 @@ function onRequest(group, sandbox) {
 }
 
 function vaultSession() {
-  const login = { ...process.env, ...(existsSync(credentialsFile) ? assignments(readFileSync(credentialsFile, 'utf8')) : {}) };
+  const credentialsFile = process.env.POTS_VAULT_CREDENTIALS;
+  const login = { ...process.env, ...(credentialsFile && existsSync(credentialsFile) ? assignments(readFileSync(credentialsFile, 'utf8')) : {}) };
   const session = { ...login, INFISICAL_TOKEN: infisical(['login', '--method=universal-auth', '--silent', '--plain'], login) };
   delete session[CLIENT_SECRET];
   return session;
@@ -67,15 +59,8 @@ async function sourceFetchRequest(repository) {
   if (!source) throw new Error('with-vault: repository is outside the approved agent sources.');
   return {
     groups: [{ [GITHUB_PATH]: [source.credential] }],
-    environment: session => ({ ...basicEnvironment(session), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0' }),
+    environment: basicEnvironment,
   };
-}
-
-function secretRequest(reference) {
-  const slash = reference?.lastIndexOf('/') ?? -1;
-  const name = reference?.slice(slash + 1);
-  if (slash < 0 || !name) throw new Error(USAGE);
-  return { groups: [{ [reference.slice(0, slash) || '/']: [name] }], environment: basicEnvironment };
 }
 
 async function sandboxRequest(group) {
@@ -86,11 +71,18 @@ async function sandboxRequest(group) {
   };
 }
 
-main(import.meta, async () => {
+export function readVault(groups) {
   const vault = vaultConfig();
+  const session = vaultSession();
+  return { session, secrets: groups.flatMap(Object.entries).flatMap(([path, names]) => listed(path, names, session, vault)) };
+}
+
+main(import.meta, async () => {
+  const arguments_ = process.argv.slice(2);
+  const [request, requestArgument, commandLine] = Object.hasOwn(REQUESTS, arguments_[0]) ?
+    [REQUESTS[arguments_[0]], arguments_[1], arguments_.slice(2)] : [sandboxRequest, undefined, arguments_];
   if (commandLine.length === 0) throw new Error(USAGE);
   const { groups, environment } = await request(requestArgument);
-  const session = vaultSession();
-  const secrets = groups.flatMap(Object.entries).flatMap(([path, names]) => listed(path, names, session, vault));
+  const { session, secrets } = readVault(groups);
   process.execve('/usr/bin/env', ['env', ...commandLine], { ...environment(session), ...Object.fromEntries(secrets) });
 });

@@ -2,9 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { main } from './main.mjs';
 
-export const CODEX_PUBLICATION = { path: '/clients/pi', name: 'PI_OAUTH_CODEX' };
 export const CODEX_HOME = join(homedir(), '.local/state/agent-sandbox/codex');
 export const MIN_VALIDITY_MS = 5 * 60 * 1000;
 const OWNER_FILE = '.agent-sandbox';
@@ -37,7 +35,7 @@ export function publication(text) {
   if (!Number.isFinite(claims?.exp) || claims?.['https://api.openai.com/auth']?.chatgpt_account_id !== entry.accountId) throw new Error(MALFORMED);
   const expires = Math.min(entry.expires, claims.exp * 1000);
   if (expires <= Date.now() + MIN_VALIDITY_MS) {
-    throw new Error('router-codex: publication expired or within five minutes of expiry. Run pi-token-sync --publish on the publishing machine.');
+    throw new Error(`router-codex: publication expired or within ${MIN_VALIDITY_MS / 60000} minutes of expiry. Run pi-token-sync --publish on the publishing machine.`);
   }
   return { access: entry.access, accountId: entry.accountId, expires };
 }
@@ -89,11 +87,8 @@ function save(entry) {
   }
 }
 
-main(import.meta, () => {
-  const text = process.env[CODEX_PUBLICATION.name];
-  delete process.env[CODEX_PUBLICATION.name];
-  if (!text) throw new Error('router-codex: run through node session/router.mjs sync.');
+export function synchronizeCodex(text) {
   const entry = publication(text);
   save(entry);
-  process.stdout.write(`${JSON.stringify({ expires: entry.expires })}\n`);
-});
+  return entry.expires;
+}
