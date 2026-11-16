@@ -52,7 +52,6 @@ launch_docker() {
 	done
 	unset IFS
 	set +f
-	sandbox_docker rm --force "$POTS_SESSION_CONTAINER" > /dev/null 2>&1 || true
 	sandbox_docker run --detach --rm --name "$POTS_SESSION_CONTAINER" --runtime "$POTS_SESSION_RUNTIME" \
 		--label "$POTS_SESSION_LABEL" --shm-size "$POTS_SESSION_SHM" \
 		--env PUID=1000 --env PGID=1000 --env TZ="$POTS_SESSION_TIMEZONE" --env START_DOCKER="$POTS_SESSION_START_DOCKER" \
