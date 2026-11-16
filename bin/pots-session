@@ -69,7 +69,7 @@ launch() {
 
 stop() {
 	stopping=$(session_container)
-	"stop_$POTS_LAUNCHER" "$stopping"
+	"stop_$POTS_LAUNCHER" "$stopping" || return $?
 	if [ -n "$stopping" ]; then
 		sandbox_docker wait "$stopping" > /dev/null 2>&1 || true
 	fi
