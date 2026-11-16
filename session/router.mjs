@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { basicEnvironment } from './environment.mjs';
 import { main } from './main.mjs';
 import { CODEX_HOME, MIN_VALIDITY_MS } from './router-codex.mjs';
 
@@ -9,7 +10,6 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 const SYNC_TIMEOUT_MS = 60 * 1000;
-const CHILD_ENVIRONMENT = ['HOME', 'PATH', 'TMPDIR', 'LANG', 'MAGPIE_ADDR', 'DISABLE_AUTOUPDATER'];
 
 export async function syncCodex() {
   const worker = spawn(join(HERE, 'with-vault'), ['--with', 'codex', process.execPath, join(HERE, 'router-codex.mjs')], {
@@ -31,9 +31,11 @@ export async function syncCodex() {
 }
 
 main(import.meta, async () => {
+  const [address] = process.argv.slice(2);
+  if (!address) throw new Error('router: expected the address to listen on, which session/router passes.');
   let nextSync = await syncCodex();
-  const environment = Object.fromEntries(Object.entries(process.env).filter(([name]) => CHILD_ENVIRONMENT.includes(name)));
-  const gateway = spawn('magpie', ['serve'], { env: { ...environment, CODEX_HOME }, stdio: 'inherit' });
+  const environment = { ...basicEnvironment(process.env), MAGPIE_ADDR: address, DISABLE_AUTOUPDATER: '1', CODEX_HOME };
+  const gateway = spawn('magpie', ['serve'], { env: environment, stdio: 'inherit' });
   let timer;
   let activeSync;
   let isStopped = false;

@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { basicEnvironment } from './environment.mjs';
 import { main } from './main.mjs';
 import { CODEX_PUBLICATION } from './router-codex.mjs';
 
@@ -10,7 +11,6 @@ if (!VAULT_PROJECT || !VAULT_ENV) throw new Error(`with-vault: set project and e
 const GITHUB_PATH = '/tools/github';
 const CLIENT_SECRET = 'INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET';
 const ON_REQUEST_FLAG = '--with';
-const SOURCE_FETCH_ENVIRONMENT = ['HOME', 'PATH', 'TMPDIR', 'LANG', 'SYSTEMROOT'];
 const [credentialsFile, ...rest] = process.argv.slice(2);
 const isSourceFetch = rest[0] === '--source';
 const requestedGroup = rest[0] === ON_REQUEST_FLAG ? rest[1] : undefined;
@@ -65,15 +65,14 @@ async function sourceFetchRequest(repository) {
   if (!source) throw new Error('with-vault: repository is outside the approved agent sources.');
   return {
     groups: [{ [GITHUB_PATH]: [source.credential] }],
-    environment: session => ({ ...Object.fromEntries(Object.entries(session).filter(([name]) => SOURCE_FETCH_ENVIRONMENT.includes(name))),
-      GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0' }),
+    environment: session => ({ ...basicEnvironment(session), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0' }),
   };
 }
 
 async function sandboxRequest() {
   if (requestedGroup === 'codex') return {
     groups: [{ [CODEX_PUBLICATION.path]: [CODEX_PUBLICATION.name] }],
-    environment: session => Object.fromEntries(Object.entries(session).filter(([name]) => SOURCE_FETCH_ENVIRONMENT.includes(name))),
+    environment: basicEnvironment,
   };
   const { sandbox } = await import('./sandbox.mjs');
   return {
