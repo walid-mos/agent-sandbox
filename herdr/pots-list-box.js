@@ -7,8 +7,8 @@ const POPUP_PAD_PX = 5;
 const ROW_PX = 32;
 const ROW_GAP_PX = 2;
 
-/** The height of a list popup whose list holds `rows` options, up to POPUP_MAX_PX. */
-export const popupHeight = rows => Math.min(POPUP_MAX_PX, rows * (ROW_PX + ROW_GAP_PX) + ROW_PX + 2 * POPUP_PAD_PX);
+/** The height of a list popup whose list holds `rows` options, up to POPUP_MAX_PX. An empty list keeps one row for the message that says so. */
+export const popupHeight = rows => Math.min(POPUP_MAX_PX, Math.max(1, rows) * (ROW_PX + ROW_GAP_PX) + ROW_PX + 2 * POPUP_PAD_PX);
 
 /** A popup's frame: its title, then `message` when there is one. Add the list box, and any button, as children. */
 export function listPopup({ id, title, message }) {
