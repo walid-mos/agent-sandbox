@@ -207,7 +207,7 @@ Bootstrap seeds the router. Seed it alone from the Mac checkout while the Mac's 
 
 The seed remains the source of provider definitions, groups and rules. It copies no key or sign-in. Rerun it when those definitions change on the Mac. [The restore step](session/router-restore) applies the seed, runs the same credential sync as the launcher, and verifies exact Claude and Sol answers.
 
-Credential production stays outside Magpie. The human stores the Claude setup token in Infisical, and the external Codex publisher stores its access-only publication there. [One table](session/router-credentials.mjs) names each provider, its vault location and its Magpie input. `with-vault --router` reads only those listed credentials and supplies no GitHub or vault-login token to the consumer.
+Credential production stays outside Magpie. The human stores the Claude setup token in Infisical, and the external Codex publisher stores its access-only publication there. [One table](session/router-credentials.mjs) names each provider, its vault location and its Magpie input. The sync reads only those listed credentials from the vault, and the Magpie commands it runs receive no GitHub or vault-login token.
 
 The consumer imports API keys with `magpie provider keys PROVIDER add -` and the Claude setup token with `magpie accounts import claude /dev/stdin --yes`. Values travel on stdin. Existing keys are skipped, and Magpie retains previous imported keys and setup-token accounts under its native routing rules. The sandbox does not generate or renew either subscription credential.
 
@@ -262,7 +262,7 @@ The command records the commit each pass started on in `NAME.passes` beside the 
 
 ## GitHub authentication
 
-[The session wrapper](session/with-vault) authenticates as Agents Sandboxes and injects only the secrets its sandbox names. Those are the token of each owner from `/tools/github` and the names listed under `secrets`. `with-vault --with GROUP` adds the names of that group under `onRequest`, for the one command that needs them. `with-vault --secret PATH/NAME` gives one command that single vault secret and the basic process settings, without the sandbox's list; the router's Codex sync uses it. A listed name that the vault lacks stops the command. It removes the Universal Auth client secret from that environment after login. The stored credential remains available inside the session.
+[The session wrapper](session/with-vault) authenticates as Agents Sandboxes and injects only the secrets its sandbox names. Those are the token of each owner from `/tools/github` and the names listed under `secrets`. `with-vault --with GROUP` adds the names of that group under `onRequest`, for the one command that needs them. A listed name that the vault lacks stops the command. It removes the Universal Auth client secret from that environment after login. The stored credential remains available inside the session.
 
 The access token of that login stays in the command environment as `INFISICAL_TOKEN`, so a wrapped command can run `infisical run` on another vault path. Every child process inherits it, and a tool that writes its environment into a log or an error report leaks it. Keep it out of app containers by passing their variables by name, as [Development services](#development-services-and-memory) describes.
 

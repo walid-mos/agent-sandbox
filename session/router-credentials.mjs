@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { basicEnvironment, RUNTIME_SETTINGS } from './environment.mjs';
 import { main } from './main.mjs';
 import { synchronizeCodex } from './router-codex.mjs';
+import { sandbox } from './sandbox.mjs';
+import { readVault } from './vault.mjs';
 
 const CREDENTIALS = [
   { provider: 'codex', path: '/clients/pi', name: 'PI_OAUTH_CODEX', input: 'file' },
@@ -17,16 +19,10 @@ const INPUTS = {
   accounts: (value, provider) => ingest(['accounts', 'import', provider, '/dev/stdin', '--yes'], value, provider),
 };
 
-export function credentialsFor(sandbox) {
+function credentialsFor() {
   const configured = new Set(Object.entries(sandbox.secrets).concat(Object.entries(sandbox.onRequest?.claude ?? {}))
     .flatMap(([path, names]) => names.map(name => `${path}/${name}`)));
   return CREDENTIALS.filter(entry => entry.input === 'file' || configured.has(`${entry.path}/${entry.name}`));
-}
-
-export function credentialFolders(sandbox) {
-  const folders = {};
-  for (const { path, name } of credentialsFor(sandbox)) (folders[path] ??= []).push(name);
-  return folders;
 }
 
 function importKey(value, provider) {
@@ -46,13 +42,14 @@ function ingest(arguments_, value, provider) {
   return {};
 }
 
-main(import.meta, async () => {
-  const { sandbox } = await import('./sandbox.mjs');
-  const entries = credentialsFor(sandbox);
+main(import.meta, () => {
+  const entries = credentialsFor();
+  const folders = {};
+  for (const { path, name } of entries) (folders[path] ??= []).push(name);
+  const secrets = new Map(readVault([folders]).secrets);
   const values = entries.map(entry => {
-    const value = process.env[entry.name];
-    delete process.env[entry.name];
-    if (!value) throw new Error(`router-credentials: ${entry.path}/${entry.name} is missing. Run through with-vault --router.`);
+    const value = secrets.get(entry.name);
+    if (!value) throw new Error(`router-credentials: ${entry.path}/${entry.name} is empty in the vault.`);
     return value;
   });
   const report = Object.assign({}, ...entries.map((entry, index) => INPUTS[entry.input](values[index], entry.provider)));

@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { basicEnvironment, RUNTIME_SETTINGS } from './environment.mjs';
 import { main, runOperation } from './main.mjs';
 import { CODEX_HOME, MIN_VALIDITY_MS } from './router-codex.mjs';
-import { WITH_VAULT } from './run.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SYNC_INTERVAL_MS = 60 * 60 * 1000;
@@ -14,7 +13,7 @@ const RETRY_MS = 60 * 1000;
 const SYNC_TIMEOUT_MS = 3 * 60 * 1000;
 
 async function synchronize() {
-  const worker = spawn(WITH_VAULT, ['--router', process.execPath, join(HERE, 'router-credentials.mjs')], {
+  const worker = spawn(process.execPath, [join(HERE, 'router-credentials.mjs')], {
     stdio: ['ignore', 'pipe', 'inherit'], timeout: SYNC_TIMEOUT_MS,
   });
   let report = '';
