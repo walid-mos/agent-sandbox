@@ -80,7 +80,7 @@ function save(entry) {
 main(import.meta, () => {
   const text = process.env[CODEX_PUBLICATION.name];
   delete process.env[CODEX_PUBLICATION.name];
-  if (!text) throw new Error('router-codex: run through session/with-vault --with codex.');
+  if (!text) throw new Error('router-codex: run through node session/router.mjs sync.');
   const entry = publication(text);
   save(entry);
   process.stdout.write(`${JSON.stringify({ expires: entry.expires })}\n`);

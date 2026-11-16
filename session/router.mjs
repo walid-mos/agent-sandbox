@@ -4,7 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { basicEnvironment } from './environment.mjs';
 import { main, runOperation } from './main.mjs';
-import { CODEX_HOME, MIN_VALIDITY_MS } from './router-codex.mjs';
+import { CODEX_HOME, CODEX_PUBLICATION, MIN_VALIDITY_MS } from './router-codex.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SYNC_INTERVAL_MS = 60 * 60 * 1000;
@@ -12,7 +12,7 @@ const RETRY_MS = 60 * 1000;
 const SYNC_TIMEOUT_MS = 60 * 1000;
 
 async function syncCodex() {
-  const worker = spawn(join(HERE, 'with-vault'), ['--with', 'codex', process.execPath, join(HERE, 'router-codex.mjs')], {
+  const worker = spawn(join(HERE, 'with-vault'), ['--secret', `${CODEX_PUBLICATION.path}/${CODEX_PUBLICATION.name}`, process.execPath, join(HERE, 'router-codex.mjs')], {
     stdio: ['ignore', 'pipe', 'inherit'], timeout: SYNC_TIMEOUT_MS,
   });
   let report = '';

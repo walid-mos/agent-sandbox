@@ -2,7 +2,6 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { basicEnvironment } from './environment.mjs';
 import { main } from './main.mjs';
-import { CODEX_PUBLICATION } from './router-codex.mjs';
 
 const VAULT_CONFIG = '/etc/agent-sandbox/vault.json';
 if (!existsSync(VAULT_CONFIG)) throw new Error('with-vault: add vault.json, with project and environment, to this sandbox\'s directory under ~/.config/agent-sandbox/sandboxes.');
@@ -10,11 +9,10 @@ const { project: VAULT_PROJECT, environment: VAULT_ENV } = JSON.parse(readFileSy
 if (!VAULT_PROJECT || !VAULT_ENV) throw new Error(`with-vault: set project and environment in ${VAULT_CONFIG}.`);
 const GITHUB_PATH = '/tools/github';
 const CLIENT_SECRET = 'INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET';
-const ON_REQUEST_FLAG = '--with';
+const USAGE = 'usage: with-vault [--with GROUP | --source REPOSITORY | --secret PATH/NAME] command [argument...]';
+const REQUESTS = { '--with': sandboxRequest, '--source': sourceFetchRequest, '--secret': secretRequest };
 const [credentialsFile, ...rest] = process.argv.slice(2);
-const isSourceFetch = rest[0] === '--source';
-const requestedGroup = rest[0] === ON_REQUEST_FLAG ? rest[1] : undefined;
-const commandLine = isSourceFetch ? rest.slice(2) : requestedGroup === undefined ? rest : rest.slice(2);
+const [request, requestArgument, commandLine] = Object.hasOwn(REQUESTS, rest[0]) ? [REQUESTS[rest[0]], rest[1], rest.slice(2)] : [sandboxRequest, undefined, rest];
 
 function assignments(text) {
   return Object.fromEntries(text.split('\n').filter(Boolean).map(line => {
@@ -69,21 +67,24 @@ async function sourceFetchRequest(repository) {
   };
 }
 
-async function sandboxRequest() {
-  if (requestedGroup === 'codex') return {
-    groups: [{ [CODEX_PUBLICATION.path]: [CODEX_PUBLICATION.name] }],
-    environment: basicEnvironment,
-  };
+function secretRequest(reference) {
+  const slash = reference?.lastIndexOf('/') ?? -1;
+  const name = reference?.slice(slash + 1);
+  if (slash < 0 || !name) throw new Error(USAGE);
+  return { groups: [{ [reference.slice(0, slash) || '/']: [name] }], environment: basicEnvironment };
+}
+
+async function sandboxRequest(group) {
   const { sandbox } = await import('./sandbox.mjs');
   return {
-    groups: [{ [GITHUB_PATH]: Object.values(sandbox.owners) }, sandbox.secrets, onRequest(requestedGroup, sandbox)],
+    groups: [{ [GITHUB_PATH]: Object.values(sandbox.owners) }, sandbox.secrets, onRequest(group, sandbox)],
     environment: session => session,
   };
 }
 
 main(import.meta, async () => {
-  if (commandLine.length === 0) throw new Error('usage: with-vault [--with GROUP | --source REPOSITORY] command [argument...]');
-  const { groups, environment } = await (isSourceFetch ? sourceFetchRequest(rest[1]) : sandboxRequest());
+  if (commandLine.length === 0) throw new Error(USAGE);
+  const { groups, environment } = await request(requestArgument);
   const session = vaultSession();
   const secrets = groups.flatMap(Object.entries).flatMap(([path, names]) => listed(path, names, session));
   process.execve('/usr/bin/env', ['env', ...commandLine], { ...environment(session), ...Object.fromEntries(secrets) });
