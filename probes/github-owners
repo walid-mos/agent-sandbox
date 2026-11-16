@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+[ "$#" -gt 0 ] || { echo 'usage: github-owners OWNER/REPOSITORY...' >&2; exit 2; }
+for repository in "$@"; do
+	printf '%s API: ' "$repository"
+	gh api "repos/$repository" --jq '"\(.full_name) push=\(.permissions.push)"'
+	printf '%s Git: ' "$repository"
+	git ls-remote "https://github.com/$repository.git" HEAD | cut -f1
+done

@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/lib.sh"
+if ! command -v hc > /dev/null || ! command -v node > /dev/null; then
+	idle_until_bootstrap pots-watcher
+fi
+exec node "$(dirname "$0")/watcher.mjs"

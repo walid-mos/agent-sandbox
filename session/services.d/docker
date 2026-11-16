@@ -1,0 +1,8 @@
+#!/bin/sh
+containers=/sys/fs/cgroup/docker
+containers_cpu_weight=10
+# Every inner container runs under this one cgroup, so only its weight ranks them behind the session's own processes.
+if ! { mkdir -p "$containers" && echo "$containers_cpu_weight" > "$containers/cpu.weight"; }; then
+	echo "docker: inner containers keep the default CPU weight, so a check container competes with the pane's requests" >&2
+fi
+exec dockerd --log-level error

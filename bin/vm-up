@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../lib/sandbox.sh"
+
+vm_setting() {
+	jq -r ".vm.$1" "$POTS_CONFIG"
+}
+
+profile="$HOME/.colima/$POTS_PROFILE/colima.yaml"
+mkdir -p "$(dirname "$profile")"
+"$POTS_REPO/bin/render-config" colima "$SANDBOX" | sed -e "s/^cpu: CPU$/cpu: $(vm_setting cpu)/" \
+	-e "s/^memory: MEMORY_GIB$/memory: $(vm_setting memoryGiB)/" \
+	-e "s/^disk: DISK_GIB$/disk: $(vm_setting diskGiB)/" \
+	-e "s/^hostname: HOSTNAME$/hostname: colima-$POTS_PROFILE/" \
+	> "$profile"
+if ! colima status --profile "$POTS_PROFILE" > /dev/null 2>&1; then
+	colima start --profile "$POTS_PROFILE"
+fi
+colima ssh -p "$POTS_PROFILE" -- sudo "$POTS_REPO/vm/setup.sh" "$(vm_setting swapGiB)"
+colima ssh -p "$POTS_PROFILE" -- "$POTS_REPO/vm/session-keys" "$SANDBOX" "$POTS_CONTEXT" < "$HOME/.ssh/authorized_keys"

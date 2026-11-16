@@ -1,0 +1,4 @@
+#!/bin/sh
+here=$(dirname "$(readlink -f "$0")")
+. "$here/lib.sh"
+exec node "$here/github.mjs" gh "$POTS_GH" "$@"

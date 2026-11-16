@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+repository=${1:?source-fetch: expected repository}
+shift
+[ "${1:-}" = git ] || { echo 'source-fetch: expected git' >&2; exit 2; }
+shift
+exec "$here/with-vault" --source "$repository" git -c credential.useHttpPath=true -c "credential.helper=!node \"$here/source-credential.mjs\"" "$@"

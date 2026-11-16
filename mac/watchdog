@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
+repo=$(cd "$(dirname "$0")/.." && pwd)
+
+# Each sandbox is checked by its own run, so one that fails does not keep the next from starting.
+if [ -z "${SANDBOX:-}" ]; then
+	status=0
+	# The update runs before the sandboxes and apart from them, so a merge that breaks their checks still arrives, and so does the merge that repairs it.
+	"$repo/mac/update" || status=1
+	for config in "$HOME"/.config/agent-sandbox/sandboxes/*/sandbox.json; do
+		SANDBOX=$(basename "$(dirname "$config")") "$0" || status=1
+	done
+	exit "$status"
+fi
+. "$repo/lib/sandbox.sh"
+
+if ! colima status --profile "$POTS_PROFILE" > /dev/null 2>&1; then
+	"$POTS_REPO/bin/vm-up"
+fi
+if ! sandbox_docker inspect --format '{{.State.Running}}' "$POTS_SERVER_CONTAINER" 2> /dev/null | grep -qx true; then
+	"$POTS_REPO/bin/sealskin-up"
+fi
+"$POTS_REPO/bin/pots-session" ensure > /dev/null
+"$POTS_REPO/mac/session-binds"
+"$POTS_REPO/mac/tailnet-ssh"

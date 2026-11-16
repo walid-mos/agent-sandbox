@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/lib.sh"
+
+if ! command -v magpie > /dev/null; then
+	idle_until_bootstrap pots-router
+fi
+exec env MAGPIE_ADDR="$POTS_ROUTER_ADDRESS" DISABLE_AUTOUPDATER=1 magpie serve

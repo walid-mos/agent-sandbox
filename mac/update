@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd)
+TRUNK=main
+status=0
+
+# A checkout on the trunk follows it, so a merge reaches this Mac with no command typed. Any other branch is the operator's choice and stays as it is.
+if [ "$(git -C "$repo" symbolic-ref --quiet --short HEAD)" = "$TRUNK" ]; then
+	before=$(git -C "$repo" rev-parse HEAD)
+	{ git -C "$repo" fetch --quiet origin "$TRUNK" && git -C "$repo" merge --quiet --ff-only "origin/$TRUNK"; } || status=1
+	[ "$(git -C "$repo" rev-parse HEAD)" = "$before" ] || echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) update: the checkout moved to $(git -C "$repo" log --oneline -1)"
+fi
+"$repo/bin/install-herdr" || status=1
+exit "$status"

@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../lib/sandbox.sh"
+
+session=$(running_session)
+session_exec --interactive "$session" /bin/sh -c '. "$1/session/lib.sh"; shift; exec "$@"' sandbox-exec "$POTS_REPO" "$@"

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec env HOME=/config s6-setuidgid abc /opt/agent-sandbox/session/router

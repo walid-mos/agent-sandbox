@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../lib/sandbox.sh"
+
+SEED="$POTS_SESSION_HOME/.cache/agent-sandbox/router-seed.magpie-backup"
+PASSPHRASE_BYTES=24
+
+session=$(running_session)
+staging=$(mktemp -d)
+trap 'rm -rf "$staging"' EXIT
+passphrase=$(openssl rand -hex "$PASSPHRASE_BYTES")
+printf '%s\n' "$passphrase" | magpie backup --no-keys --no-library "$staging/seed" > /dev/null
+session_exec --interactive "$session" sh -c 'umask 077; mkdir -p "$(dirname "$1")"; cat > "$1"' router-seed "$SEED" < "$staging/seed"
+printf '%s\n' "$passphrase" | session_exec --interactive "$session" "$POTS_REPO/session/router-restore" "$SEED"

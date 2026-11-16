@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../lib/sandbox.sh"
+
+# Git deletes and recreates a directory when the checkout leaves its branch and comes back, and a running session keeps the deleted one bound.
+session=$(running_session)
+binds=$(sandbox_docker inspect --format '{{range .Mounts}}{{if not .RW}}{{.Destination}}={{.Source}} {{end}}{{end}}' "$session")
+pid=$(sandbox_docker inspect --format '{{.State.Pid}}' "$session")
+colima ssh -p "$POTS_PROFILE" -- sudo python3 -I "$POTS_REPO/vm/session-binds.py" "$pid" $binds

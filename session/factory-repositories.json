@@ -1,0 +1,24 @@
+{
+  "walid-mos/agent-pi": "NextNodeSolutions/pi-agent",
+  "walid-mos/agent-herdr": "NextNodeSolutions/herdr-config",
+  "walid-mos/agent-sandbox": "NextNodeSolutions/agent-sandbox",
+  "NextNodeSolutions/agent-sandbox": [
+    { "name": "check", "run": ["./bin/check"] },
+    { "name": "shellcheck", "run": ["node", "/factory/shellcheck-new.mjs", "{base}"] },
+    { "name": "fallow", "run": ["fallow", "audit", "--base", "{base}"] }
+  ],
+  "NextNodeSolutions/agents": [
+    { "name": "skills", "run": ["node", "/factory/pi-package-check.mjs"] }
+  ],
+  "NextNodeSolutions/herdr-config": [
+    { "name": "check", "run": ["./bin/check"] }
+  ],
+  "NextNodeSolutions/pi-agent": [
+    { "name": "install", "run": ["pnpm", "install", "--frozen-lockfile"], "network": true },
+    { "name": "lint", "run": ["pnpm", "run", "lint"] },
+    { "name": "type-check", "run": ["pnpm", "run", "type-check"] },
+    { "name": "format", "run": ["pnpm", "run", "format:check"] },
+    { "name": "test", "run": ["pnpm", "test"] },
+    { "name": "fallow", "run": ["fallow", "audit", "--base", "{base}"] }
+  ]
+}

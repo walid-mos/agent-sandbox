@@ -1,0 +1,60 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../lib/sandbox.sh"
+
+LOCK="$HOME/.colima/$POTS_PROFILE/pots-session.lock"
+LOCK_WAIT_SECONDS=300
+
+# The watchdog and an operator can both find no session and each launch one on the same home, so every launch holds this lock.
+hold_lock() {
+	[ "${POTS_SESSION_LOCK:-}" = held ] || exec env POTS_SESSION_LOCK=held lockf -k -t "$LOCK_WAIT_SECONDS" "$LOCK" "$0" "$@"
+}
+
+api() {
+	sandbox_docker exec -u "$POTS_SERVER_USER" "$POTS_SERVER_CONTAINER" sh -c 'printf "header = \"Authorization: Bearer %s\"\n" "$(cat /config/root_key)"' |
+		curl --silent --show-error --fail --insecure --config - \
+			--header 'X-SealSkin-App: other' --header 'content-type: application/json' "$@"
+}
+
+ensure_home() {
+	if api "$POTS_SERVER_URL/api/homedirs" | jq -e --arg home "$POTS_HOME_NAME" '.. | strings | select(. == $home)' > /dev/null; then
+		return 0
+	fi
+	api --data "{\"home_name\":\"$POTS_HOME_NAME\"}" "$POTS_SERVER_URL/api/homedirs" > /dev/null
+}
+
+launch() {
+	wait_for_server
+	ensure_home
+	api --data "{\"application_id\":\"$POTS_APP_ID\",\"home_name\":\"$POTS_HOME_NAME\"}" \
+		"$POTS_SERVER_URL/api/launch/simple" > /dev/null
+}
+
+stop() {
+	stopping=$(session_container)
+	sessions=$(api "$POTS_SERVER_URL/api/sessions")
+	for session in $(echo "$sessions" | jq -r --arg app "$POTS_APP_ID" '.[] | select(.app_id == $app) | .session_id'); do
+		api --request DELETE "$POTS_SERVER_URL/api/sessions/$session" > /dev/null
+	done
+	if [ -n "$stopping" ]; then
+		sandbox_docker wait "$stopping" > /dev/null 2>&1 || true
+	fi
+}
+
+ensure() {
+	running=$(session_container)
+	if [ -z "$running" ]; then
+		launch
+		running=$(session_container)
+	fi
+	[ -n "$running" ] || { echo "pots-session: the Pots session did not start" >&2; exit 1; }
+	echo "$running"
+}
+
+case "${1:-}" in
+	ensure) hold_lock "$@"; ensure ;;
+	name) session_container ;;
+	stop) stop ;;
+	restart) hold_lock "$@"; stop && ensure ;;
+	*) echo "usage: pots-session ensure|name|stop|restart" >&2; exit 2 ;;
+esac

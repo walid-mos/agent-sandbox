@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from agent_sources import STATE
+
+
+def write_json(path, contents):
+    if path.is_symlink():
+        raise RuntimeError(f"private-import: refusing symlink {path}.")
+    path.write_text(json.dumps(contents, indent=2) + "\n")
+    path.chmod(0o600)
+
+
+def merge_missing(path, additions):
+    if path.is_symlink():
+        raise RuntimeError(f"private-import: refusing symlink {path}.")
+    previous = json.loads(path.read_text()) if path.exists() else {}
+    merged = {**additions, **previous}
+    if merged != previous:
+        write_json(path, merged)
+
+
+def literal(path, name):
+    if not path.is_file():
+        return ""
+    match = re.search(rf'^{name}=["\x27]?([^"\x27\n]+)', path.read_text(), re.M)
+    return match.group(1) if match else ""
+
+
+def copy_sandboxes(source, sandbox_root):
+    digests = {}
+    for path in sorted((source / "sandboxes").glob("*/sandbox.json")):
+        target = sandbox_root / path.parent.name / path.name
+        if target.is_symlink() or target.parent.is_symlink():
+            raise RuntimeError(f"private-import: refusing symlink {target}.")
+        if target.exists() and target.read_bytes() != path.read_bytes():
+            raise RuntimeError(f"private-import: {target} already differs. Existing configuration was preserved.")
+        target.parent.mkdir(exist_ok=True, mode=0o700)
+        if not target.exists():
+            shutil.copy2(path, target)
+            target.chmod(0o600)
+        digests[str(path.relative_to(source))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return digests
+
+
+def host_values(source):
+    host = {}
+    connector = (source / "mac/sealskin-connect").read_text() if (source / "mac/sealskin-connect").is_file() else ""
+    remote = re.search(r'SANDBOX_EXEC = "([^"]+)/bin/sandbox-exec"', connector)
+    alias = re.search(r'"BatchMode=yes", "([^"]+)"', connector)
+    if remote and alias:
+        host.update(remoteSandboxRepository=remote.group(1), connectHost=alias.group(1))
+    colima = source / "colima/colima.yaml"
+    location = re.search(r"location:\s*(/[^\n]+)", colima.read_text()) if colima.is_file() else None
+    if location:
+        host["developmentDirectory"] = location.group(1).strip().strip('"')
+    for field, name in (("macHost", "MAC"), ("peerHost", "PEER")):
+        value = literal(source / "bin/probe-boundary", name)
+        if value and not value.startswith("$("):
+            host[field] = value
+    return host
+
+
+def session_values(source):
+    values = {}
+    identity = {"name": literal(source / "session/bootstrap", "GIT_NAME"), "email": literal(source / "session/bootstrap", "GIT_EMAIL")}
+    if all(identity.values()):
+        values["git-identity.json"] = identity
+    vault_path = source / "session/vault.mjs"
+    vault = vault_path.read_text() if vault_path.is_file() else ""
+    project = re.search(r"const VAULT_PROJECT = '([^']+)'", vault)
+    environment = re.search(r"const VAULT_ENV = '([^']+)'", vault)
+    if project and environment:
+        values["vault.json"] = {"project": project.group(1), "environment": environment.group(1)}
+    return values
+
+
+def import_private(source, destination):
+    source = Path(source).resolve()
+    destination = Path(destination).absolute()
+    if destination.resolve() != destination:
+        raise RuntimeError(f"private-import: refusing symlink in {destination}.")
+    destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    sandbox_root = destination / "sandboxes"
+    sandbox_root.mkdir(exist_ok=True, mode=0o700)
+    revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    digests = copy_sandboxes(source, sandbox_root)
+    merge_missing(destination / "host.json", host_values(source))
+    values = session_values(source)
+    for directory in sandbox_root.iterdir():
+        for name, content in values.items():
+            merge_missing(directory / name, content)
+    receipt = destination / "private-import.json"
+    write_json(receipt, {"source": str(source), "revision": revision, "sha256": digests})
+    return {"revision": revision, "files": len(digests), "receipt": str(receipt)}
+
+
+parser = argparse.ArgumentParser(description="Copy private configuration out of an old checkout without changing it.")
+parser.add_argument("source")
+parser.add_argument("--destination", default=str(STATE))
+arguments = parser.parse_args()
+try:
+    print(json.dumps(import_private(arguments.source, arguments.destination)))
+except (RuntimeError, OSError, ValueError) as error:
+    parser.exit(1, f"{error}\n")

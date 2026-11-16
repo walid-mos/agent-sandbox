@@ -1,0 +1,54 @@
+cpu: CPU
+disk: DISK_GIB
+memory: MEMORY_GIB
+arch: ""
+runtime: docker
+modelRunner: ""
+hostname: HOSTNAME
+kubernetes:
+  enabled: false
+  version: v1.35.0+k3s1
+  k3sArgs:
+    - --disable=traefik
+  port: 0
+autoActivate: false
+network:
+  address: false
+  mode: ""
+  interface: ""
+  preferredRoute: false
+  dns: []
+  dnsHosts: {}
+  hostAddresses: false
+  gatewayAddress: null
+forwardAgent: false
+docker:
+  builder:
+    gc:
+      defaultKeepStorage: 20GB
+      enabled: true
+  features:
+    buildkit: true
+  runtimes:
+    sysbox-runc:
+      path: /usr/bin/sysbox-runc
+vmType: vz
+portForwarder: ssh
+rosetta: true
+binfmt: true
+nestedVirtualization: false
+mountType: virtiofs
+mountInotify: false
+cpuType: ""
+provision: null
+sshConfig: false
+sshPort: 0
+mounts:
+  - location: DEVELOPMENT_DIRECTORY
+    writable: false
+  - location: SANDBOX_DIRECTORY
+    writable: false
+diskImage: ""
+forceDiskImage: false
+rootDisk: 20
+env: {}

@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+
+compile_python() {
+	PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 -m py_compile "$1"
+}
+
+for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/mac/* "$root"/probes/* "$root"/vm/*.sh "$root"/vm/*.py; do
+	[ -f "$path" ] || continue
+	IFS= read -r interpreter < "$path" || true
+	case "$interpreter" in
+		'#!/bin/sh') sh -n "$path" ;;
+		'#!/bin/bash') bash -n "$path" ;;
+		'#!/usr/bin/env python3') compile_python "$path" ;;
+		'#!'*) echo "check: no syntax check for $interpreter in $path" >&2; exit 1 ;;
+		*) case "$path" in
+			*.sh) sh -n "$path" ;;
+			*.py) compile_python "$path" ;;
+		esac ;;
+	esac
+done
+for path in "$root"/session/*.mjs "$root"/session/factory-image/*.mjs "$root"/herdr/*.js; do
+	node --check "$path"
+done
+# node --check rejects type annotations, so a TypeScript file is checked with its types stripped.
+# The stripped source is captured first because sh has no pipefail to report a failed strip.
+for path in "$root"/mac/*.ts; do
+	plain=$(node --no-warnings --input-type=module -e 'import { stripTypeScriptTypes } from "node:module"; import { readFileSync } from "node:fs"; process.stdout.write(stripTypeScriptTypes(readFileSync(process.argv[1], "utf8")))' "$path")
+	printf '%s\n' "$plain" | node --check --input-type=module
+done
+for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
+	jq empty "$path"
+done
+# The operator's config sync carries the installed pane to their other Mac and leaves out a file named like a credential, so the pane fails there on the missing module.
+skipped=$(cd "$root/herdr" && find . -type f | grep -iE 'credential|secret|token|password|cookie|auth|\.old-|\.reset-|\.corrupt-|\.(pem|key|p12|pfx|log|sqlite|db)$' || true)
+if [ -n "$skipped" ]; then
+	printf 'check: the config sync between Macs skips these pane files. Rename them:\n%s\n' "$skipped" >&2
+	exit 1
+fi
+git -C "$root" diff --check
+printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'

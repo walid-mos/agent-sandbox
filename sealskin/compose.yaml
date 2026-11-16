@@ -1,0 +1,32 @@
+name: agent-sandbox
+
+services:
+  sealskin:
+    image: lscr.io/linuxserver/sealskin:0.4.2-ls69@sha256:95c41eb3a6a20b62f4f955edf0a9e1408f9eccea2d1858afdd24ad69264522c2
+    container_name: sealskin
+    hostname: sealskin
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Europe/Paris
+    volumes:
+      - sealskin-config:/config
+      - sealskin-storage:/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - 127.0.0.1:${SEALSKIN_PORT}:8443
+    networks:
+      default:
+        ipv4_address: ${SEALSKIN_SERVER_ADDRESS}
+    restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${SEALSKIN_SUBNET}
+          gateway: ${SEALSKIN_GATEWAY_ADDRESS}
+
+volumes:
+  sealskin-config:
+  sealskin-storage:

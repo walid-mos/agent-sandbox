@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+import json
+from pathlib import Path
+import sys
+
+USAGE = "usage: render-config colima|sealskin SANDBOX"
+if len(sys.argv) != 3:
+    raise SystemExit(USAGE)
+kind, name = sys.argv[1:]
+repository = Path(__file__).resolve().parents[1]
+runtime = Path.home() / ".config/agent-sandbox"
+host = json.loads((runtime / "host.json").read_text())
+development = Path(host["developmentDirectory"])
+sandbox = runtime / "sandboxes" / name
+if not development.is_absolute() or not repository.is_relative_to(development):
+    raise SystemExit("render-config: developmentDirectory must be absolute and contain the repository.")
+if any(character in str(path) for path in (development, repository, sandbox) for character in (",", ":", "\n")):
+    raise SystemExit("render-config: mount paths cannot contain comma, colon or newline.")
+if kind == "colima":
+    # Colima mounts only the listed locations, and the session binds the sandbox's directory from inside the VM.
+    template = (repository / "colima/colima.yaml").read_text()
+    print(template.replace("DEVELOPMENT_DIRECTORY", json.dumps(str(development))).replace("SANDBOX_DIRECTORY", json.dumps(str(sandbox))), end="")
+elif kind == "sealskin":
+    mounts = ",".join([
+        f"{development}:{development}:ro",
+        f"{repository}:/opt/agent-sandbox:ro",
+        f"{repository}/session/services.d:/custom-services.d:ro",
+        f"{sandbox}:/etc/agent-sandbox:ro",
+        "pots-inner-docker:/var/lib/docker:rw",
+    ])
+    print((repository / "sealskin/app-template.yml").read_text().replace("SESSION_BINDS", json.dumps(mounts)), end="")
+else:
+    raise SystemExit(USAGE)

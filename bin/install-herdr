@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+REPOSITORY = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPOSITORY / "lib"))
+from agent_sources import HERDR_APP_HOME, HERDR_KEYS, PROVISIONING_FILE, STATE, install_herdr, refresh_source, require_herdr_initialized, source_catalog
+
+SOURCE = REPOSITORY / "herdr"
+CONTROL = REPOSITORY / "session/control.mjs"
+# A sandbox's Herdr machine carries the name of its folder, and the pane reaches each bot through that machine.
+sandboxes = [
+    {"machine": path.parent.name, "bot": json.loads(path.read_text())["bot"]}
+    for path in sorted((STATE / "sandboxes").glob("*/sandbox.json"))
+]
+
+
+# Herdr's first start comes before the refresh, so a Mac that has never run Herdr keeps no half-installed source.
+def install_common_source(configuration):
+    require_herdr_initialized()
+    catalog = source_catalog()["herdr"]
+    refreshed = refresh_source({**catalog, **configuration.get("sources", {}).get("herdr", {}), "directory": catalog["directory"]}, configuration)
+    install_herdr(Path(refreshed["directory"]), "desktop", {"sandboxes": sandboxes, "controlPath": str(CONTROL), **configuration.get("herdr", {})})
+
+
+configuration = json.loads(PROVISIONING_FILE.read_text()) if PROVISIONING_FILE.exists() else {}
+if configuration.get("herdrEnabled", False):
+    try:
+        install_common_source(configuration)
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+        sys.exit(f"install-herdr: {error}")
+    sys.exit(0)
+MODS = HERDR_APP_HOME / "mods"
+CENTER = MODS / "command-center"
+POTS = MODS / "pots"
+TERMINALS = MODS / "pots-terminals"
+SHORTCUTS = {"cmd-t": "pots.terminal", "cmd-shift-j": "pots.terminal-new", "cmd-alt-j": "pots.terminal-next"}
+COMMAND_CENTER_FILES = ("ui.js", "state.js")
+SANDBOXES_FILE = "sandboxes.js"
+ICONS = "icons"
+MOD = {"place": "none", "title": "Pots", "focusable": True}
+TERMINAL_FILES = ("pots-terminal-drawer.js", "pots-terminal-layout.js", "pots-layout-file.js", "pots-icons.js", *COMMAND_CENTER_FILES)
+TERMINAL_MOD = {"place": "none", "title": "Terminals"}
+LAYOUT_KEYS = "layout:command-center-pots"
+KEY_SECTIONS = ("global", "terminal", f"mod:{POTS.name}", f"mod:{TERMINALS.name}", LAYOUT_KEYS)
+
+
+# Herdr reloads the pane, and another Mac copies it, each time a file of the mod is written, so a file that already matches is left alone.
+def install(target, content):
+    if target.is_file() and target.read_bytes() == content:
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+    return True
+
+
+def chord(key):
+    parts = key.lower().split("-")
+    aliases = {"secondary": "cmd", "super": "cmd", "win": "cmd"}
+    return (*sorted(aliases.get(part, part) for part in parts[:-1]), parts[-1])
+
+
+# Every module in herdr/ installs under its own name, so herdr/ holds only pane modules and main.js is the entry.
+modules = [*SOURCE.glob("*.js"), *(CENTER / name for name in COMMAND_CENTER_FILES)]
+icons = [path for path in (SOURCE / ICONS).rglob("*") if path.is_file()]
+# The terminal entry installs as main.js so Herdr loads the drawers' mod, which carries only the modules the drawer needs.
+sources = {module.name: module for module in modules}
+files = [
+    *((POTS / module.name, module.read_bytes()) for module in modules),
+    *((POTS / icon.relative_to(SOURCE), icon.read_bytes()) for icon in icons),
+    (POTS / SANDBOXES_FILE, f"export const SANDBOXES = {json.dumps(sandboxes)};\nexport const CONTROL = {json.dumps(str(CONTROL))};\n".encode()),
+    (POTS / "mod.json", (json.dumps(MOD) + "\n").encode()),
+    *((TERMINALS / name, sources[name].read_bytes()) for name in TERMINAL_FILES),
+    (TERMINALS / "main.js", (SOURCE / "pots-terminals.js").read_bytes()),
+    (TERMINALS / "mod.json", (json.dumps(TERMINAL_MOD) + "\n").encode()),
+]
+written = [target for target, content in files if install(target, content)]
+# A module the repository dropped goes last: a copy that fails above leaves each pane its modules.
+installed = ({module.name for module in modules} | {SANDBOXES_FILE}, {"main.js", *TERMINAL_FILES})
+dropped = [stale for pane, names in zip((POTS, TERMINALS), installed)
+           for stale in pane.glob("*.js") if stale.name not in names]
+for stale in dropped:
+    stale.unlink()
+
+# Herdr fills this file with its default bindings on its first start, so a run with no keys.json changes no bindings and prints nothing.
+keys_written = False
+keys = None
+if HERDR_KEYS.is_file():
+    try:
+        keys = json.loads(HERDR_KEYS.read_text())
+    except json.JSONDecodeError as error:
+        print(f"Left {HERDR_KEYS} alone: it is not valid JSON ({error}). Fix it, and the next run binds the terminal shortcuts.", file=sys.stderr)
+if keys is not None:
+    additions = {}
+    for shortcut, command in SHORTCUTS.items():
+        occupied = [action for section, bindings in keys.items() if section in KEY_SECTIONS
+                    for key, action in bindings.items() if chord(key) == chord(shortcut)]
+        if not occupied or all(action == command for action in occupied):
+            additions[shortcut] = command
+    if additions:
+        scoped = keys.setdefault(LAYOUT_KEYS, {})
+        scoped.update(additions)
+        keys_written = install(HERDR_KEYS, (json.dumps(keys, indent=2) + "\n").encode())
+
+
+def names(paths):
+    return ", ".join(sorted(path.name for path in paths)) or "nothing"
+
+
+if written or dropped or keys_written:
+    wrote = written + ([HERDR_KEYS] if keys_written else [])
+    print(f"Installed the Pots pane and its terminal controls: wrote {names(wrote)}, removed {names(dropped)}. No layout changed.")

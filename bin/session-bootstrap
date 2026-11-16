@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../lib/sandbox.sh"
+
+session=$(running_session)
+
+restart() {
+	for service in "$@"; do
+		sandbox_docker exec --user root "$session" s6-svc -r "/run/service/custom-svc-$service"
+	done
+}
+
+# hc reaches the session through its machine entry and copies itself there. The launcher and the watcher need it in the session.
+install_hc() {
+	if hc machine ls | jq --exit-status --arg name "$SANDBOX" 'any(.machines[]; .name == $name)' > /dev/null; then
+		hc machine update "$SANDBOX" > /dev/null
+	else
+		hc machine add --install --name "$SANDBOX" --via "SANDBOX=$SANDBOX $POTS_REPO/bin/sandbox-exec sh -c" > /dev/null
+	fi
+}
+
+if ! session_exec "$session" "$POTS_REPO/session/has-credentials"; then
+	"$POTS_REPO/bin/session-credentials"
+fi
+session_exec "$session" "$POTS_REPO/session/bootstrap"
+install_hc
+restart pots-router
+# pots creates a bot only once its model answers, so the router gets its configuration first.
+"$POTS_REPO/bin/router-seed"
+"$POTS_REPO/bin/sandbox-exec" node "$POTS_REPO/session/bot.mjs"
+restart pots-gateway pots-watcher pots-sources
+# The Factory bot's routine needs a running gateway, so it comes after the restart.
+"$POTS_REPO/bin/sandbox-exec" node "$POTS_REPO/session/factory-bot.mjs"

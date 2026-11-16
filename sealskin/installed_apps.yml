@@ -1,0 +1,17 @@
+- id: pots
+  source: SealSkin Apps
+  source_app_id: webtop-debian-xfce
+  app_template: Pots
+  users:
+    - admin
+  groups: []
+  auto_update: false
+  home_directories: true
+  overrides:
+    name: Pots
+    provider_config:
+      image: lscr.io/linuxserver/webtop:debian-xfce@sha256:4ec1d3cfb8df2e6e1c9d73c25bc1c8b42947e6861c3ef6a22e68b2f4cc94699f
+      docker_overrides:
+        runtime: sysbox-runc
+        labels:
+          fr.nextnode.pots: session

@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+from contextlib import contextmanager, nullcontext
+from functools import partial
+import fcntl
+import json
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+
+REPOSITORY = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPOSITORY / "lib"))
+from agent_sources import HOME, INSTALL_ENV, STATE, install_herdr, is_herdr_initialized, refresh_source, require_herdr_initialized
+from source_refresh import git
+
+RECEIPT = STATE / "provisioned.json"
+LOCK = STATE / "provisioning.lock"
+FILE_CHOOSERS = ("zenity", "kdialog")
+APT_GET = ("sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "--quiet", "--yes")
+
+
+# The bootstrap and the session service see different environments, so the profile follows a file both can read.
+def configuration():
+    expression = "import {agentSources,effectiveProvisioning} from './session/agent-sources.mjs'; console.log(JSON.stringify({...effectiveProvisioning,sources:agentSources}));"
+    output = subprocess.check_output(["node", "--input-type=module", "-e", expression], cwd=REPOSITORY, env=INSTALL_ENV)
+    configuration = json.loads(output)
+    configuration.setdefault("profile", "desktop" if is_herdr_initialized() else "headless")
+    return configuration
+
+
+def update_source(name, source, configuration):
+    fetch = () if source.get("url") else (str(REPOSITORY / "session/source-fetch"), source["repository"])
+    edits = partial(pi_models, configuration=configuration) if name == "pi" else nullcontext
+    return refresh_source(source, configuration, fetch_with=fetch, installer_edits=edits)
+
+
+def router_models(catalog, base_url, path):
+    try:
+        providers = catalog["providers"]
+        return {**catalog, "providers": {**providers, "magpie": {**providers["magpie"], "baseUrl": base_url}}}
+    except (KeyError, TypeError):
+        raise RuntimeError(f"{path} has no providers.magpie entry to point at the router. Review the harness before provisioning.") from None
+
+
+# Older Pi checkouts track models.json, so refresh reapplies only the router URL to the updated catalog.
+@contextmanager
+def pi_models(directory, configuration):
+    base_url = configuration.get("magpieBaseUrl", "")
+    path = directory / "models.json"
+    if path.is_symlink():
+        raise RuntimeError(f"{path} is a symlink. Existing models were left untouched.")
+    if not base_url or not path.exists() or not git(directory, "ls-files", "--", "models.json"):
+        yield
+        return
+    original = path.read_bytes()
+    edited = json.loads(original)
+    committed = json.loads(git(directory, "show", "HEAD:models.json"))
+    if edited != committed and edited != router_models(committed, base_url, path):
+        raise RuntimeError(f"{path} has personal model edits. Review them before source adoption.")
+    head = git(directory, "rev-parse", "HEAD")
+    git(directory, "checkout", "--", "models.json")
+    try:
+        yield
+        if git(directory, "ls-files", "--", "models.json"):
+            updated = router_models(json.loads(path.read_text()), base_url, path)
+            path.write_text(json.dumps(updated, indent=2) + "\n")
+        else:
+            path.write_bytes(original)
+    except BaseException:
+        # Past the fast-forward the old edit no longer matches the catalog, and the next run accepts the committed file.
+        if git(directory, "rev-parse", "HEAD") == head:
+            path.write_bytes(original)
+        raise
+
+
+def configure_overlay(pi_home, configuration):
+    path = pi_home / "overlays.json"
+    if path.is_symlink():
+        raise RuntimeError(f"{path} is a symlink. Review before provisioning.")
+    roots = json.loads(path.read_text()) if path.exists() else []
+    if not isinstance(roots, list) or not all(isinstance(root, str) for root in roots):
+        raise RuntimeError(f"{path} must contain an array of overlay paths.")
+    managed = str(HOME / configuration["sources"]["nextnode"]["directory"])
+    desired = [root for root in roots if root != managed]
+    if configuration["nextnode"]:
+        desired.append(managed)
+    if roots != desired:
+        path.write_text(json.dumps(desired, indent=2) + "\n")
+
+
+def install_pi(sources, configuration):
+    pi_home = HOME / sources["pi"]["directory"]
+    configure_overlay(pi_home, configuration)
+    environment = {**INSTALL_ENV, "PI_CODING_AGENT_DIR": str(pi_home)}
+    if configuration.get("magpieBaseUrl"):
+        environment["MAGPIE_BASE_URL"] = configuration["magpieBaseUrl"]
+    subprocess.run(["node", str(pi_home / "bin/setup.ts")], check=True, env=environment)
+
+
+# Herdr's attachment button opens a native chooser and the session image ships none.
+# A recreated container loses the package, so every desktop run looks for it.
+def install_file_chooser():
+    if any(shutil.which(chooser) for chooser in FILE_CHOOSERS):
+        return
+    package = FILE_CHOOSERS[0]
+    try:
+        for arguments in (("update",), ("install", "--no-install-recommends", package)):
+            subprocess.run([*APT_GET, *arguments], check=True, env=INSTALL_ENV, stdout=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        raise RuntimeError(f"Herdr's attachment chooser needs {package} and its installation failed. Run sudo apt-get install {package} in the session, or let the next run retry.") from None
+    print(f"provision-agents: installed {package} for Herdr's attachment chooser.")
+
+
+def install_sources(sources, configuration, desired):
+    install_pi(sources, configuration)
+    install_herdr(HOME / sources["herdr"]["directory"], configuration["profile"], configuration["herdr"])
+    temporary = RECEIPT.with_suffix(".tmp")
+    temporary.write_text(json.dumps(desired, indent=2) + "\n")
+    temporary.replace(RECEIPT)
+    print("provision-agents: source refresh and installation succeeded.")
+
+
+def provision(configuration):
+    is_desktop = configuration["profile"] == "desktop"
+    if is_desktop:
+        require_herdr_initialized()
+    sources = configuration["sources"]
+    names = ["pi", *(["nextnode"] if configuration["nextnode"] else []), "herdr"]
+    revisions = {name: update_source(name, sources[name], configuration)["revision"] for name in names}
+    applied = json.loads(RECEIPT.read_text()) if RECEIPT.exists() else {}
+    desired = {"sources": revisions, "configuration": configuration}
+    if desired != applied:
+        install_sources(sources, configuration, desired)
+    if is_desktop:
+        install_file_chooser()
+
+
+# The lock outlives the run: the watcher waits for it, so it also retries an interrupted bootstrap.
+def main():
+    STATE.mkdir(parents=True, exist_ok=True)
+    with LOCK.open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        provision(configuration())
+
+
+if __name__ == "__main__":
+    # The watcher ends a run that outlives its limit. Exiting through the stack stops the running command and puts set-aside files back.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit("provision-agents: stopped before it finished. The next run retries."))
+    try:
+        main()
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"provision-agents: {error}", file=sys.stderr)
+        sys.exit(1)

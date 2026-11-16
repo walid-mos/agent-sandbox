@@ -1,0 +1,14 @@
+[Unit]
+Description=Pots sandbox egress firewall
+Wants=network-online.target
+After=network-online.target
+Before=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pots-firewall
+SyslogLevel=warning
+LogLevelMax=notice
+
+[Install]
+RequiredBy=docker.service

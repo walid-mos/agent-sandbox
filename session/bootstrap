@@ -1,0 +1,102 @@
+#!/bin/sh
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/lib.sh"
+
+NODE_VERSION=v24.22.3
+INFISICAL_VERSION=0.45.8
+GH_VERSION=2.104.0
+MAGPIE_VERSION=0.1.3350
+MAGPIE_RELEASES=https://github.com/yetone/magpie-releases/releases/download
+CLAUDE_CODE_VERSION=2.1.325
+POTS_PACKAGE=pi-durable-bot
+architecture=arm64
+
+download_verified() {
+	archive_url=$1 sums_url=$2 download_directory=$3
+	archive=$(basename "$archive_url")
+	(
+		cd "$download_directory"
+		curl --fail --silent --show-error --location --remote-name "$archive_url"
+		curl --fail --silent --show-error --location "$sums_url" | grep " \*\?$archive\$" | sed 's/ \*/  /' | sha256sum --check --quiet
+	)
+}
+
+install_node() {
+	if [ "$(node --version 2> /dev/null)" = "$NODE_VERSION" ]; then return 0; fi
+	staging=$(mktemp -d)
+	download_verified "https://nodejs.org/dist/$NODE_VERSION/node-$NODE_VERSION-linux-$architecture.tar.gz" \
+		"https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt" "$staging"
+	rm -rf "$POTS_TOOLS/node"
+	mkdir -p "$POTS_TOOLS/node"
+	tar -xzf "$staging"/node-*.tar.gz -C "$POTS_TOOLS/node" --strip-components 1
+	rm -rf "$staging"
+}
+
+install_release_binary() {
+	destination=$1 version=$2 archive_url=$3 sums_url=$4 member=$5
+	if "$destination" --version 2> /dev/null | grep -q "$version"; then return 0; fi
+	staging=$(mktemp -d)
+	download_verified "$archive_url" "$sums_url" "$staging"
+	tar -xzf "$staging"/*.tar.gz -C "$staging" "$member"
+	install -D -m 0755 "$staging/$member" "$destination"
+	rm -rf "$staging"
+}
+
+install_cli_tools() {
+	install_release_binary "$POTS_TOOLS/bin/infisical" "$INFISICAL_VERSION" \
+		"https://github.com/Infisical/cli/releases/download/v$INFISICAL_VERSION/cli_${INFISICAL_VERSION}_linux_$architecture.tar.gz" \
+		"https://github.com/Infisical/cli/releases/download/v$INFISICAL_VERSION/checksums.txt" infisical
+	install_release_binary "$POTS_GH" "$GH_VERSION" \
+		"https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_$architecture.tar.gz" \
+		"https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_checksums.txt" \
+		"gh_${GH_VERSION}_linux_$architecture/bin/gh"
+}
+
+install_router() {
+	if magpie --version 2> /dev/null | grep -q "$MAGPIE_VERSION"; then return 0; fi
+	binary=magpie-cli-linux-$architecture
+	staging=$(mktemp -d)
+	download_verified "$MAGPIE_RELEASES/v$MAGPIE_VERSION/$binary" "$MAGPIE_RELEASES/v$MAGPIE_VERSION/SHA256SUMS" "$staging"
+	install -D -m 0755 "$staging/$binary" "$POTS_TOOLS/bin/magpie"
+	rm -rf "$staging"
+}
+
+# The router answers for Claude models by running this Claude Code.
+install_claude_code() {
+	if claude --version 2> /dev/null | grep -q "$CLAUDE_CODE_VERSION"; then return 0; fi
+	npm install --global --no-fund --no-audit "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+}
+
+configure_git() {
+	identity=/etc/agent-sandbox/git-identity.json
+	if [ -f "$identity" ]; then
+		git config --global user.name "$(node -p "require('$identity').name")"
+		git config --global user.email "$(node -p "require('$identity').email")"
+	fi
+	git config --global credential.https://github.com.useHttpPath true
+	git config --global --replace-all credential.https://github.com.helper "!node $here/github.mjs credential"
+}
+
+install_pots() {
+	if command -v pots > /dev/null; then return 0; fi
+	npm install --global --no-fund --no-audit "$POTS_PACKAGE@latest"
+}
+
+install_harness() {
+	harness_dir="$HOME/$(node -p "require('$here/agent-sources.json').pi.directory")"
+	pi_version=$(node -p "require('$harness_dir/package.json').devDependencies['@earendil-works/pi-coding-agent']")
+	npm install --global --no-fund --no-audit "@earendil-works/pi-coding-agent@$pi_version"
+}
+
+install_node
+install_cli_tools
+install_router
+install_claude_code
+ln -sf "$here/gh" "$POTS_TOOLS/bin/gh"
+configure_git
+install_pots
+npm install --global --no-fund --no-audit pnpm
+node "$here/provision-runtime.mjs" "$POTS_ROUTER_API"
+"$here/provision-agents"
+install_harness
