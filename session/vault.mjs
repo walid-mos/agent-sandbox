@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { main } from './main.mjs';
+import { CODEX_PUBLICATION } from './router-codex.mjs';
 
 const VAULT_CONFIG = '/etc/agent-sandbox/vault.json';
 if (!existsSync(VAULT_CONFIG)) throw new Error('with-vault: add vault.json, with project and environment, to this sandbox\'s directory under ~/.config/agent-sandbox/sandboxes.');
@@ -70,6 +71,10 @@ async function sourceFetchRequest(repository) {
 }
 
 async function sandboxRequest() {
+  if (requestedGroup === 'codex') return {
+    groups: [{ [CODEX_PUBLICATION.path]: [CODEX_PUBLICATION.name] }],
+    environment: session => Object.fromEntries(Object.entries(session).filter(([name]) => SOURCE_FETCH_ENVIRONMENT.includes(name))),
+  };
   const { sandbox } = await import('./sandbox.mjs');
   return {
     groups: [{ [GITHUB_PATH]: Object.values(sandbox.owners) }, sandbox.secrets, onRequest(requestedGroup, sandbox)],
