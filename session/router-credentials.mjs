@@ -15,8 +15,10 @@ const CREDENTIALS = [
 const COMMAND_SECONDS = 120;
 const INPUTS = {
   file: value => ({ expires: synchronizeCodex(value) }),
-  keys: importKey,
-  accounts: (value, provider) => ingest(['accounts', 'import', provider, '/dev/stdin', '--yes'], value, provider),
+  keys: (value, provider) => {
+    if (!magpie(['provider', 'keys', provider]).split(/\r?\n/u).includes(value)) magpie(['provider', 'keys', provider, 'add', '-'], value);
+  },
+  accounts: (value, provider) => { magpie(['accounts', 'import', provider, '/dev/stdin', '--yes'], value); },
 };
 
 function credentialsFor() {
@@ -25,21 +27,15 @@ function credentialsFor() {
   return CREDENTIALS.filter(entry => entry.input === 'file' || configured.has(`${entry.path}/${entry.name}`));
 }
 
-function importKey(value, provider) {
-  const { status, stdout } = spawnSync('magpie', ['provider', 'keys', provider], {
-    encoding: 'utf8', env: basicEnvironment(process.env, RUNTIME_SETTINGS), stdio: ['ignore', 'pipe', 'ignore'], timeout: COMMAND_SECONDS * 1000,
+// Node gives a child a socket as stdin, which `open('/dev/stdin')` refuses, so `cat` hands Magpie a pipe.
+function magpie(arguments_, input = '') {
+  const { status, stdout } = spawnSync('/bin/sh', ['-c', 'cat | "$@"', 'router-credentials', 'magpie', ...arguments_], {
+    input, encoding: 'utf8', env: basicEnvironment(process.env, RUNTIME_SETTINGS), stdio: ['pipe', 'pipe', 'ignore'], timeout: COMMAND_SECONDS * 1000,
   });
-  if (status !== 0) throw new Error(`router-credentials: cannot list ${provider}'s keys. Seed its provider first.`);
-  if (stdout.split(/\r?\n/u).includes(value)) return {};
-  return ingest(['provider', 'keys', provider, 'add', '-'], value, provider);
-}
-
-function ingest(arguments_, value, provider) {
-  const { status } = spawnSync('/bin/sh', ['-c', 'cat | "$@"', 'router-credentials', 'magpie', ...arguments_], {
-    input: value, env: basicEnvironment(process.env, RUNTIME_SETTINGS), stdio: ['pipe', 'ignore', 'ignore'], timeout: COMMAND_SECONDS * 1000,
-  });
-  if (status !== 0) throw new Error(`router-credentials: Magpie refused ${provider} (exit ${status}). Check the vault credential and seed the router if its providers are missing.`);
-  return {};
+  if (status !== 0) {
+    throw new Error(`router-credentials: magpie ${arguments_.slice(0, 3).join(' ')} failed (exit ${status}). Check the vault credential and seed the router if its providers are missing.`);
+  }
+  return stdout;
 }
 
 main(import.meta, () => {
