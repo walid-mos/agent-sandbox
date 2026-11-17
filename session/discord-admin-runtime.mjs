@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CHANNEL } from './discord-admin-operations.mjs';
-import { isApplicationRole } from './discord-admin-policy.mjs';
+import { protectionOf } from './discord-admin-protection.mjs';
 import { northStarProtection, routeProtection } from './discord-admin-metadata.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 
@@ -53,9 +53,8 @@ export async function discoverProtection({ api, config, primaryHome, stateDirect
   const cache = channelCache(cachePath, guildId);
   const names = [...new Set([config.bot.toLowerCase(), ...Object.keys(config.doors ?? {})])];
   const potChannels = Object.fromEntries(names.map(name => [name, potChannelId(name, channels, cache)]));
-  const protection = { guildId, channelIds: [...new Set([...Object.values(potChannels), ...routing.channelIds, ...northStar.channelIds])],
-    threadIds: [...new Set([...routing.threadIds, ...northStar.threadIds])], botRoleIds: roles.filter(role => isApplicationRole(role, bot.id)).map(role => role.id) };
-  if (!protection.botRoleIds.length) throw new Error('discord-admin: application managed role is missing.');
+  const protection = protectionOf({ guildId, roles, botId: bot.id,
+    channelIds: [...Object.values(potChannels), ...routing.channelIds, ...northStar.channelIds], threadIds: [...routing.threadIds, ...northStar.threadIds] });
   writePrivateJson(cachePath, { guildId, potChannels });
   return protection;
 }

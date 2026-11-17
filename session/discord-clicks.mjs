@@ -1,9 +1,7 @@
 import { answerParts, answersOf, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
 import { bindsTo, eventOf } from './discord-event.mjs';
 import { isPotName, isRequestId } from './door-messages.mjs';
-import { requireApprovalDisplay } from './discord-admin-message.mjs';
-
-const MESSAGE_LIMIT = 2000;
+import { DISCORD_MESSAGE_LIMIT, requireApprovalDisplay } from './discord-admin-message.mjs';
 
 export function registerDiscordQuestion(registration, store, identity) {
   return saveRegistration(registration, store, identity, { savedRegistration: registration, registrationState: 'saved', registered: false });
@@ -79,7 +77,7 @@ function disabled(components = []) {
 const answered = answer => `Answered: ${answerParts(answer).join(', ')}`;
 
 function messageUpdate(message, content, components = message.components) {
-  const body = { content: content.slice(0, MESSAGE_LIMIT), allowed_mentions: { parse: [] } };
+  const body = { content: content.slice(0, DISCORD_MESSAGE_LIMIT), allowed_mentions: { parse: [] } };
   if (components?.length) body.components = disabled(components);
   return { channelId: message.channelId, messageId: message.messageId, body };
 }

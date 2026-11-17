@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { closeDiscordQuestion, registerOwnerQuestion } from './discord-clicks.mjs';
 import { DIALOG_ID, MASTERMIND_POT, packet } from './human-contract.mjs';
 import { questionDigest, questionPacket } from './human-dialogs.mjs';
-import { approvalMessage, canonicalJson, requireApprovalDisplay } from './discord-admin-message.mjs';
+import { approvalMessage, canonicalJson, DISCORD_MESSAGE_LIMIT, requireApprovalDisplay } from './discord-admin-message.mjs';
 import { snowflake } from './discord-admin-operations.mjs';
 
 export const DISCORD_ADMIN = { id: 'discord-admin', name: 'Discord Admin' };
@@ -12,6 +12,7 @@ const QUESTION = 'operation';
 const DIALOG_BYTES = 16;
 const APPROVAL_TTL_MS = 15 * 60 * 1000;
 const SCOPE_LIMIT = 1400;
+const TOO_LONG = 'discord-admin: approval scope is too long for one Discord question. Reduce this operation before requesting approval.';
 
 const operationScope = ({ approval: _approval, ...request }) => canonicalJson(request);
 const requestId = dialog => `${MASTERMIND_POT}.${dialog}`;
@@ -19,7 +20,7 @@ const isUnused = prepared => prepared && !prepared.consumed && prepared.expiresA
 
 function approvalQuestion(id, request) {
   const scope = operationScope(request);
-  if (scope.length > SCOPE_LIMIT) throw new Error('discord-admin: approval scope is too long for one Discord question. Reduce this operation before requesting approval.');
+  if (scope.length > SCOPE_LIMIT) throw new Error(TOO_LONG);
   return { id, kind: 'question', policy: 'ordinary', scope, context: `Discord Admin asks to apply one exact operation: ${scope}`,
     questions: [{ id: QUESTION, prompt: `Apply ${request.action} once, exactly as scoped?`, multiple: false, options: [
       { label: APPROVE, detail: 'Applies only this guild, resource and payload, once.', recommended: false },
@@ -49,9 +50,11 @@ function clickedLabel(pick, { ownerId, guildId }) {
 async function prepareApproval(request, ownerId, pending) {
   const id = randomBytes(DIALOG_BYTES).toString('hex');
   const question = approvalQuestion(id, request);
+  const shown = questionPacket(question);
+  const message = approvalMessage(shown, 'disabled');
+  if (message.content.length > DISCORD_MESSAGE_LIMIT) throw new Error(TOO_LONG);
   await pending.locked(({ save }) => save({ id, question, ownerId, expiresAt: Date.now() + APPROVAL_TTL_MS }), id);
-  const packet = questionPacket(question);
-  return { status: 'approval_required', approval: id, question: packet, message: approvalMessage(packet, 'disabled') };
+  return { status: 'approval_required', approval: id, question: shown, message };
 }
 
 async function closeApproval(id, question, answer, clicks) {
