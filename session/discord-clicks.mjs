@@ -4,7 +4,7 @@ import { isPotName, isRequestId } from './door-messages.mjs';
 
 const MESSAGE_LIMIT = 2000;
 
-export async function registerDiscordQuestion(registration, store, identity) {
+export function checkRegistration(registration, identity) {
   const { question, request, pot, channelAccount, guildId, messages } = registration;
   if (question?.type !== 'human.question' || question.version !== VERSION || !DIALOG_ID.test(question.dialog) || !DIGEST.test(question.digest)) throw new Error('discord-human: invalid question packet.');
   if (!isRequestId(request) || !isPotName(pot) || !channelAccount || !isSnowflake(guildId)) throw new Error('discord-human: register the originating door and channel account.');
@@ -13,6 +13,11 @@ export async function registerDiscordQuestion(registration, store, identity) {
   checkDiscordPolicy(question.policy, identity);
   if (!Array.isArray(messages) || messages.length !== question.questions.length || !messages.every(message => isSnowflake(message.channelId) && isSnowflake(message.messageId))) throw new Error('discord-human: register one Discord message per question.');
   if (new Set(messages.map(message => `${message.channelId}/${message.messageId}`)).size !== messages.length) throw new Error('discord-human: question messages must be distinct.');
+}
+
+export async function registerDiscordQuestion(registration, store, identity) {
+  checkRegistration(registration, identity);
+  const { question } = registration;
   return store.locked(({ get, save }) => {
     const existing = get(question.dialog);
     if (existing) {
@@ -80,6 +85,7 @@ export async function acceptDiscordClick(row, { store, identity, channelAccount,
     const message = asked && messages[event.questionIndex];
     if (!message || channelAccount !== record.registration.channelAccount || (event.guildId && event.guildId !== record.registration.guildId)) throw new Error('discord-human: click does not belong to the registered message.');
     if (!bindsTo(record.registration, asked, event.questionIndex, event)) throw new Error('discord-human: click does not name a registered control of this question.');
+    if (record.localAdmin && event.userId !== record.ownerId) throw new Error('discord-human: only the guild owner can decide this administration approval.');
     if (record.closed || Object.hasOwn(record.picks, asked.id)) return withdrawn(record, asked, message, save);
     const messageUrl = discordMessageUrl({ guildId: record.registration.guildId, ...message });
     const evidence = discordEvidence({ userId: event.userId, guildId: event.guildId ?? record.registration.guildId, messageUrl, at }, identity, question.policy);

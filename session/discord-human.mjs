@@ -63,11 +63,16 @@ async function completions(onError) {
   for (const request of dialogDoors.all().filter(item => item.kind === DIALOG && item.direction === RECEIVED)) await completeRequest(request, onError);
 }
 
-// A refusal is final for this answer, so it is reported once and kept instead of resending the same answer every pass.
+// A refusal is final, so delivery records it instead of resending the same answer.
 async function deliverAnswer(record, onError) {
   const isWaiting = !record.outbox || record.replySent || record.answerFailure || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS;
   if (isWaiting) return;
   await store.patch(record.id, { attemptedAt: Date.now() });
+  if (record.localAdmin) {
+    await commandWithInput('pots', ['wake', '--bot', botId, '--from', 'discord-admin', '--note', `Discord Admin dialog ${record.id} has a registered click. Delegate approve with this ID to discord-admin. The command rechecks the exact operation and consumes it once.`], '', { timeout: 10_000 });
+    await store.patch(record.id, { replySent: true });
+    return;
+  }
   const { request } = record.registration;
   try {
     await dialogDoors.reply(request, JSON.stringify(record.outbox));
