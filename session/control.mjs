@@ -9,7 +9,7 @@ import { conversation, isFromBot, say, secretRequests, TERMINAL } from './termin
 import { queued } from './queue.mjs';
 import { commandOutput } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { endTerminal, isStopped, liveTerminals, markStopped, terminalOf, WORKER_PREFIX, workers } from './workers.mjs';
+import { endTerminal, isStopped, liveTerminals, markStopped, terminalOf, workerTitle, workers } from './workers.mjs';
 import { answerDialog, waitingDialog } from './worker-dialogs.mjs';
 
 const MESSAGE_LIMIT = 80;
@@ -73,7 +73,7 @@ async function snapshot() {
     const isQueued = !terminal && waiting.has(worker.name);
     const status = isStopped(worker) ? 'offline' : terminal?.status ?? (isQueued ? 'starting' : worker.status ?? 'starting');
     const dialog = status === 'blocked' && terminal ? waitingDialog(terminal) : null;
-    return { ...worker, title: terminal?.labels?.['agent.title'] ?? worker.title ?? worker.name.slice(WORKER_PREFIX.length), terminal: terminal?.address ?? null, status, dialog, isQueued };
+    return { ...worker, title: workerTitle(worker, terminal), terminal: terminal?.address ?? null, status, dialog, isQueued };
   });
   const [status, children, routines, trace] = await sections;
   return {

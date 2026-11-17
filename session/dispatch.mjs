@@ -85,18 +85,23 @@ function queueWorker(worker, text) {
   process.stdout.write(`${JSON.stringify({ ...worker, brief, ahead, maxWorkers })}\n`);
 }
 
-function task(arguments_) {
-  const { values, positionals } = parseArgs({ args: arguments_, options: TASK_OPTIONS, allowPositionals: true });
-  const [id, directory, briefFile, resultFile] = positionals;
-  if (positionals.length !== 4 || !/^[a-zA-Z0-9-]+$/.test(id ?? '') || !ONE_VISIBLE_LINE.test(values.title ?? '') || !ONE_VISIBLE_LINE.test(values.scope ?? '')) {
-    throw new Error('dispatch: task needs --title, --scope, a task name, absolute workdir, brief-file and absolute result-file.');
-  }
+function taskDirectory(directory, resultFile) {
   if (!isAbsolute(directory) || !isAbsolute(resultFile)) throw new Error('dispatch: task workdir and result-file must be absolute paths.');
   const worktree = realpathSync(directory);
   const resultParent = realpathSync(dirname(resultFile));
   if (!(resultParent === worktree || resultParent.startsWith(worktree + sep)) || existsSync(resultFile)) {
     throw new Error('dispatch: use a new result-file within the task workdir.');
   }
+  return worktree;
+}
+
+function task(arguments_) {
+  const { values, positionals } = parseArgs({ args: arguments_, options: TASK_OPTIONS, allowPositionals: true });
+  const [id, directory, briefFile, resultFile] = positionals;
+  if (positionals.length !== 4 || !/^[a-zA-Z0-9-]+$/.test(id ?? '') || !ONE_VISIBLE_LINE.test(values.title ?? '') || !ONE_VISIBLE_LINE.test(values.scope ?? '')) {
+    throw new Error('dispatch: task needs --title, --scope, a task name, absolute workdir, brief-file and absolute result-file.');
+  }
+  const worktree = taskDirectory(directory, resultFile);
   servedRequest(values.for);
   const name = terminalName(`${WORKER_PREFIX}task-${id}`);
   ensureNewWorker(name);

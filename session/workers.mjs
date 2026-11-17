@@ -22,6 +22,8 @@ export function terminalName(text, identity = text) {
   return `${readable.slice(0, TERMINAL_NAME_LIMIT - DIGEST_LENGTH - 1)}-${digest}`;
 }
 
+export const workerTitle = (worker, terminal) => terminal?.labels?.['agent.title'] ?? worker.title ?? worker.name.slice(WORKER_PREFIX.length);
+
 export function workers() {
   if (!existsSync(WORKERS)) return [];
   return readdirSync(WORKERS).filter(path => path.endsWith('.json'))
