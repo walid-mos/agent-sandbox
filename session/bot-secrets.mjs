@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { botSecretFiles } from './bot-secrets-config.mjs';
 import { main } from './main.mjs';
@@ -19,10 +19,25 @@ async function secretLine({ path, name }) {
   }
 }
 
+function prepareDirectory(path) {
+  if (!lstatSync(path, { throwIfNoEntry: false })) mkdirSync(path, { mode: 0o700 });
+  const info = lstatSync(path);
+  if (!info.isDirectory() || info.uid !== process.getuid()) throw new Error();
+}
+
+function prepareHome() {
+  try {
+    prepareDirectory(potsHome);
+    prepareDirectory(SECRETS_HOME);
+  } catch {
+    throw new Error('bot-secrets: ~/.pots and ~/.pots/secrets must be directories owned by the session user, without symlinks.');
+  }
+}
+
 function save(file, content) {
+  prepareHome();
   const staging = join(SECRETS_HOME, `.${file}.${randomUUID()}`);
   try {
-    mkdirSync(SECRETS_HOME, { recursive: true, mode: 0o700 });
     writeFileSync(staging, content, { mode: 0o600, flag: 'wx' });
     renameSync(staging, join(SECRETS_HOME, file));
   } catch {
