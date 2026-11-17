@@ -68,6 +68,14 @@ test('a webhook voice copy of the canonical message cannot serve as the approval
   assert.equal(proof.dependencies.mutations.length, 0);
 });
 
+test('an operation whose full scope cannot fit one message gets no approval', async t => {
+  const proof = await setup(t);
+  const oversized = request('channel.delete', { channelId, reason: '`'.repeat(400) });
+  await assert.rejects(administerDiscord(oversized, proof.dependencies), /too long/);
+  assert.deepEqual(proof.pending.all().map(record => record.id), [proof.input.approval]);
+  assert.equal(proof.dependencies.mutations.length, 0);
+});
+
 test('a text-only click without its canonical message snapshot claims nothing', async t => {
   const proof = await setup(t);
   await proof.approvals.register(proof.registration);
