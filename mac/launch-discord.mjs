@@ -1,3 +1,5 @@
+import { CLOCK_SKEW_MS } from '../session/launch-contract.mjs';
+
 const API = 'https://discord.com/api/v10';
 const REQUEST_MS = 10_000;
 const RECONNECT_MS = 5000;
@@ -78,7 +80,7 @@ export function discordClient(token, { fetcher = fetch, connect = url => new Web
     const channel = await api('GET', `/channels/${settings.channelId}`);
     await api('GET', `/guilds/${settings.guildId}/members/${settings.humanDiscord.userId}`);
     if (!bot.bot || !(application.flags & BOT_FLAG_CONTENT) || channel.guild_id !== settings.guildId) throw new Error('mac-launch: bot identity, Message Content intent or launch server does not match.');
-    if (!Number.isFinite(serverTime) || Math.abs(Date.now() - serverTime) > 5000) throw new Error('mac-launch: this Mac and Discord must agree on time within five seconds.');
+    if (!Number.isFinite(serverTime) || Math.abs(Date.now() - serverTime) > CLOCK_SKEW_MS) throw new Error(`mac-launch: this Mac and Discord must agree on time within ${CLOCK_SKEW_MS / 1000} seconds.`);
   }
   const history = (channel, before) => api('GET', `/channels/${channel}/messages?limit=100${before ? `&before=${before}` : ''}`);
   return { post, edit, acknowledge, listen, check, history };

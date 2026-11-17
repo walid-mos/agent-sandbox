@@ -38,12 +38,19 @@ const attacks = {
   'another digest': e => { e.data.custom_id = `ml:${request.launch}:${'b'.repeat(64)}`; },
   'refusal as approval': e => { e.data.custom_id = buttonId(request, 'mx'); },
   'stale press': e => { e.id = snowflake(now - 30_001); },
-  'future press': e => { e.id = snowflake(now + 1); },
+  'future press': e => { e.id = snowflake(now + 5001); },
 };
 for (const [name, attack] of Object.entries(attacks)) test(`rejects ${name}`, () => {
   const event = click();
   attack(event);
   assert.throws(() => verifyPress(event, offer, settings, now, 'ml'));
+});
+
+test('a Mac clock that trails Discord or the pot by a few seconds still accepts', () => {
+  const event = click();
+  event.id = snowflake(now + 5000);
+  assert.equal(verifyPress(event, offer, settings, now, 'ml').launch, request.launch);
+  assert.equal(verifyOffer(shownRequest(request, offer.prompt, 'open'), launchNotice(request), settings, now - 5000).request.launch, request.launch);
 });
 
 test('the private switch and expiry are rechecked at the press', () => {
@@ -57,7 +64,7 @@ test('the gate refuses a changed source, target, future or forbidden scope', () 
   for (const changes of [{ state: 'superseded' }, { target: 'macbook-pro' }, { prompt: 'Other bytes.' }, { state: 'cancelled' }]) {
     assert.throws(() => verifyOffer({ ...shown, ...changes }, launchNotice(request), settings, now));
   }
-  assert.throws(() => verifyOffer(shown, launchNotice(request), settings, now - 1));
+  assert.throws(() => verifyOffer(shown, launchNotice(request), settings, now - 5001));
   const signed = launchRequest({ ...request, prompt: 'Sign the tip.', acts: ['sign-tip'] });
   assert.throws(() => verifyOffer(shownRequest(signed, 'Sign the tip.', 'open'), launchNotice(signed), settings, now), /refuses sign-tip/);
 });

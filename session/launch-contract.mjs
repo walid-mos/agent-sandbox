@@ -5,6 +5,8 @@ import { DIALOG_ID, DIGEST, discordMessage, packet, text, VERSION } from './huma
 import { isPotName } from './door-messages.mjs';
 
 export const LAUNCH_TTL_MS = 30 * 60 * 1000;
+// A Mac's clock may trail Discord's or a pot's by this much, so a press or a request stamped slightly ahead of the Mac still counts.
+export const CLOCK_SKEW_MS = 5000;
 const PROMPT_BYTES = 12_000;
 export const REPORT_CHARACTERS = 8000;
 const LINE_CHARACTERS = 100;
