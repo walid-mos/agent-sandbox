@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -6,7 +6,6 @@ import { ROUTER_MODEL } from './models.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 
 export const WORKERS = join(homedir(), '.config/agent-sandbox/workers');
-export const RESUME = '--continue';
 export const WORKER_PREFIX = 'pots-';
 // hc accepts terminal names of at most 32 characters.
 const TERMINAL_NAME_LIMIT = 32;
@@ -71,7 +70,9 @@ export function recordPass(worker, pass, commit) {
 export const isLive = terminal => terminal.state === 'live';
 
 export function allTerminals() {
-  return JSON.parse(command('hc', ['ls', '--all'])).terminals;
+  return JSON.parse(command('hc', ['ls', '--all', '--json'])).terminals
+    .map(terminal => ({ ...JSON.parse(command('hc', ['get', '--json', terminal.address])), agent: terminal.agent }))
+    .map(terminal => ({ ...terminal, status: terminal.status?.state ?? terminal.status }));
 }
 
 export function liveTerminals() {
@@ -79,7 +80,8 @@ export function liveTerminals() {
 }
 
 export function terminalOf(worker, terminals) {
-  return terminals.find(terminal => terminal.name === worker.name);
+  return terminals.find(terminal => terminal.name === worker.name && worker.owner && worker.launchId &&
+    (!worker.terminal || terminal.address === worker.terminal) && terminal.labels?.['pots.launch'] === worker.launchId && terminal.labels?.['pots.owner'] === worker.owner);
 }
 
 /** Writes the terminal's screen beside the worker's record, and resolves to that file. */
@@ -101,20 +103,31 @@ export function endTerminal(worker, terminals) {
   if (terminal) closeTerminal(worker, terminal);
 }
 
-export function openTerminal({ name, cwd, tab, options = [], label, vaultCommand }) {
-  command('hc', ['run', '--bg', ...options, '--name', name, '--cwd', cwd, '--label', label,
+export function openTerminal({ name, cwd, tab, options = [], labels = [], label, vaultCommand }) {
+  command('hc', ['run', '--bg', ...options, '--name', name, '--cwd', cwd, '--label', label, ...labels.flatMap(value => ['--label', value]),
     '--label', 'herdr.space=sppots', '--label', `herdr.tab=tb${tab}`,
     '--', 'nice', '-n', WORKER_NICENESS, WITH_VAULT, ...vaultCommand]);
   return JSON.parse(command('hc', ['get', name])).address;
 }
 
 export function launch(worker, conversation) {
+  const launchId = randomUUID();
+  if (!worker.owner) throw new Error('dispatch: worker has no recorded Pots owner. Inspect it before relaunching.');
+  if (worker.sessionFile && !existsSync(worker.sessionFile)) throw new Error('dispatch: the recorded session file is missing. Restore it before resuming.');
+  const sessionId = worker.sessionId ?? randomUUID();
+  const sessionDir = worker.sessionDir ?? join(WORKERS, 'sessions', worker.name);
+  mkdirSync(sessionDir, { recursive: true });
+  const session = worker.sessionFile ? ['--session', worker.sessionFile] : ['--session-dir', sessionDir, '--session-id', sessionId];
+  const launched = { ...worker, launchId, sessionId, sessionDir, terminal: undefined, startedAt: Date.now(), isClosed: false, isComplete: false, lastReport: undefined, result: undefined };
+  save(launched);
   const terminal = openTerminal({
     name: worker.name, cwd: worker.worktree, tab: worker.name, label: 'pots.worker=true',
+    labels: [`pots.owner=${worker.owner}`, `pots.launch=${launchId}`],
     options: ['--no-parent', '--no-notify', '--outlive-parent'],
-    vaultCommand: ['pi', '--provider', 'magpie', '--model', worker.model ?? ROUTER_MODEL, ...conversation],
+    vaultCommand: ['env', `POTS_WORKER=${worker.name}`, `POTS_OWNER=${worker.owner}`, `POTS_LAUNCH=${launchId}`,
+      'pi', '--extension', join(import.meta.dirname, 'worker-agent.mjs'), ...session,
+      '--provider', 'magpie', '--model', worker.model ?? ROUTER_MODEL, ...conversation],
   });
-  const launched = { ...worker, terminal, startedAt: Date.now(), isClosed: false };
-  save(launched);
-  return launched;
+  save({ ...launched, terminal });
+  return { ...launched, terminal };
 }

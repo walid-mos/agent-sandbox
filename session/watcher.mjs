@@ -6,13 +6,15 @@ import { inspectWorker } from './inspect-worker.mjs';
 import { main } from './main.mjs';
 import { isRequest, QUEUE, queued } from './queue.mjs';
 import { serveQueue } from './serve-queue.mjs';
-import { allTerminals, closeTerminal, isLive, liveTerminals, workers } from './workers.mjs';
+import { allTerminals, closeTerminal, isLive, liveTerminals, terminalOf, workers } from './workers.mjs';
+import { botId } from './sandbox.mjs';
+import { LIFECYCLE } from './worker-lifecycle.mjs';
 
 // One change of a terminal comes as several events, so a pass waits for the burst to end.
 const SETTLE_MS = 200;
 const RESUBSCRIBE_MS = 5000;
 // hc also reports title, label, size and document changes, and a pass reads none of them.
-const WAKING_EVENTS = new Set(['created', 'lost', 'restarted', 'finished', 'removed', 'status', 'turn']);
+const WAKING_EVENTS = new Set(['created', 'lost', 'restarted', 'finished', 'removed', 'status', 'turn', 'label']);
 let settling;
 let deadline;
 
@@ -31,7 +33,8 @@ function logged(subject, step) {
 
 // A worker's terminal that ended on its own, as in a crash, keeps its screen beside the record and leaves hc's list.
 function sweep(terminals, records) {
-  terminals.filter(terminal => !isLive(terminal) && records.has(terminal.name))
+  terminals.filter(terminal => !isLive(terminal) && records.has(terminal.name) &&
+    records.get(terminal.name).owner === botId && terminalOf(records.get(terminal.name), [terminal]))
     .forEach(terminal => logged(terminal.name, () => closeTerminal(records.get(terminal.name), terminal)));
 }
 
@@ -46,7 +49,7 @@ function pass() {
     const terminals = allTerminals();
     const records = workers();
     sweep(terminals, new Map(records.map(worker => [worker.name, worker])));
-    const view = { terminals: terminals.filter(isLive), now: Date.now(), pending: new Set(queued().map(request => request.worker)) };
+    const view = { terminals, now: Date.now(), pending: new Set(queued().map(request => request.worker)) };
     const times = records.map(worker => logged(worker.name, () => inspectWorker(worker, view)));
     // Inspection ends terminals, so the queue is served from a fresh list where their slots are free.
     const live = liveTerminals();
@@ -96,5 +99,7 @@ function followQueue() {
 
 main(import.meta, () => {
   followQueue();
+  mkdirSync(LIFECYCLE, { recursive: true });
+  watch(LIFECYCLE, passSoon);
   followTerminals();
 });

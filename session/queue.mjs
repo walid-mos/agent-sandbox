@@ -23,6 +23,12 @@ export function queued() {
     .map(file => ({ ...JSON.parse(readFileSync(join(QUEUE, file), 'utf8')), file }));
 }
 
+export function updateRequest(request, changes) {
+  const path = join(QUEUE, request.file);
+  writeFileSync(`${path}.tmp`, JSON.stringify({ ...request, ...changes }), { mode: 0o600 });
+  renameSync(`${path}.tmp`, path);
+}
+
 export function dequeue(request) {
   rmSync(join(QUEUE, request.file), { force: true });
 }
