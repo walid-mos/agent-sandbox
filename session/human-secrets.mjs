@@ -1,10 +1,10 @@
-import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { handOffBrowserSecret } from './human-browser.mjs';
 import { BROWSER_KEY, targetKeys } from './human-contract.mjs';
 import { storeSecrets } from './pots-secrets.mjs';
 import { humanStore } from './human-store.mjs';
+import { commandWithInput } from './run.mjs';
 
 const VALUE_LIMIT = 4096;
 const WRITER = join(homedir(), '.pi/agent/security/secret-set.mjs');
@@ -12,13 +12,8 @@ const WRITER = join(homedir(), '.pi/agent/security/secret-set.mjs');
 function writeInfisical(target, value) {
   const arguments_ = [WRITER, '--projectId', target.projectId, '--env', target.environment, '--name', target.name, '--path', target.path];
   if (target.replace) arguments_.push('--replace');
-  return new Promise((resolve, reject) => {
-    const writer = execFile('node', arguments_, { timeout: 120_000 }, error => {
-      if (error) reject(new Error('human: the vault did not confirm the write. Check its access before trying a new request.'));
-      else resolve();
-    });
-    writer.stdin.on('error', () => {});
-    writer.stdin.end(value);
+  return commandWithInput('node', arguments_, value, { timeout: 120_000 }).catch(() => {
+    throw new Error('human: the vault did not confirm the write. Check its access before trying a new request.');
   });
 }
 

@@ -1,5 +1,5 @@
 const KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const SNOWFLAKE = /^\d{17,20}$/;
+export const SNOWFLAKE = /^\d{17,20}$/;
 export const DIALOG_ID = /^[a-f0-9]{32}$/;
 export const DIGEST = /^[a-f0-9]{64}$/;
 export const RELAYED_POLICIES = ['ordinary', 'push'];
@@ -16,6 +16,10 @@ export const MASTERMIND_POT = 'mastermind';
 
 const text = value => typeof value === 'string' && value.trim().length > 0;
 const unique = values => new Set(values).size === values.length;
+// The pane sends a multiple-choice answer as one picked label per line (herdr/pots-questions.js), so a label holds none.
+export const isLabel = label => text(label) && !/[\r\n]/.test(label);
+/** An option is its label alone, or `{label, detail, recommended}`. */
+export const optionOf = option => (typeof option === 'string' ? { label: option } : option);
 
 export function dialogSource(source) {
   if (source?.type === 'worker' && [source.worker, source.session, source.call].every(text)) return { type: 'worker', worker: source.worker, session: source.session, call: source.call };
@@ -32,8 +36,8 @@ export function questionsOf(questions) {
 
 function questionOf(question) {
   if (!text(question?.id) || !text(question.prompt)) throw new Error('human: each question needs an ID and prompt.');
-  const options = (question.options ?? []).map(option => typeof option === 'string' ? { label: option } : option);
-  if (!options.every(option => text(option?.label) && !/[\r\n]/.test(option.label)) || !unique(options.map(option => option.label))) {
+  const options = (question.options ?? []).map(optionOf);
+  if (!options.every(option => isLabel(option?.label)) || !unique(options.map(option => option.label))) {
     throw new Error('human: options need distinct single-line labels.');
   }
   return { id: question.id, prompt: question.prompt, multiple: question.multiple === true,

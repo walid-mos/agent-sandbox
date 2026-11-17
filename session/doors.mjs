@@ -58,10 +58,14 @@ function settle(id, outcome) {
   return settled;
 }
 
+function knockAndSettle(request, wire) {
+  const outcome = knock(request.pot, wire);
+  return underLock(() => settle(request.id, outcome));
+}
+
 // The message is saved before its door opens, so a cut line leaves it to resend under its own ID, never to ask twice.
 function send(request, wire, done) {
-  const outcome = knock(request.pot, wire);
-  const { state, failure } = underLock(() => settle(request.id, outcome));
+  const { state, failure } = knockAndSettle(request, wire);
   if (state === UNKNOWN) throw new Error(`pots: ${request.id} may have reached ${request.pot}: ${failure}. ${DOOR_COMMAND} resend ${request.id} sends the same message, and ${request.pot} takes it once.`);
   if (state === UNDELIVERED) throw new Error(`pots: ${request.id} did not reach ${request.pot}: ${failure}. ${DOOR_COMMAND} resend ${request.id} sends it once the cause is gone.`);
   if (state === REFUSED) throw new Error(`pots: ${request.pot} refused ${request.id}: ${failure}. It is closed, and ${DOOR_COMMAND} resend refuses it. Tell the person; ${DOOR_COMMAND} requests lists what this pot still waits on from ${request.pot}.`);
@@ -86,8 +90,7 @@ export function prepareAsk({ pot, need, served, key }) {
 export function transmitAsk(request) {
   const current = find(request.id);
   if (!RESENDABLE.includes(current.state)) return current;
-  const outcome = knock(current.pot, requestMessage(current.id, current.hop, current.need));
-  return underLock(() => settle(current.id, outcome));
+  return knockAndSettle(current, requestMessage(current.id, current.hop, current.need));
 }
 
 function ask(arguments_) {

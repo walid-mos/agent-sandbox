@@ -26,12 +26,12 @@ function checkedReply(dialog, reply) {
   }
   if (!Array.isArray(reply.clicks) || reply.clicks.length !== dialog.questions.length) throw new Error('human: answer must carry one click per question.');
   if (!dialog.posted) throw new Error('human: no registered Discord message context.');
-  for (const question of dialog.questions) {
+  const messages = dialog.questions.map(question => {
     const click = clickOf(question, reply.clicks);
     const message = dialog.posted.messages.find(item => item.question === question.id);
     if (click.messageUrl !== message?.messageUrl || click.guildId !== dialog.posted.guildId) throw new Error('human: click does not match its registered message.');
-  }
-  const messages = dialog.questions.map(question => discordMessage(clickOf(question, reply.clicks).messageUrl).messageId);
+    return discordMessage(click.messageUrl).messageId;
+  });
   if (new Set(messages).size !== messages.length) throw new Error('human: each question needs its own Discord message.');
 }
 
@@ -64,9 +64,12 @@ export async function answerQuestion(id, answer, { store = humanStore(), identit
     const dialog = get(id);
     if (dialog?.kind !== 'question') throw new Error('human: no such question.');
     if (dialog.result) return dialog;
-    if (origin === 'discord' && dialog.policy === LOCAL_POLICY) throw new Error('human: this question requires the pot terminal.');
-    if (origin === 'discord') checkedReply(dialog, answer);
-    const evidence = origin === 'discord' ? { clicks: answer.clicks.map(click => ({ question: click.question, ...discordEvidence(click, identity, dialog.policy) })) } : undefined;
+    let evidence;
+    if (origin === 'discord') {
+      if (dialog.policy === LOCAL_POLICY) throw new Error('human: this question requires the pot terminal.');
+      checkedReply(dialog, answer);
+      evidence = { clicks: answer.clicks.map(click => ({ question: click.question, ...discordEvidence(click, identity, dialog.policy) })) };
+    }
     const answers = answersOf(dialog.questions, answer.answers);
     return save({ ...dialog, result: { status: 'answered', origin, answers, evidence, messageId, dialog: id, request: dialog.delivery?.id, digest: questionDigest(dialog), scope: dialog.scope, at: Date.now() } });
   }, id);

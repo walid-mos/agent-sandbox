@@ -1,18 +1,16 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { targetKeys } from './human-contract.mjs';
 import { storeDialogSecret } from './human-secrets.mjs';
 import { humanStore } from './human-store.mjs';
+import { commandOutput } from './run.mjs';
 import { botId, potsHome } from './sandbox.mjs';
 
-const runFile = promisify(execFile);
 const PAGE_COMMAND_MS = 15_000;
 
 async function pageCommand(binary, arguments_) {
-  try { return (await runFile(binary, arguments_, { encoding: 'utf8', timeout: PAGE_COMMAND_MS })).stdout.trim(); }
+  try { return await commandOutput(binary, arguments_, { timeout: PAGE_COMMAND_MS }); }
   catch { throw new Error('human: the native secret page service is unavailable. Check Pots and the tailnet page proxy.'); }
 }
 
@@ -40,6 +38,8 @@ const stageFile = id => `human-${id}.env`;
 const stagePath = id => join(homedir(), '.pots/secrets', stageFile(id));
 
 export async function ensureSecretPage(id, store = humanStore()) {
+  const known = store.get(id);
+  if (!isOpen(known) || known.pageLink) return known;
   const origin = await pageOrigin();
   return store.locked(async ({ get, save }) => {
     const dialog = get(id);
@@ -75,9 +75,9 @@ async function revokePage(dialog, store) {
     rmSync(stagePath(id), { force: true });
     if (dialog.pageRevoked) return dialog;
     await pageCommand('pots', ['page', 'unlink', '--bot', botId, dialog.pageLink.id]);
-    return await store.patch(id, { pageRevoked: true, pageIssue: undefined });
+    return await store.patch(id, { pageRevoked: true });
   } catch {
-    return store.patch(id, { pageIssue: 'Secret page cleanup remains pending.' });
+    return dialog;
   }
 }
 

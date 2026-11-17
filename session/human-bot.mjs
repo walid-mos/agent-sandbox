@@ -20,20 +20,22 @@ function inputOf(record) {
 }
 
 // A plain reply answers the newest bot question before it, as a send from the pane does.
-function replyTo(record, following) {
+function replyTo(index, records, inputs) {
+  const record = records[index];
+  const following = records.slice(index + 1);
   if (record.secret) return following.find(item => !isFromBot(item) && item.answers === record.id);
-  const nextQuestion = following.findIndex(item => isFromBot(item) && inputOf(item)?.kind === 'question');
+  const nextQuestion = inputs.slice(index + 1).findIndex(input => input?.kind === 'question');
   const replies = nextQuestion < 0 ? following : following.slice(0, nextQuestion);
   return replies.find(item => !isFromBot(item) && !item.answers);
 }
 
 export async function syncBotDialogs(store = humanStore(), snapshot = conversation()) {
   const records = snapshot.filter(record => record.type === 'message');
-  for (const [index, record] of records.entries()) {
-    if (!isFromBot(record)) continue;
-    const input = inputOf(record);
+  const inputs = records.map(record => (isFromBot(record) ? inputOf(record) : undefined));
+  for (const [index, input] of inputs.entries()) {
     if (!input) continue;
-    const reply = replyTo(record, records.slice(index + 1));
+    const record = records[index];
+    const reply = replyTo(index, records, inputs);
     const existing = store.get(botDialogId(record.id));
     if (reply && !existing) continue;
     const dialog = existing ?? await openDialog(input, store).catch(() => undefined);
@@ -60,6 +62,8 @@ function botAnswers(dialog, text) {
 }
 
 export async function deliverBotResult(id, store = humanStore()) {
+  const known = store.get(id);
+  if (known.source.type !== 'bot' || !known.result || known.deliveredToBot) return undefined;
   return store.locked(({ get, save }) => {
     const dialog = get(id);
     if (dialog.source.type !== 'bot' || !dialog.result || dialog.deliveredToBot) return;

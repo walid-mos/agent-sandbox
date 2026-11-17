@@ -110,9 +110,14 @@ export function openTerminal({ name, cwd, tab, options = [], label, vaultCommand
   return JSON.parse(command('hc', ['get', name])).address;
 }
 
+let hasHumanDialogFlags;
+
 function humanDialogFlags(worker) {
-  const help = command('pi', ['--help'], { timeout: 15_000 });
-  if (!help.includes('--human-dialog-worker') || !help.includes('--human-dialog-broker')) return [];
+  if (hasHumanDialogFlags === undefined) {
+    const help = command('pi', ['--help'], { timeout: 15_000 });
+    hasHumanDialogFlags = help.includes('--human-dialog-worker') && help.includes('--human-dialog-broker');
+  }
+  if (!hasHumanDialogFlags) return [];
   return ['--human-dialog-worker', worker.name, '--human-dialog-broker', HUMAN_BROKER];
 }
 

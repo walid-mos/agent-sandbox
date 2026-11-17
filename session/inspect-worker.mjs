@@ -48,7 +48,7 @@ function report(worker, terminal, status, wake) {
 // A message that reached the worker while it was reported starts a new turn, and the worker then keeps its terminal.
 function closeIfStillDone(worker, terminal) {
   const current = terminalDetails(terminal);
-  if (current.status?.state !== 'done' || current.turn !== terminal.turn || waitsForHuman(worker, terminal)) return;
+  if (current.status?.state !== 'done' || current.turn !== terminal.turn || waitsForHuman(worker, terminal, { inspect: () => current })) return;
   closeTerminal(worker, terminal);
   save({ ...worker, isClosed: true });
 }

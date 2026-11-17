@@ -24,19 +24,14 @@ export async function registerDiscordQuestion(registration, store, identity) {
   }, question.dialog);
 }
 
-function rawOf(row) {
-  try { return JSON.parse(row.raw); } catch { return undefined; }
-}
-
 function formText(components = []) {
   return components.flatMap(component => component.custom_id === 'answer' && typeof component.value === 'string' ? [component.value]
     : formText(component.components ?? (component.component ? [component.component] : []))).join('\n');
 }
 
-function chosenAnswer(question, row, event) {
-  const interaction = rawOf(row);
-  const isForm = event.customId.startsWith('form:');
-  if (isForm) {
+function chosenAnswer(question, event) {
+  const { interaction } = event;
+  if (event.customId.startsWith('form:')) {
     if (interaction?.type !== 5) throw new Error('discord-human: a stored form answers only on its modal submission.');
     return { id: question.id, labels: [], text: formText(interaction.data?.components) };
   }
@@ -74,10 +69,10 @@ export async function acceptDiscordClick(row, { store, identity, channelAccount,
     if (!message || channelAccount !== record.registration.channelAccount || (event.guildId && event.guildId !== record.registration.guildId)) throw new Error('discord-human: click does not belong to the registered message.');
     if (!bindsTo(record.registration, asked, event.questionIndex, event)) throw new Error('discord-human: click does not name a registered control of this question.');
     if (record.closed || Object.hasOwn(record.picks, asked.id)) return withdrawn(record, asked, message, save);
-    const evidence = discordEvidence({ userId: event.userId, guildId: event.guildId ?? record.registration.guildId,
-      messageUrl: discordMessageUrl({ guildId: record.registration.guildId, ...message }), at }, identity, question.policy);
-    const [answer] = answersOf([asked], [chosenAnswer(asked, row, event)]);
-    const picks = { ...record.picks, [asked.id]: { question: asked.id, request: record.registration.request, messageUrl: discordMessageUrl({ guildId: record.registration.guildId, ...message }),
+    const messageUrl = discordMessageUrl({ guildId: record.registration.guildId, ...message });
+    const evidence = discordEvidence({ userId: event.userId, guildId: event.guildId ?? record.registration.guildId, messageUrl, at }, identity, question.policy);
+    const [answer] = answersOf([asked], [chosenAnswer(asked, event)]);
+    const picks = { ...record.picks, [asked.id]: { question: asked.id, request: record.registration.request, messageUrl,
       customId: event.customId, option: event.option, answer, evidence, at } };
     const isComplete = question.questions.every(item => Object.hasOwn(picks, item.id));
     const outbox = isComplete ? packet('human.answer', { dialog: question.dialog, request: record.registration.request, digest: question.digest,
@@ -92,7 +87,7 @@ export async function acceptDiscordClick(row, { store, identity, channelAccount,
 /** A click on a question the owning pot already settled changes no answer, and only takes the controls away. */
 function withdrawn(record, question, message, save) {
   const settled = record.closed?.status ?? 'answered elsewhere';
-  const update = messageUpdate(message, `This question was already ${settled}.`, message.components);
+  const update = messageUpdate(message, `This question was already ${settled}.`);
   save({ ...record, updates: { ...record.updates, [question.id]: update } });
   return { status: 'stale', dialog: record.id, update: update.body, channelId: message.channelId, messageId: message.messageId };
 }

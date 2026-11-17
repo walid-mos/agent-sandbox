@@ -1,9 +1,9 @@
-import { capture, DIALOG_ID, isSnowflake } from './human-contract.mjs';
+import { capture, DIALOG_ID, isSnowflake, SNOWFLAKE } from './human-contract.mjs';
 
 const CUSTOM = new RegExp(`^(?:human|form:human-answer):${capture(DIALOG_ID)}:(\\d+)(?::(\\d+|select))?$`);
 const BUTTON = /^clicked button "(.*)" \(custom_id (\S+)\)$/;
 const MENU = /^chose in menu (\S+): ".*" \(value (\d+)\)$/;
-const PERSON = /^discord:@(\d{17,20})$/;
+const PERSON = new RegExp(`^discord:@${capture(SNOWFLAKE)}$`);
 const REFERENCE = /^discord:#([^/]+)\/(\S+)$/;
 const MERGED = /\n/;
 
@@ -17,18 +17,20 @@ function fromText(row) {
   const button = menu ? undefined : BUTTON.exec(row.text ?? '');
   const asked = menu ? partsOf(menu[1]) : button && partsOf(button[2]);
   if (!asked || (button && MERGED.test(button[1]))) return undefined;
-  return { ...asked, values: menu ? [menu[2]] : undefined, label: button?.[1] };
+  return { ...asked, values: menu ? [menu[2]] : undefined };
 }
 
-function fromRaw(row) {
-  let interaction;
-  try { interaction = JSON.parse(row.raw); } catch { return undefined; }
+function interactionOf(row) {
+  try { return JSON.parse(row.raw); } catch { return undefined; }
+}
+
+function fromRaw(interaction) {
   const asked = partsOf(interaction?.data?.custom_id);
   if (!asked) return undefined;
   const values = interaction.data?.values;
   return { ...asked, values: Array.isArray(values) && values.length ? values.map(String) : undefined,
     userId: interaction.member?.user?.id ?? interaction.user?.id, guildId: interaction.guild_id, channelId: interaction.channel_id,
-    messageId: interaction.message?.id, interactionType: interaction.type };
+    messageId: interaction.message?.id };
 }
 
 function reference(row) {
@@ -39,7 +41,8 @@ function reference(row) {
 /** The exact control a gateway event names, or undefined when the event cannot be bound to one. */
 export function eventOf(row) {
   const text = fromText(row);
-  const raw = fromRaw(row);
+  const interaction = interactionOf(row);
+  const raw = fromRaw(interaction);
   if (text && raw && (text.customId !== raw.customId || text.question !== raw.question)) return undefined;
   if (text?.values && raw?.values && !text.values.every(value => raw.values.includes(value))) return undefined;
   const asked = text && { ...text, values: raw?.values ?? text.values };
@@ -48,8 +51,9 @@ export function eventOf(row) {
   const named = reference(row);
   const person = PERSON.exec(row.person ?? '');
   return { dialog: chosen.dialog, questionIndex: chosen.question, customId: chosen.customId, option: chosen.option,
-    values: chosen.values, label: chosen.label, userId: person?.[1] ?? raw?.userId,
-    guildId: raw?.guildId, channelId: raw?.channelId ?? named?.channel, messageId: raw?.messageId ?? named?.message };
+    values: chosen.values, userId: person?.[1] ?? raw?.userId,
+    guildId: raw?.guildId, channelId: raw?.channelId ?? named?.channel, messageId: raw?.messageId ?? named?.message,
+    interaction };
 }
 
 /**

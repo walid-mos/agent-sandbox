@@ -1,10 +1,8 @@
-import { policyOf } from './human-contract.mjs';
+import { isLabel, optionOf, policyOf } from './human-contract.mjs';
 
 // The bot asks the person to choose by ending a message with a fenced `question` block of JSON, which the pane draws as buttons.
 const BLOCK = /^```question[ \t]*\n([\s\S]*?)\n```[ \t]*$/gm;
 const MIN_OPTIONS = 2;
-// The pane sends a multiple-choice answer as one picked label per line (herdr/pots-questions.js), so a label holds none.
-const LINE_BREAK = /[\r\n]/;
 
 function parsedBlock(json) {
   try {
@@ -13,11 +11,6 @@ function parsedBlock(json) {
     return null;
   }
 }
-
-const isLabel = label => typeof label === 'string' && label.trim() !== '' && !LINE_BREAK.test(label);
-
-/** An option is its label alone, or `{label, detail, recommended}`. */
-const optionOf = option => (typeof option === 'string' ? { label: option } : option);
 
 /** The options of a block that asks a real question, trimmed, or null: at least two, each with a distinct one-line label. */
 function optionsOf(asked) {

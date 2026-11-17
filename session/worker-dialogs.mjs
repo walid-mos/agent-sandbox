@@ -171,9 +171,6 @@ export async function answerDialog(terminal, { dialog, answers }) {
   if (!Array.isArray(answers) || answers.length !== questions.length || questions.some((question, index) => invalidAnswer(question, answers[index]))) {
     throw new Error('pots: answer each question with one option, its own answer, or for a multiple choice at least one of them.');
   }
-  const steps = questions.flatMap((question, index) => answerSteps(question, answers[index]));
-  // Several questions end on the dialog's submit tab, which Enter submits once every question has its answer.
-  const submit = questions.length > 1 ? [{ keys: ['enter'] }] : [];
   const published = publishedDialog(terminal, session, call.id);
   if (published) {
     const submitted = answers.map((answer, index) => ({ id: published.questions[index].id,
@@ -181,6 +178,9 @@ export async function answerDialog(terminal, { dialog, answers }) {
     await answerQuestion(published.id, { answers: submitted });
     return settledResult(session, call.id);
   }
+  const steps = questions.flatMap((question, index) => answerSteps(question, answers[index]));
+  // Several questions end on the dialog's submit tab, which Enter submits once every question has its answer.
+  const submit = questions.length > 1 ? [{ keys: ['enter'] }] : [];
   claimCall(call.id);
   [...steps, ...submit].forEach(step => press(terminal, step));
   return settledResult(session, call.id);
