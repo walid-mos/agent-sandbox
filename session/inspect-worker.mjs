@@ -29,12 +29,13 @@ function report(worker, terminal, status, wake, state, isSettled) {
   save({ ...worker, status, lastReport: wake, result, ...facts });
 }
 
+// A launch whose terminal never opened failed to start, which the bot hears about and answers with a send, so only a crash resumes.
 function recover(worker, state, pending) {
   if (state?.phase === 'closing') {
     save({ ...worker, isClosed: true });
     return;
   }
-  if ([worker.isClosed, pending.has(worker.name), resumed.has(worker.launchId)].some(Boolean)) return;
+  if ([!worker.terminal, worker.isClosed, pending.has(worker.name), resumed.has(worker.launchId)].some(Boolean)) return;
   enqueue({ worker: worker.name });
   resumed.add(worker.launchId);
 }
