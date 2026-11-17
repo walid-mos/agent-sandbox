@@ -35,8 +35,8 @@ export function humanStore(folder = HUMAN_HOME) {
       closeSync(descriptor);
     }
   }
-  function locked(operation, key = 'registry') {
-    if (key !== 'registry' && !DIALOG_ID.test(key)) throw new Error('human: invalid lock ID.');
+  function locked(operation, key) {
+    if (!DIALOG_ID.test(key)) throw new Error('human: invalid lock ID.');
     const queueKey = `${folder}:${key}`;
     const previous = queues.get(queueKey) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(() => acquire(operation, key));

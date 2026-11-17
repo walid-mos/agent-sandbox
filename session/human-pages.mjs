@@ -16,7 +16,7 @@ async function pageCommand(binary, arguments_) {
   catch { throw new Error('human: the native secret page service is unavailable. Check Pots and the tailnet page proxy.'); }
 }
 
-export function checkedPageOrigin(settings, serve) {
+function checkedPageOrigin(settings, serve) {
   let url;
   try { url = new URL(settings.publicUrl); } catch { throw new Error('human: configure a tailnet publicUrl before making a secret link.'); }
   const host = url.host.includes(':') ? url.host : `${url.host}:443`;
