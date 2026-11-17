@@ -35,6 +35,7 @@ async function pageOrigin() {
   return checkedPageOrigin(settings, serve);
 }
 
+const isOpen = dialog => !dialog.result && !dialog.writing && dialog.expiresAt > Date.now();
 const stageFile = id => `human-${id}.env`;
 const stagePath = id => join(homedir(), '.pots/secrets', stageFile(id));
 
@@ -42,7 +43,7 @@ export async function ensureSecretPage(id, store = humanStore()) {
   const origin = await pageOrigin();
   return store.locked(async ({ get, save }) => {
     const dialog = get(id);
-    if (dialog.result || dialog.writing || dialog.pageLink || dialog.expiresAt <= Date.now()) return dialog;
+    if (!isOpen(dialog) || dialog.pageLink) return dialog;
     const output = await pageCommand('pots', ['page', 'secret', '--bot', botId, '--file', stageFile(id), '--keys', targetKeys(dialog.target).join(','), '--text', dialog.purpose]);
     const issued = JSON.parse(output);
     if (issued.via !== 'public-url' || new URL(issued.url).origin !== origin || !/^S\d+$/.test(issued.link)) throw new Error('human: Pots did not return the configured tailnet secret link.');
@@ -57,8 +58,6 @@ function stagedValues(dialog) {
   });
   return Object.fromEntries(pairs);
 }
-
-const isOpen = dialog => !dialog.result && !dialog.writing && dialog.expiresAt > Date.now();
 
 // The staged value leaves the disk after one attempt, whatever its outcome: an interrupted write never accepts a second one.
 async function submitStaged(dialog, store) {
