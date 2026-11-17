@@ -12,6 +12,7 @@ LAUNCHER_ENV=/etc/pots-firewall/launcher.env
 
 . "$NETWORK_ENV"
 . "$LAUNCHER_ENV"
+[ -e "/sys/class/net/$EGRESS" ] || { echo "pots-firewall: the VM has no interface $EGRESS, so the rules keeping sessions off private ranges would match nothing" >&2; exit 1; }
 
 private_egress_rules() {
 	for range in $1; do
