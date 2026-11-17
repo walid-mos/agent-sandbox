@@ -28,6 +28,7 @@ mock.module('./run.mjs', { exports: { WITH_VAULT: '/unused', failureReason: erro
   throw new Error(`Unexpected hc command ${args[0]}`);
 } } });
 const { inspectWorker } = await import('./inspect-worker.mjs');
+const { runCommand } = await import('./commands.mjs');
 const { enqueue, queued } = await import('./queue.mjs');
 const { serveQueue } = await import('./serve-queue.mjs');
 const { WorkerRuntime } = await import('./worker-runtime.mjs');
@@ -82,6 +83,16 @@ beforeEach(t => {
   startRuntime();
 });
 afterEach(() => runtime.stop());
+
+test('model commands identify a task by its title both when sent and when its terminal is gone', () => {
+  const configuration = join(home, '.pi/agent');
+  mkdirSync(configuration, { recursive: true });
+  writeFileSync(join(configuration, 'settings.json'), JSON.stringify({ enabledModels: ['magpie/group/router'] }));
+  const input = { name: 'model', argument: 'router', worker };
+  assert.equal(runCommand(input), 'Sent /model magpie/group/router to Read one report.');
+  endTerminal(worker, terminals);
+  assert.throws(() => runCommand(input), /Read one report is not running/);
+});
 
 test('a task launches visibly and closes only after its result and exact coordinator acknowledgement, without Git', t => {
   const launch = calls.find(call => call.args[0] === 'run').args;
