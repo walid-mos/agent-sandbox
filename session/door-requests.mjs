@@ -16,6 +16,7 @@ export const RECEIVED = 'received';
 export const OPEN = 'open';
 export const ANSWERED = 'answered';
 export const UNDELIVERED = 'undelivered';
+export const UNKNOWN = 'unknown';
 
 // A request's ID names its record, so nothing but a well-formed ID ever reaches a path.
 function recordPath(id) {

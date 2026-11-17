@@ -13,7 +13,7 @@ is_door_delivery() {
 }
 
 case "${1:-}" in
-	ask | reply | requests) exec node "$here/doors.mjs" "$@" ;;
+	ask | reply | resend | requests) exec node "$here/doors.mjs" "$@" ;;
 esac
 if is_door_delivery "$@"; then
 	exec node "$here/doors.mjs" deliver "${3#pot:}"

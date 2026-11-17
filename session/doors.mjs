@@ -1,18 +1,17 @@
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { knock } from './door-knock.mjs';
 import { isPotName, MESSAGE_BYTES, message, newRequestId, parse, REPLY, REQUEST } from './door-messages.mjs';
-import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, remove, save, UNDELIVERED, underLock } from './door-requests.mjs';
+import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, remove, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId, sandbox } from './sandbox.mjs';
 
-const DOOR_CONFIG = fileURLToPath(new URL('./door.ssh_config', import.meta.url));
-const DOOR_SECONDS = 60;
 const CONNECTED = 'Running';
 // A pot that answers nothing cannot be made to hold an endless list: its neighbour waits for an answer first.
-const OPEN_REQUESTS_PER_POT = 20;
-const USAGE = 'usage: pots ask POT --need TEXT | pots reply REQUEST_ID --text TEXT | pots requests [--all]';
+const UNANSWERED_REQUESTS_PER_POT = 20;
+const RESENDABLE = [UNKNOWN, UNDELIVERED];
+const DELIVERED_STATE = { [ASKED]: OPEN, [RECEIVED]: ANSWERED };
+const USAGE = 'usage: pots ask POT --need TEXT | pots reply REQUEST_ID --text TEXT | pots resend REQUEST_ID | pots requests [--all]';
 
 const doors = () => sandbox.doors ?? {};
 
@@ -34,14 +33,22 @@ function ownName() {
   throw new Error('pots: this pot\'s tailnet node is not connected, so it has no name to ask under. Check tailscale status, then ask again.');
 }
 
-// Nothing a pot's session prints comes back through its door: the exit code and the door's own line are the whole answer.
-function knock(pot, wire) {
-  const { status, stderr, error } = spawnSync('ssh', ['-F', DOOR_CONFIG, '--', `${pot}-host`], {
-    input: wire, encoding: 'utf8', timeout: DOOR_SECONDS * 1000, stdio: ['pipe', 'ignore', 'pipe'],
-  });
-  if (status === 0) return;
-  const reason = `${stderr ?? ''}`.trim().split('\n').at(-1) || error?.message || 'no reason given';
-  throw new Error(`pots: the door of ${pot} did not take it (exit ${status ?? 'none'}): ${reason}`);
+// A knock's result changes a request only while it still waits on a knock, so a reply that came back meanwhile stays.
+function settle(id, outcome) {
+  const current = find(id);
+  if (!RESENDABLE.includes(current.state)) return current;
+  const settled = outcome ? { ...current, ...outcome } : { ...current, state: DELIVERED_STATE[current.direction], failure: undefined };
+  save(settled);
+  return settled;
+}
+
+// The message is saved before its door opens, so a cut line leaves it to resend under its own ID, never to ask twice.
+function send(request, wire, done) {
+  const outcome = knock(request.pot, wire);
+  const { state, failure } = underLock(() => settle(request.id, outcome));
+  if (state === UNKNOWN) throw new Error(`pots: ${request.id} may have reached ${request.pot}: ${failure}. pots resend ${request.id} sends the same message, and ${request.pot} takes it once.`);
+  if (state === UNDELIVERED) throw new Error(`pots: ${request.id} did not reach ${request.pot}: ${failure}. pots resend ${request.id} sends it once the cause is gone.`);
+  process.stdout.write(`${done} ${request.id}\n`);
 }
 
 function ask(arguments_) {
@@ -50,27 +57,41 @@ function ask(arguments_) {
   const target = neighbour(pot);
   const id = newRequestId(ownName());
   const wire = message(REQUEST, id, values.need);
-  const request = { id, direction: ASKED, pot: target, need: values.need, state: OPEN, at: Date.now() };
-  // The record is there before the door opens, so a reply that comes back at once finds it.
-  save(request);
-  try {
-    knock(target, wire);
-  } catch (error) {
-    save({ ...request, state: UNDELIVERED, failure: error.message });
-    throw error;
-  }
-  process.stdout.write(`asked ${id}\n`);
+  const request = { id, direction: ASKED, pot: target, need: values.need, state: UNKNOWN, at: Date.now() };
+  underLock(() => save(request));
+  send(request, wire, 'asked');
+}
+
+function recordReply(id, text) {
+  const received = find(id);
+  if (received?.direction !== RECEIVED) throw new Error(`pots: no request ${id} came through this pot's door. pots requests lists the ones that did.`);
+  const pending = RESENDABLE.includes(received.state) ? ` It has not reached ${received.pot} yet: pots resend ${id} sends it again.` : '';
+  if (received.state !== OPEN) throw new Error(`pots: ${id} already has its reply, and a request takes one.${pending}`);
+  const replying = { ...received, state: UNKNOWN, reply: text, answeredAt: Date.now() };
+  save(replying);
+  return replying;
 }
 
 function reply(arguments_) {
   const { values, positionals: [id] } = parseArgs({ args: arguments_, options: { text: { type: 'string' } }, allowPositionals: true });
   if (!id || values.text === undefined) throw new Error(USAGE);
-  const request = find(id);
-  if (request?.direction !== RECEIVED) throw new Error(`pots: no request ${id} came through this pot's door. pots requests lists the ones that did.`);
-  if (request.state !== OPEN) throw new Error(`pots: ${id} already has its reply, and a request takes one.`);
-  knock(request.pot, message(REPLY, id, values.text));
-  save({ ...request, state: ANSWERED, reply: values.text, answeredAt: Date.now() });
-  process.stdout.write(`replied ${id}\n`);
+  const wire = message(REPLY, id, values.text);
+  send(underLock(() => recordReply(id, values.text)), wire, 'replied');
+}
+
+function recordResend(id) {
+  const kept = find(id);
+  if (!RESENDABLE.includes(kept?.state)) throw new Error(`pots: ${id} has nothing to resend: ${kept ? `it is ${kept.state}` : 'this pot holds no such request'}. pots requests lists what waits.`);
+  const resending = { ...kept, state: UNKNOWN };
+  save(resending);
+  return resending;
+}
+
+function resend([id, ...extra]) {
+  if (!id || extra.length > 0) throw new Error(USAGE);
+  const request = underLock(() => recordResend(id));
+  const wire = request.direction === ASKED ? message(REQUEST, id, request.need) : message(REPLY, id, request.reply);
+  send(request, wire, 'resent');
 }
 
 function requests(arguments_) {
@@ -90,21 +111,21 @@ async function standardInput(limit) {
   return Buffer.concat(chunks);
 }
 
-// Each returns the record to keep, or nothing when the door already delivered this very message and a retry brings it again.
+// Each returns the record to keep, or nothing when the door already delivered this very message and a resend brings it again.
 const ACCEPTED = {
   [REQUEST]({ caller, id, origin, text }) {
     if (origin !== caller) throw new Error(`pots: request ${id} is in the name of ${origin}, and ${caller} sent it.`);
     const known = find(id);
     if (known?.direction === RECEIVED && known.need === text) return undefined;
     if (known) throw new Error(`pots: ${id} already names another message.`);
-    const open = all().filter(request => request.direction === RECEIVED && request.pot === caller && request.state === OPEN);
-    if (open.length >= OPEN_REQUESTS_PER_POT) throw new Error(`pots: ${caller} has ${open.length} requests open here already.`);
+    const unanswered = all().filter(request => request.direction === RECEIVED && request.pot === caller && request.state !== ANSWERED);
+    if (unanswered.length >= UNANSWERED_REQUESTS_PER_POT) throw new Error(`pots: ${caller} has ${unanswered.length} requests here that wait for their reply.`);
     return { id, direction: RECEIVED, pot: caller, need: text, state: OPEN, at: Date.now() };
   },
   [REPLY]({ caller, id, text }) {
     const asked = find(id);
     if (asked?.direction !== ASKED || asked.pot !== caller) throw new Error(`pots: this pot asked ${caller} nothing under ${id}.`);
-    if (asked.state !== ANSWERED) return { ...asked, state: ANSWERED, reply: text, answeredAt: Date.now() };
+    if (asked.state !== ANSWERED) return { ...asked, state: ANSWERED, reply: text, answeredAt: Date.now(), failure: undefined };
     if (asked.reply === text) return undefined;
     throw new Error(`pots: ${id} already has its reply, and a request takes one.`);
   },
@@ -137,4 +158,4 @@ async function deliver([caller]) {
   underLock(() => keep(delivery));
 }
 
-main(import.meta, () => runOperation({ ask, reply, requests, deliver }, USAGE));
+main(import.meta, () => runOperation({ ask, reply, resend, requests, deliver }, USAGE));
