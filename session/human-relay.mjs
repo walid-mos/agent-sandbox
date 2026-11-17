@@ -1,25 +1,18 @@
-import { fileURLToPath } from 'node:url';
-import { all, find } from './door-requests.mjs';
+import { all, find, RESENDABLE } from './door-requests.mjs';
 import { prepareAsk, transmitAsk } from './doors.mjs';
 import { deliverBotResult, syncBotDialogs } from './human-bot.mjs';
+import { packet } from './human-contract.mjs';
 import { acceptDoorAnswer, cancelDialog, completionNeed, questionNeed, secretNeed } from './human-dialogs.mjs';
+import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
 import { ensureSecretPage, syncSecretPage } from './human-pages.mjs';
 import { reconcilePosted } from './human-posted.mjs';
 import { humanStore } from './human-store.mjs';
-import { commandOutput } from './run.mjs';
 import { main } from './main.mjs';
 import { sandbox } from './sandbox.mjs';
 
-const RETRY_MS = 30_000;
 const PASS_MS = 2000;
-const RESENDABLE = new Set(['unknown', 'undelivered']);
-const DOORS = fileURLToPath(new URL('./doors.mjs', import.meta.url));
-const transport = { prepare: prepareAsk, transmit: transmitAsk, find, all, acknowledge };
-
-async function acknowledge(request) {
-  if (request.state === 'open') await commandOutput('node', [DOORS, 'reply', request.id, '--text', '{"type":"human.posted-ack","version":1}']);
-  if (RESENDABLE.has(request.state)) await commandOutput('node', [DOORS, 'resend', request.id]);
-}
+const POSTED_ACK = JSON.stringify(packet('human.posted-ack', {}));
+const transport = { prepare: prepareAsk, transmit: transmitAsk, find, all, acknowledge: request => replyReceived(request, POSTED_ACK) };
 
 async function noteIssue(dialog, store, error) {
   return dialog.issue === error.message ? dialog : store.patch(dialog.id, { issue: error.message });
@@ -29,8 +22,8 @@ async function noteIssue(dialog, store, error) {
 async function sendNotice(dialog, field, need, { store, doors, now }) {
   const previous = dialog[field];
   const known = previous?.id && doors.find(previous.id);
-  if (known && !RESENDABLE.has(known.state)) return;
-  if (previous && now - previous.attemptedAt < RETRY_MS) return;
+  if (known && !RESENDABLE.includes(known.state)) return;
+  if (previous && now - previous.attemptedAt < DOOR_RETRY_MS) return;
   let request;
   try {
     request = known || doors.prepare({ pot: 'mastermind', need, key: `human:${dialog.id}:${field}` });

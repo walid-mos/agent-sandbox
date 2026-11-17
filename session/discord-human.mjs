@@ -1,22 +1,20 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { acceptDiscordClick, closeDiscordQuestion, registerDiscordQuestion } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
 import { all, find } from './door-requests.mjs';
 import { prepareAsk, transmitAsk } from './doors.mjs';
 import { packet } from './human-contract.mjs';
+import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
 import { main } from './main.mjs';
-import { commandOutput } from './run.mjs';
 import { botHome, botId, isMastermind, sandbox } from './sandbox.mjs';
 
 const FOLDER = join(HUMAN_HOME, 'discord');
-const DOORS = fileURLToPath(new URL('./doors.mjs', import.meta.url));
 const POLL_MS = 100;
 const DELIVERY_MS = 2000;
-const RETRY_MS = 30_000;
+const ANSWERED_ACK = JSON.stringify(packet('human.answered-ack', {}));
 const store = () => humanStore(FOLDER);
 
 function callDiscord(channel, method, body) {
@@ -59,11 +57,6 @@ async function register(registration) {
   return { dialog: record.id, registered: true };
 }
 
-async function acknowledge(request) {
-  if (request.state === 'open') await commandOutput('node', [DOORS, 'reply', request.id, '--text', '{"type":"human.answered-ack","version":1}']);
-  if (['unknown', 'undelivered'].includes(request.state)) await commandOutput('node', [DOORS, 'resend', request.id]);
-}
-
 async function completions(onError) {
   for (const request of all().filter(item => item.direction === 'received')) {
     let completion;
@@ -74,17 +67,16 @@ async function completions(onError) {
     if (record?.registration && record.registration.pot !== request.pot) continue;
     try {
       await closeDiscordQuestion(completion, store(), request.pot);
-      await acknowledge(request);
+      await replyReceived(request, ANSWERED_ACK);
     } catch { onError('A question completion remains pending.'); }
   }
 }
 
 async function deliverAnswer(record) {
-  if (!record.outbox || record.replySent || Date.now() - (record.attemptedAt ?? 0) < RETRY_MS) return;
+  if (!record.outbox || record.replySent || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS) return;
   await store().patch(record.id, { attemptedAt: Date.now() });
   const request = find(record.registration.request);
-  if (request.state === 'open') await commandOutput('node', [DOORS, 'reply', request.id, '--text', JSON.stringify(record.outbox)]);
-  else if (['unknown', 'undelivered'].includes(request.state)) await commandOutput('node', [DOORS, 'resend', request.id]);
+  await replyReceived(request, JSON.stringify(record.outbox));
   await store().patch(record.id, { replySent: find(request.id).state === 'answered' });
 }
 
