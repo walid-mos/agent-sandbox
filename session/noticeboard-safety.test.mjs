@@ -12,6 +12,17 @@ import { noticeboardPass } from './noticeboard-worker.mjs';
   assert.equal(context.effects.filter(effect => effect === 'copy').length, 1);
 });
 
+ test('refreshing an attachment bearer URL does not create a second archive of the same revision', async () => {
+  const attachment = { id: '99999999999999999', filename: 'note.txt', size: 5,
+    url: 'https://cdn.discordapp.com/attachments/fixture/note.txt?ex=first' };
+  const context = fixture({ attachments: [attachment] });
+  context.client.download = async () => Buffer.from('hello');
+  await noticeboardPass(context);
+  context.edit({ attachments: [{ ...attachment, url: 'https://cdn.discordapp.com/attachments/fixture/note.txt?ex=refreshed' }] });
+  await noticeboardPass({ ...context, event: { ...context.event, id: 2 } });
+  assert.equal(context.effects.filter(effect => effect === 'copy').length, 1);
+});
+
  test('a forged copy from another author cannot satisfy preservation verification', async () => {
   const context = fixture();
   const read = context.client.readCopy;

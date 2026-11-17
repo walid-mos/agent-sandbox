@@ -5,10 +5,12 @@ export const NOTICEBOARD_LIMITS = Object.freeze({ channels: 2, records: 1024, by
   attachmentBytes: 8 * 1024 * 1024, attachments: 9, snapshotBytes: 64 * 1024, content: 6000,
   attempts: 5, retryMs: 2000, retentionMs: 30 * 24 * 60 * 60_000, batch: 16 });
 export const fingerprint = value => createHash('sha256').update(value).digest('hex');
-export const snapshotKey = value => fingerprint(JSON.stringify(value, (key, entry) => {
+const canonicalJson = value => JSON.stringify(value, (key, entry) => {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
   return Object.fromEntries(Object.keys(entry).sort().map(field => [field, entry[field]]));
-}));
+});
+const attachmentIdentity = attachment => Object.fromEntries(Object.entries(attachment).filter(([field]) => !['url', 'proxyUrl'].includes(field)));
+export const snapshotKey = snapshot => fingerprint(canonicalJson({ ...snapshot, attachments: snapshot.attachments.map(attachmentIdentity) }));
 const isId = value => typeof value === 'string' && SNOWFLAKE.test(value);
 const isText = (value, maximum) => typeof value === 'string' && value.length <= maximum;
 const requireValue = valid => { if (!valid) throw new Error('noticeboards: invalid bounded configuration or message.'); };
