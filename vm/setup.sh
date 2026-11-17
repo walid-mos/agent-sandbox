@@ -56,9 +56,9 @@ install_firewall() {
 
 # The units run this VM's clone in place, so a fast-forward reaches them with no reinstall. Only a changed unit file waits for the next vm-up.
 install_timers() {
-	install -m 0644 "$here/pots-update.service" "$here/pots-update.timer" /etc/systemd/system/
+	install -m 0644 "$here/pots-keeper.service" "$here/pots-keeper.timer" "$here/pots-update.service" "$here/pots-update.timer" /etc/systemd/system/
 	systemctl daemon-reload
-	systemctl enable --now pots-update.timer
+	systemctl enable --now pots-keeper.timer pots-update.timer
 }
 
 swap_file_gib() {
@@ -83,7 +83,7 @@ configure_swap() {
 		fallocate --length "${wanted_gib}GiB" "$SWAP_FILE"
 		mkswap "$SWAP_FILE" > /dev/null
 	fi
-	# No boot entry: every VM start goes through vm-up, which turns the file back on here.
+	# No boot entry: a VM that starts without vm-up runs without swap until the next vm-up turns the file back on here.
 	swap_is_on || swapon "$SWAP_FILE"
 }
 

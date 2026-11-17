@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+export POTS_TRANSPORT=local
+. "$(dirname "$0")/../lib/sandbox.sh"
+
+"$POTS_REPO/bin/pots-session" ensure > /dev/null
+session=$(running_session)
+if ! session_exec "$session" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-current; then
+	session_exec "$session" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-only
+	restart_services "$session" pots-router
+fi
