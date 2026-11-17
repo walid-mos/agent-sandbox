@@ -63,12 +63,15 @@ function knockAndSettle(request, wire) {
   return underLock(() => settle(request.id, outcome));
 }
 
+export function checkSent({ id, pot, state, failure }) {
+  if (state === UNKNOWN) throw new Error(`pots: ${id} may have reached ${pot}: ${failure}. ${DOOR_COMMAND} resend ${id} sends the same message, and ${pot} takes it once.`);
+  if (state === UNDELIVERED) throw new Error(`pots: ${id} did not reach ${pot}: ${failure}. ${DOOR_COMMAND} resend ${id} sends it once the cause is gone.`);
+  if (state === REFUSED) throw new Error(`pots: ${pot} refused ${id}: ${failure}. It is closed, and ${DOOR_COMMAND} resend refuses it. Tell the person; ${DOOR_COMMAND} requests lists what this pot still waits on from ${pot}.`);
+}
+
 // The message is saved before its door opens, so a cut line leaves it to resend under its own ID, never to ask twice.
-function send(request, wire, done) {
-  const { state, failure } = knockAndSettle(request, wire);
-  if (state === UNKNOWN) throw new Error(`pots: ${request.id} may have reached ${request.pot}: ${failure}. ${DOOR_COMMAND} resend ${request.id} sends the same message, and ${request.pot} takes it once.`);
-  if (state === UNDELIVERED) throw new Error(`pots: ${request.id} did not reach ${request.pot}: ${failure}. ${DOOR_COMMAND} resend ${request.id} sends it once the cause is gone.`);
-  if (state === REFUSED) throw new Error(`pots: ${request.pot} refused ${request.id}: ${failure}. It is closed, and ${DOOR_COMMAND} resend refuses it. Tell the person; ${DOOR_COMMAND} requests lists what this pot still waits on from ${request.pot}.`);
+function send(request, done) {
+  checkSent(knockAndSettle(request, wireOf(request)));
   process.stdout.write(`${done} ${request.id}\n`);
 }
 
@@ -82,6 +85,7 @@ export function prepareHumanAsk(options) {
 }
 
 const askWire = request => request.kind === DIALOG ? dialogMessage(request.id, request.need) : requestMessage(request.id, request.hop, request.need);
+const wireOf = request => request.direction === RECEIVED ? replyMessage(request.id, request.reply) : askWire(request);
 
 function prepare({ pot, need, served, key }, kind) {
   return underLock(() => {
@@ -98,10 +102,10 @@ function prepare({ pot, need, served, key }, kind) {
   });
 }
 
-export function transmitAsk(request) {
+export function transmit(request) {
   const current = find(request.id);
   if (!RESENDABLE.includes(current.state)) return current;
-  return knockAndSettle(current, askWire(current));
+  return knockAndSettle(current, wireOf(current));
 }
 
 function ask(arguments_) {
@@ -109,10 +113,11 @@ function ask(arguments_) {
   const { values, positionals: [pot] } = parseArgs({ args: arguments_, options, allowPositionals: true });
   if (!pot || values.need === undefined) throw new Error(USAGE);
   const request = prepareAsk({ pot, need: values.need, served: values.for });
-  send(request, requestMessage(request.id, request.hop, request.need), 'asked');
+  send(request, 'asked');
 }
 
 function recordReply(id, text) {
+  replyMessage(id, text);
   const received = find(id);
   if (received?.direction !== RECEIVED) throw new Error(`pots: no request ${id} came through this pot's door. ${DOOR_COMMAND} requests lists the ones that did.`);
   const pending = RESENDABLE.includes(received.state) ? ` It has not reached ${received.pot} yet: ${DOOR_COMMAND} resend ${id} sends it again.` : '';
@@ -125,8 +130,7 @@ function recordReply(id, text) {
 function reply(arguments_) {
   const { values, positionals: [id] } = parseArgs({ args: arguments_, options: { text: { type: 'string' } }, allowPositionals: true });
   if (!id || values.text === undefined) throw new Error(USAGE);
-  const wire = replyMessage(id, values.text);
-  send(underLock(() => recordReply(id, values.text)), wire, 'replied');
+  send(underLock(() => recordReply(id, values.text)), 'replied');
 }
 
 function recordResend(id) {
@@ -139,9 +143,15 @@ function recordResend(id) {
 
 function resend([id, ...extra]) {
   if (!id || extra.length > 0) throw new Error(USAGE);
-  const request = underLock(() => recordResend(id));
-  const wire = request.direction === ASKED ? askWire(request) : replyMessage(id, request.reply);
-  send(request, wire, 'resent');
+  send(underLock(() => recordResend(id)), 'resent');
+}
+
+// An open request takes this reply; one whose reply did not land yet keeps the reply it already holds.
+export function prepareReply(id, text) {
+  return underLock(() => {
+    const current = find(id);
+    return current?.state === OPEN ? recordReply(id, text) : current;
+  });
 }
 
 function requests(arguments_) {

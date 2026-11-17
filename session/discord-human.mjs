@@ -2,12 +2,11 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { acceptDiscordClick, closeDiscordQuestion } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
-import { all, ANSWERED, find, RECEIVED } from './door-requests.mjs';
+import { ANSWERED, RECEIVED } from './door-requests.mjs';
 import { DIALOG } from './door-messages.mjs';
 import { DIALOG_ID } from './human-contract.mjs';
-import { acknowledgementOf } from './human-door-packets.mjs';
 import { reconcileRegistrations, registerQuestion, REGISTRATION_EXIT } from './discord-registration.mjs';
-import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
+import { dialogDoors, DOOR_RETRY_MS } from './human-doors.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
 import { main } from './main.mjs';
 import { commandWithInput } from './run.mjs';
@@ -67,21 +66,21 @@ async function completeRequest(request, onError) {
   if (!completion) return;
   try {
     await closeDiscordQuestion(completion, store, request.pot);
-    await replyReceived(request, acknowledgementOf(request.need));
+    await dialogDoors.acknowledge(request);
   } catch { onError('A question completion remains pending.'); }
 }
 
 async function completions(onError) {
-  for (const request of all().filter(item => item.kind === DIALOG && item.direction === RECEIVED)) await completeRequest(request, onError);
+  for (const request of dialogDoors.all().filter(item => item.kind === DIALOG && item.direction === RECEIVED)) await completeRequest(request, onError);
 }
 
 async function deliverAnswer(record) {
   const isWaiting = !record.outbox || record.replySent || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS;
   if (isWaiting) return;
   await store.patch(record.id, { attemptedAt: Date.now() });
-  const request = find(record.registration.request);
-  await replyReceived(request, JSON.stringify(record.outbox));
-  await store.patch(record.id, { replySent: find(request.id).state === ANSWERED });
+  const { id } = record.registration;
+  await dialogDoors.reply(id, JSON.stringify(record.outbox));
+  await store.patch(record.id, { replySent: dialogDoors.find(id).state === ANSWERED });
 }
 
 function startDiscordHuman({ onError = () => {} } = {}) {
