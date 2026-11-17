@@ -2,6 +2,7 @@
 set -u
 
 pots=$1
+node_directory="$HOME/.local/node/bin"
 NONCE=0000000000000000
 CALLER=probe
 # The door contract's exit for "the session refused it and kept nothing", which the door passes on to the caller.
@@ -54,7 +55,7 @@ chain_refused() {
 	printf '#!/bin/sh\ntouch "%s/knocked"\nexit 1\n' "$scratch" > "$scratch/.local/bin/ssh"
 	chmod +x "$scratch/.local/bin/ssh"
 	printf '{"id":"%s","direction":"received","pot":"%s","need":"boundary probe","hop":2,"state":"open","at":0}\n' "$held" "$CALLER" > "$folder/$held.json"
-	output=$(HOME="$scratch" PATH="$HOME/.local/node/bin:$PATH" "$pots" ask "$CALLER" --need 'boundary probe: a fresh chain from the end of one' 2>&1 < /dev/null)
+	output=$(HOME="$scratch" PATH="$node_directory:$PATH" "$pots" ask "$CALLER" --need 'boundary probe: a fresh chain from the end of one' 2>&1 < /dev/null)
 	code=$?
 	if [ "$code" -ne 0 ] && [[ "$output" == *"$held"* ]] && [ ! -e "$scratch/knocked" ] && [ "$(ls "$folder")" = "$held.json" ]; then
 		echo "ok   ask-refuses-a-fresh-chain-at-the-hop-limit"
