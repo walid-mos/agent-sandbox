@@ -4,6 +4,7 @@ import { REFUSED_EXIT } from './door-messages.mjs';
 import { REFUSED, UNDELIVERED, UNKNOWN } from './door-requests.mjs';
 
 const DOOR_CONFIG = fileURLToPath(new URL('./door.ssh_config', import.meta.url));
+// Outlasts the door's 5 s whois plus 45 s delivery (vm/pots-door.py), so a slow delivery ends with the door's own exit, not a timeout here.
 const DOOR_SECONDS = 60;
 const DELIVERED = 0;
 // The door kept nothing on these exits. Any other end, a failed wake, a timeout or a cut line included, can come after the neighbour kept the message.
