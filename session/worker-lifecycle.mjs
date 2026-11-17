@@ -25,22 +25,34 @@ export function lifecycleOf(worker) {
   return state;
 }
 
-export function publication(cwd) {
+// A task is complete when its result file is, and never touches Git.
+function taskFacts(worker) {
+  const result = existsSync(worker.resultFile) && lstatSync(worker.resultFile);
+  const resultReady = Boolean(result && result.isFile() && result.size > 0);
+  return { kind: 'task', resultFile: worker.resultFile, resultReady };
+}
+
+function repositoryFacts(worker, cwd) {
   const options = { cwd };
+  const phase = withPublication(worker).publication;
   return {
     uncommitted: command('git', ['status', '--porcelain'], options).split('\n').filter(Boolean).length,
     unpushed: Number(command('git', ['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'], options)),
+    ...(phase && { publication: phase }),
   };
 }
 
-export function completionFacts(worker, cwd = worker.worktree) {
-  if (worker.kind === 'task') {
-    const result = existsSync(worker.resultFile) && lstatSync(worker.resultFile);
-    const resultReady = Boolean(result && result.isFile() && result.size > 0);
-    return { kind: 'task', resultFile: worker.resultFile, resultReady };
-  }
-  const phase = withPublication(worker).publication;
-  return { ...publication(cwd), ...(phase && { publication: phase }) };
+export const completionFacts = (worker, cwd = worker.worktree) => worker.kind === 'task' ? taskFacts(worker) : repositoryFacts(worker, cwd);
+
+/** Completion facts, with the branch and commit a repository worker's report names. */
+export function reportFacts(worker) {
+  if (worker.kind === 'task') return taskFacts(worker);
+  const options = { cwd: worker.worktree };
+  return {
+    branch: command('git', ['branch', '--show-current'], options),
+    commit: command('git', ['rev-parse', '--short', 'HEAD'], options),
+    ...repositoryFacts(worker, worker.worktree),
+  };
 }
 
 export const isPublished = facts => facts.kind === 'task' ? facts.resultReady

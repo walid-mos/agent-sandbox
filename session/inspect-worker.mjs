@@ -2,21 +2,11 @@ import { dequeue, enqueue, requestsFor } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { endTerminal, isLive, isStopped, passes, save, terminalOf, workerTitle } from './workers.mjs';
-import { canFinish, completionFacts, isPublished, lifecycleOf, readyAt } from './worker-lifecycle.mjs';
+import { canFinish, isPublished, lifecycleOf, readyAt, reportFacts } from './worker-lifecycle.mjs';
 import { waitsForHuman } from './worker-human.mjs';
 import { keepResult } from './worker-results.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
-
-function gitFacts(worker) {
-  if (worker.kind === 'task') return completionFacts(worker);
-  const options = { cwd: worker.worktree };
-  return {
-    branch: command('git', ['branch', '--show-current'], options),
-    commit: command('git', ['rev-parse', '--short', 'HEAD'], options),
-    ...completionFacts(worker),
-  };
-}
 
 function report(worker, terminal, status, wake, state, facts, isSettled) {
   const title = workerTitle(worker, terminal);
@@ -70,7 +60,7 @@ function reportCurrent(worker, terminal, state, canSettle) {
   const { turn = 0 } = terminal;
   const status = isWaiting ? 'blocked' : terminal.status ?? 'starting';
   if (!REPORTABLE.has(status)) return;
-  const facts = gitFacts(worker);
+  const facts = reportFacts(worker);
   const result = !isWaiting && canSettle && isPublished(facts) ? state.generation : 'open';
   const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${facts.publication ?? ''}-${result}`;
   if (worker.lastReport === wake) return;
