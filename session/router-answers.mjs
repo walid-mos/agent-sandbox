@@ -11,6 +11,7 @@ const ANSWER_TIMEOUT_MS = 120 * 1000;
 // Magpie names the provider/model that answered in this header; the body's model echoes the group asked.
 const SERVED_HEADER = 'X-Magpie-Model';
 
+// These mirror the member and routing grammar of Magpie at the bootstrap pin (MAGPIE_VERSION); check them when it moves.
 const picksInOrder = group => group.routing === 'order' && !group.rules?.length;
 const EFFORT = '(?:none|minimal|low|medium|high|xhigh|max)';
 const EFFORTS = new RegExp(`:${EFFORT}(?:\\+${EFFORT})*$`, 'u');
