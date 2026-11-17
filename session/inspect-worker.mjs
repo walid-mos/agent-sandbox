@@ -1,7 +1,7 @@
 import { dequeue, enqueue, queued } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { endTerminal, isStopped, passes, save, terminalOf } from './workers.mjs';
+import { endTerminal, isLive, isStopped, passes, save, terminalOf } from './workers.mjs';
 import { canFinish, isPublished, lifecycleOf, publication, readyAt } from './worker-lifecycle.mjs';
 import { keepResult } from './worker-results.mjs';
 
@@ -90,8 +90,9 @@ function inspectLaunch(worker, view) {
 
 export function inspectWorker(worker, view) {
   if (worker.owner !== botId || !worker.launchId) return undefined;
+  // The watcher's sweep has already removed a stopped worker's ended terminal, so only a live one is ended here.
   if (isStopped(worker)) {
-    endTerminal(worker, view.terminals);
+    endTerminal(worker, view.terminals.filter(isLive));
     return undefined;
   }
   return inspectLaunch(worker, view);

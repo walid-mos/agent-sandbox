@@ -130,6 +130,13 @@ test('unowned workers and same-name terminals are never closed or resumed', () =
   assert.equal(boundary().calls.some(call => ['send', 'run', 'kill'].includes(call.args[0])), false);
 });
 
+test('a stopped worker whose terminal already ended is not closed again', () => {
+  writeFileSync(join(WORKERS, `${worker.name}.stopped`), '');
+  setTerminals([{ ...terminal, state: 'finished' }]);
+  inspect();
+  assert.deepEqual(boundary().calls, []);
+});
+
 test('startup without an agent status stays live regardless of age', () => {
   setTerminals([{ ...terminal, status: undefined }]);
   inspect();
