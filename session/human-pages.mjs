@@ -58,22 +58,32 @@ function stagedValues(dialog) {
   return Object.fromEntries(pairs);
 }
 
+const isOpen = dialog => !dialog.result && !dialog.writing && dialog.expiresAt > Date.now();
+
+// The staged value leaves the disk after one attempt, whatever its outcome: an interrupted write never accepts a second one.
+async function submitStaged(dialog, store) {
+  try {
+    return await storeDialogSecret(dialog.id, stagedValues(dialog), { store, origin: 'page' });
+  } finally {
+    rmSync(stagePath(dialog.id), { force: true });
+  }
+}
+
+async function revokePage(dialog, store) {
+  const { id } = dialog;
+  try {
+    rmSync(stagePath(id), { force: true });
+    if (dialog.pageRevoked) return dialog;
+    await pageCommand('pots', ['page', 'unlink', '--bot', botId, dialog.pageLink.id]);
+    return await store.locked(({ get, save }) => save({ ...get(id), pageRevoked: true, pageIssue: undefined }), id);
+  } catch {
+    return store.locked(({ get, save }) => save({ ...get(id), pageIssue: 'Secret page cleanup remains pending.' }), id);
+  }
+}
+
 export async function syncSecretPage(id, store = humanStore()) {
-  let dialog = store.get(id);
+  const dialog = store.get(id);
   if (!dialog?.pageLink) return dialog;
-  if (!dialog.result && dialog.expiresAt > Date.now() && existsSync(stagePath(id))) {
-    dialog = await storeDialogSecret(id, stagedValues(dialog), { store, origin: 'page' });
-  }
-  if (dialog.result || dialog.expiresAt <= Date.now()) {
-    try {
-      rmSync(stagePath(id), { force: true });
-      if (!dialog.pageRevoked) {
-        await pageCommand('pots', ['page', 'unlink', '--bot', botId, dialog.pageLink.id]);
-        dialog = await store.locked(({ get, save }) => save({ ...get(id), pageRevoked: true, pageIssue: undefined }), id);
-      }
-    } catch {
-      dialog = await store.locked(({ get, save }) => save({ ...get(id), pageIssue: 'Secret page cleanup remains pending.' }), id);
-    }
-  }
-  return dialog;
+  const current = isOpen(dialog) && existsSync(stagePath(id)) ? await submitStaged(dialog, store) : dialog;
+  return isOpen(current) ? current : revokePage(current, store);
 }

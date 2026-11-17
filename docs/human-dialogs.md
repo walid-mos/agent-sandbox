@@ -64,7 +64,7 @@ stateDiagram-v2
 | Invalid answer or operator evidence | No answer is committed and the dialog records the issue. |
 | Relay or watcher restart | Requests, receipts, pending Discord edits and deliveries remain on disk. |
 | Answered notification arrives before rendering | Mastermind saves a closure record and refuses later registration. |
-| Secret writer interrupted | The dialog records an uncertain write and refuses another write until the destination is checked and a new call is opened. |
+| Secret writer interrupted | The dialog records an uncertain write, removes the page's staging file, revokes its link and refuses another write. A new call is needed. |
 
 ## Door packets
 
