@@ -23,15 +23,22 @@ const final = { type: 'message', message: { role: 'assistant', stopReason: 'stop
 const boundaryScript = `#!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
-const boundary = JSON.parse(fs.readFileSync(process.env.POTS_TEST_BOUNDARY, 'utf8'));
+const file = process.env.POTS_TEST_BOUNDARY;
+const boundary = JSON.parse(fs.readFileSync(file, 'utf8'));
 const args = process.argv.slice(2);
 if (path.basename(process.argv[1]) === 'git') {
+  if (boundary.gitFailures) {
+    boundary.gitFailures -= 1;
+    fs.writeFileSync(file, JSON.stringify(boundary));
+    process.exit(1);
+  }
   process.stdout.write(args[0] === 'status' ? boundary.dirty : boundary.unpushed);
 } else if (args[0] === 'ls') {
   process.stdout.write(JSON.stringify({ terminals: boundary.terminals }));
 } else if (args[0] === 'get') {
   process.stdout.write(JSON.stringify(boundary.terminals.find(terminal => terminal.address === args.at(-1))));
 } else { throw new Error('Unexpected boundary command'); }
+fs.writeFileSync(file, JSON.stringify(boundary));
 `;
 writeFileSync(join(bin, 'hc'), boundaryScript, { mode: 0o700 });
 writeFileSync(join(bin, 'git'), boundaryScript, { mode: 0o700 });
@@ -54,7 +61,7 @@ beforeEach(t => {
   counts = { asyncRuns: 0, waitSubscriptions: 0, awaited: 0 };
   shutdowns = 0;
   branch = [final];
-  publishBoundary({ terminals: [terminal], dirty: '', unpushed: '0' });
+  publishBoundary({ terminals: [terminal], dirty: '', unpushed: '0', gitFailures: 0 });
   context = { cwd: scratch, isIdle: () => true, hasPendingMessages: () => false,
     shutdown: () => { shutdowns += 1; }, ui: { getEditorText: () => '', onTerminalInput: handler => { rawInput = handler; return () => {}; } },
     sessionManager: { getSessionFile: () => '/saved/exact.jsonl', getSessionId: () => 'exact-id', getLeafId: () => 'leaf-1', getBranch: () => branch } };
@@ -86,6 +93,52 @@ test('an unread final result keeps its live process until exact coordinator rece
   assert.equal(shutdowns, 1);
   assert.equal(readJson(statePath(worker)).phase, 'closing');
 });
+
+test('a transient inspection failure retries the exact receipt and closes once', t => {
+  acknowledge(t);
+  publishBoundary({ gitFailures: 1 });
+  runtime.finish(context);
+  assert.equal(shutdowns, 0);
+  t.mock.timers.tick(1000);
+  assert.equal(shutdowns, 1);
+  t.mock.timers.tick(60000);
+  assert.equal(shutdowns, 1);
+});
+
+test('persistent inspection failure has bounded automatic retries', t => {
+  acknowledge(t);
+  publishBoundary({ gitFailures: 100 });
+  runtime.finish(context);
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    t.mock.timers.tick(1000);
+    runtime.finish(context);
+  }
+  assert.equal(shutdowns, 0);
+  assert.equal(JSON.parse(readFileSync(boundaryPath, 'utf8')).gitFailures, 97);
+});
+
+for (const pending of ['input', 'question', 'cancel', 'queue', 'ownership', 'receipt', 'helper', 'background', 'branch']) {
+  test(`${pending} after a failed inspection prevents retry shutdown`, t => {
+    acknowledge(t);
+    publishBoundary({ gitFailures: 1 });
+    runtime.finish(context);
+    const arrive = {
+      input: () => rawInput('x'),
+      question: () => publishBoundary({ terminals: [{ ...terminal, labels: { ...terminal.labels, 'agent.waiting': 'human' } }] }),
+      cancel: () => runtime.stop(),
+      queue: () => enqueue({ worker: worker.name, message: 'Continue' }),
+      ownership: () => publishBoundary({ gitFailures: 0, terminals: [{ ...terminal, labels: {} }] }),
+      receipt: () => writePrivateJson(receiptPath(worker), { id: 'stale' }),
+      helper: () => publishBoundary({ terminals: [terminal, { address: 'helper', parent: 't-owned', state: 'live' }] }),
+      background: () => { counts.awaited = 1; },
+      branch: () => { context.sessionManager.getLeafId = () => 'leaf-2'; },
+    };
+    arrive[pending]();
+    t.mock.timers.tick(60000);
+    assert.equal(shutdowns, 0);
+    assert.notEqual(readJson(statePath(worker)).phase, 'closing');
+  });
+}
 
 for (const status of ['idle', 'done']) {
   test(`acknowledged finished ${status} shuts down without a UI service`, t => {

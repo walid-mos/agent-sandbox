@@ -8,6 +8,8 @@ import { readJson, writePrivateJson } from './private-json.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
 const PROTOCOL_VERSION = 1;
+const CLOSE_ATTEMPTS = 3;
+const CLOSE_RETRY_MS = 1000;
 
 function hasOpenGoal(branch) {
   const goal = branch.findLast(entry => entry.type === 'custom' && entry.customType === 'pi-goal-state-v1');
@@ -42,6 +44,8 @@ export class WorkerRuntime {
   #received = new Set();
   #observer;
   #removeInput;
+  #closeAttempt;
+  #closeTimer;
 
   constructor(pi, worker) {
     this.#pi = pi;
@@ -57,6 +61,7 @@ export class WorkerRuntime {
   }
 
   invalidate(context) {
+    this.#cancelClose();
     rmSync(receiptPath(this.#worker), { force: true });
     this.#publish(context, 'active');
   }
@@ -86,11 +91,33 @@ export class WorkerRuntime {
   }
 
   finish(context) {
+    if (this.#closeTimer) return;
     try {
+      if (!this.#hasReceipt()) return this.#cancelClose();
+      const id = resultId(this.#state);
+      if (this.#closeAttempt?.id !== id) this.#closeAttempt = { id, attempts: 0 };
+      if (this.#closeAttempt.attempts >= CLOSE_ATTEMPTS) return;
+      this.#closeAttempt.attempts += 1;
       this.#closeWhenFinished(context);
     } catch (error) {
       process.stderr.write(`pots lifecycle: close deferred: ${error instanceof Error ? error.message : 'inspection failed'}\n`);
+      this.#retryClose(context);
     }
+  }
+
+  #retryClose(context) {
+    if (!this.#closeAttempt || this.#closeAttempt.attempts >= CLOSE_ATTEMPTS) return;
+    this.#closeTimer = setTimeout(() => {
+      this.#closeTimer = undefined;
+      this.finish(context);
+    }, CLOSE_RETRY_MS);
+    this.#closeTimer.unref();
+  }
+
+  #cancelClose() {
+    clearTimeout(this.#closeTimer);
+    this.#closeTimer = undefined;
+    this.#closeAttempt = undefined;
   }
 
   #hasReceipt() {
@@ -123,6 +150,7 @@ export class WorkerRuntime {
   }
 
   stop() {
+    this.#cancelClose();
     this.#observer?.close();
     this.#removeInput?.();
   }
