@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { after, test } from 'node:test';
+import { after, test, mock } from 'node:test';
+import { fixtureSandbox } from './fixtures/sandbox.mjs';
 
 const home = mkdtempSync(join(tmpdir(), 'page-proof-'));
 process.env.HOME = home;
-after(() => rmSync(home, { recursive: true, force: true }));
+after(() => { mock.restoreAll(); rmSync(home, { recursive: true, force: true }); });
+mock.module('../session/sandbox.mjs', { exports: fixtureSandbox(home) });
 const { stagedValues } = await import('../session/human-pages.mjs');
 
 const DIALOG = 'a'.repeat(32);

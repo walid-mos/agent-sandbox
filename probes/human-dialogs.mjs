@@ -4,11 +4,13 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test, after } from 'node:test';
+import { test, after, mock } from 'node:test';
+import { fixtureSandbox } from './fixtures/sandbox.mjs';
 
 const home = mkdtempSync(join(tmpdir(), 'human-proof-'));
 process.env.HOME = home;
-after(() => rmSync(home, { recursive: true, force: true }));
+after(() => { mock.restoreAll(); rmSync(home, { recursive: true, force: true }); });
+mock.module('../session/sandbox.mjs', { exports: fixtureSandbox(home) });
 const { humanStore } = await import('../session/human-store.mjs');
 const { openDialog, cancelDialog } = await import('../session/human-dialogs.mjs');
 const { storeDialogSecret } = await import('../session/human-secrets.mjs');
