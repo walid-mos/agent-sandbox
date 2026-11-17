@@ -2,7 +2,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { ROUTER_MODEL } from './models.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 import { command, WITH_VAULT } from './run.mjs';
@@ -14,7 +13,7 @@ const TERMINAL_NAME_LIMIT = 32;
 const DIGEST_LENGTH = 6;
 // The session user can lower a priority and never raise one, so workers and passes step down and the pane's requests keep theirs.
 const WORKER_NICENESS = '10';
-const HUMAN_BROKER = fileURLToPath(new URL('./human.mjs', import.meta.url));
+const HUMAN_BROKER = join(import.meta.dirname, 'human.mjs');
 
 export function terminalName(text, identity = text) {
   const readable = text.toLowerCase().replace(/[^a-z0-9]+/g, '-');
