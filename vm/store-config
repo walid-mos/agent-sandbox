@@ -4,11 +4,9 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from client_rules import RulesRefused, replace_file, unique_keys
-from store_rules import BUNDLE_KEY, rules_replacement
+from client_rules import RulesRefused, replace_file, unique_keys, verified_rules
+from config_bundle import OPTIONAL, REQUIRED, RULES_KEY
 
-REQUIRED = ("sandbox.json", "vault.json")
-OPTIONAL = ("git-identity.json", "tailnet.json")
 SESSION_READABLE_DIRECTORY = 0o755
 SESSION_READABLE_FILE = 0o644
 
@@ -25,7 +23,7 @@ def read_bundle(stream):
     if not isinstance(bundle, dict) or not all(isinstance(content, dict) for content in bundle.values()):
         refuse("expected one JSON object per file name.")
     missing = [name for name in REQUIRED if name not in bundle]
-    unknown = [name for name in bundle if name not in (*REQUIRED, *OPTIONAL, BUNDLE_KEY)]
+    unknown = [name for name in bundle if name not in (*REQUIRED, *OPTIONAL, RULES_KEY)]
     if missing or unknown:
         refuse("bundle has missing or unexpected file names.")
     return bundle
@@ -36,11 +34,11 @@ def main():
         raise SystemExit("usage: store-config DIRECTORY < bundle.json")
     directory = Path(sys.argv[1])
     bundle = read_bundle(sys.stdin)
+    payload = bundle.pop(RULES_KEY, None)
     try:
-        rules = rules_replacement(bundle, directory)
+        rules = None if payload is None else verified_rules(payload, bundle["sandbox.json"].get("rules"), directory)
     except (RulesRefused, OSError, ValueError):
         refuse("client rules failed path, content or previous-hash validation.")
-    bundle.pop(BUNDLE_KEY, None)
     directory.mkdir(parents=True, exist_ok=True)
     directory.chmod(SESSION_READABLE_DIRECTORY)
     for name, content in bundle.items():
