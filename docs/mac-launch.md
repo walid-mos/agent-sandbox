@@ -299,4 +299,4 @@ A pot may request a launch once its `sandbox.json` holds `macLaunch` with `enabl
 {"humanDiscord": {"userId": "OPERATOR_ID", "macLaunchEnabled": false}, "name": "mac-studio", "label": "Mac Studio", "guildId": "GUILD", "channelId": "LAUNCH_CHANNEL", "announcers": ["MASTERMIND_BOT_USER_ID"], "pots": ["mastermind", "accor"], "refusedActs": ["sign-tip", "launch-gate"], "directory": "/Users/NAME", "path": ["/opt/homebrew/bin"], "piArguments": []}
 ```
 
-`humanDiscord` has the shape the push policy reads, so one contract function checks both. The gate exits at once while `macLaunchEnabled` is not `true`.
+`humanDiscord` has the shape the push policy reads, so one contract function checks both. The gate exits at once while `macLaunchEnabled` is not `true`. It exits with a failure, so launchd starts it again every 30 seconds and it exits again until `enable`, or until `remove` takes the service away.
