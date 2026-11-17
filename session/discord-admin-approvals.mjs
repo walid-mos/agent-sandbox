@@ -17,7 +17,7 @@ const canonical = value => {
   return value;
 };
 
-export const operationScope = ({ approval: _approval, ...request }) => JSON.stringify(canonical(request));
+const operationScope = ({ approval: _approval, ...request }) => JSON.stringify(canonical(request));
 const requestId = dialog => `${MASTERMIND_POT}.${dialog}`;
 const isUnused = prepared => prepared && !prepared.consumed && prepared.expiresAt > Date.now();
 
