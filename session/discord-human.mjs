@@ -91,7 +91,7 @@ export function startDiscordHuman({ onError = () => {} } = {}) {
         try {
           const result = await acceptDiscordClick(event.interaction, { store: store(), identity: sandbox.humanDiscord, channelAccount: event.channel, at: new Date(event.at).toISOString() });
           if (result.status === 'accepted') {
-            const record = store().get(/(?:human|form:human-answer):([a-f0-9]{32})/.exec(event.interaction.data.custom_id)[1]);
+            const record = store().get(result.dialog);
             for (const [id, update] of Object.entries(record.updates ?? {})) await updateMessage(record, id, update);
           }
         } catch { onError('A click was rejected or its message update needs retry.'); }

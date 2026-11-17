@@ -71,7 +71,7 @@ export async function acceptDiscordClick(interaction, { store, identity, channel
     const content = `Answered: ${[...answer.labels, answer.text].filter(Boolean).join(', ')}\nDelivery to the owning pot is pending.`.slice(0, MESSAGE_LIMIT);
     const update = { content, components: disabled(message.components ?? interaction.message.components), allowed_mentions: { parse: [] } };
     save({ ...record, picks, outbox, updates: { ...record.updates, [asked.id]: { channelId: message.channelId, messageId: message.messageId, body: update } } });
-    return { status: 'accepted', update, channelId: message.channelId, messageId: message.messageId };
+    return { status: 'accepted', dialog: parts.dialog, update, channelId: message.channelId, messageId: message.messageId };
   }, parts.dialog);
 }
 
