@@ -1,5 +1,5 @@
 import { discordMessage, VERSION } from './human-contract.mjs';
-import { questionDigest } from './human-discord.mjs';
+import { questionDigest } from './human-dialogs.mjs';
 import { humanStore } from './human-store.mjs';
 
 export async function registerPosted(posted, store = humanStore()) {
