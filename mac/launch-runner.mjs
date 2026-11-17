@@ -13,7 +13,7 @@ export function herdrRunner(store, program = [process.execPath, fileURLToPath(ne
     const name = `ml-${request.launch.slice(0, 24)}`;
     const session = store.session(request.launch);
     const arguments_ = ['run', '--bg', '--no-parent', '--no-notify', '--outlive-parent', '--json', '--name', name, '--cwd', settings.directory,
-      '--label', `mac-launch.id=${request.launch}`, '--', ...program, request.launch];
+      '--label', `mac-launch.id=${request.launch}`, '--', ...program, store.folder, request.launch];
     try {
       command('hc', arguments_, { timeout: 10_000 });
       const terminal = JSON.parse(command('hc', ['get', '--json', name]));

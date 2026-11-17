@@ -33,5 +33,5 @@ export function gateStore(folder) {
   const consume = approval => writeFileSync(path(approval.launch, '.used'), JSON.stringify(approval), { flag: 'wx', mode: 0o600, flush: true });
   const approval = id => readPrivate(path(id, '.used'));
   const session = id => path(id, '.session.jsonl');
-  return { get, save, all, used, consume, approval, session };
+  return { get, save, all, used, consume, approval, session, folder };
 }

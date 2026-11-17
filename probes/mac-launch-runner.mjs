@@ -31,7 +31,7 @@ process.once('SIGTERM', () => process.exit(143));
 writeFileSync(ownership, JSON.stringify({ launch, folder }));
 try {
   const fixture = fileURLToPath(new URL('./fixtures/mac-launch-pi.mjs', import.meta.url));
-  const runner = herdrRunner(gateStore(folder), [process.execPath, fixture, folder]);
+  const runner = herdrRunner(gateStore(folder), [process.execPath, fixture]);
   run = runner.start({ request: { launch }, prompt: 'Reply ready.' }, { directory: folder });
   writeFileSync(ownership, JSON.stringify({ launch, folder, ...run }));
   for (let attempt = 0; attempt < 3; attempt++) {
