@@ -2,7 +2,7 @@ import { consumePush } from './human-consume.mjs';
 import { humanStore } from './human-store.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { recordPublication, workers } from './workers.mjs';
+import { PUBLICATION, recordPublication, workers } from './workers.mjs';
 
 const AFFIRMATIVE_LABEL = 'Push once';
 const DECLINE_LABEL = 'Keep local';
@@ -14,7 +14,7 @@ function repositoryWorker(name) {
 }
 
 function checkCheckout(worker, git) {
-  if (worker.publication !== 'local') throw new Error('dispatch: this worker is not waiting for its first approved push. Use open-pr after a successful push.');
+  if (worker.publication !== PUBLICATION.local) throw new Error('dispatch: this worker is not waiting for its first approved push. Use open-pr after a successful push.');
   if (git(['branch', '--show-current']) !== worker.branch) throw new Error('dispatch: task branch changed. Restore it before publication.');
   if (!worker.originUrl || git(['remote', 'get-url', 'origin']) !== worker.originUrl) throw new Error('dispatch: origin changed. Restore it and ask for a new approval.');
   if (git(['status', '--porcelain'])) throw new Error('dispatch: commit or remove local changes before requesting publication.');
@@ -57,7 +57,7 @@ export async function publishWorker([name, dialogId, label], store = humanStore(
   const options = { cwd: worker.worktree };
   // Pushing the approved commit ID, never the branch name, keeps a commit made after the check out of this push.
   command('git', ['push', '--quiet', `--force-with-lease=refs/heads/${worker.branch}:`, 'origin', `${request.head}:refs/heads/${worker.branch}`], options);
-  recordPublication(worker, { publication: 'awaiting-pr', publishedHead: request.head });
+  recordPublication(worker, { publication: PUBLICATION.awaitingPr, publishedHead: request.head });
   command('git', ['branch', `--set-upstream-to=origin/${worker.branch}`, worker.branch], options);
   return openWorkerPR([name]);
 }
@@ -65,13 +65,13 @@ export async function publishWorker([name, dialogId, label], store = humanStore(
 export function openWorkerPR([name]) {
   const worker = repositoryWorker(name);
   if (worker.pullRequest) return worker.pullRequest;
-  if (worker.publication !== 'awaiting-pr') throw new Error('dispatch: no successful approved first push is recorded.');
+  if (worker.publication !== PUBLICATION.awaitingPr) throw new Error('dispatch: no successful approved first push is recorded.');
   const options = { cwd: worker.worktree };
   if (command('git', ['remote', 'get-url', 'origin'], options) !== worker.originUrl) throw new Error('dispatch: origin changed before draft PR creation.');
   const remote = command('git', ['ls-remote', '--heads', 'origin', `refs/heads/${worker.branch}`], options).split(/\s+/)[0];
   if (remote !== worker.publishedHead) throw new Error('dispatch: the remote head changed before draft PR creation. Inspect it.');
   const existing = command('gh', ['pr', 'list', '--repo', worker.repository, '--head', worker.branch, '--state', 'open', '--json', 'url', '--jq', '.[0].url // empty'], options);
   const pullRequest = existing || command('gh', ['pr', 'create', '--repo', worker.repository, '--draft', '--base', worker.base, '--head', worker.branch, '--title', worker.title, '--body', ''], options);
-  recordPublication(worker, { publication: 'published', publishedHead: worker.publishedHead, pullRequest });
+  recordPublication(worker, { publication: PUBLICATION.published, publishedHead: worker.publishedHead, pullRequest });
   return pullRequest;
 }

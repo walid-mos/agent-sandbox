@@ -12,7 +12,7 @@ import { botId, owners } from './sandbox.mjs';
 import { repositoryBrief, taskBrief } from './worker-brief.mjs';
 import { openWorkerPR, publishWorker, workerScope } from './worker-publication.mjs';
 import { acknowledgeResult } from './worker-results.mjs';
-import { clearStop, save, terminalName, WORKER_PREFIX, workers, writeBrief } from './workers.mjs';
+import { clearStop, PUBLICATION, save, terminalName, WORKER_PREFIX, workers, writeBrief } from './workers.mjs';
 
 const WORKSPACES = join(homedir(), 'Development');
 const DRAFT_PR = join(homedir(), '.pi/agent/skills/worktree/scripts/draft-pr');
@@ -73,7 +73,7 @@ function start(arguments_) {
   const pullRequest = values.local ? undefined : command('bash', [DRAFT_PR, worktree, values.title, base], { cwd: worktree });
   const worker = { name, kind: 'repository', owner: botId, repository, branch, worktree, pullRequest, request, base,
     title: values.title, subject: values.subject, servedRequest: values.for, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }),
-    ...(values.local && { publication: 'local', originUrl: command('git', ['remote', 'get-url', 'origin'], { cwd: worktree }) }) };
+    ...(values.local && { publication: PUBLICATION.local, originUrl: command('git', ['remote', 'get-url', 'origin'], { cwd: worktree }) }) };
   queueWorker(worker, repositoryBrief(worker));
 }
 

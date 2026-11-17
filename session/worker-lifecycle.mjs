@@ -5,7 +5,7 @@ import { readJson } from './private-json.mjs';
 import { isRequestName } from './queue.mjs';
 import { command } from './run.mjs';
 import { waitsForHuman } from './worker-human.mjs';
-import { isLive, ownsTerminal, publishedState, WORKERS } from './workers.mjs';
+import { isLive, ownsTerminal, PUBLICATION, WORKERS, withPublication } from './workers.mjs';
 
 export const LIFECYCLE = join(WORKERS, 'lifecycle');
 export const SETTLED_GRACE_MS = 5000;
@@ -39,12 +39,12 @@ export function completionFacts(worker, cwd = worker.worktree) {
     const resultReady = Boolean(result && result.isFile() && result.size > 0);
     return { kind: 'task', resultFile: worker.resultFile, resultReady };
   }
-  const phase = publishedState(worker).publication ?? worker.publication;
+  const phase = withPublication(worker).publication;
   return { ...publication(cwd), ...(phase && { publication: phase }) };
 }
 
 export const isPublished = facts => facts.kind === 'task' ? facts.resultReady
-  : facts.uncommitted === 0 && facts.unpushed === 0 && !['local', 'awaiting-pr'].includes(facts.publication);
+  : facts.uncommitted === 0 && facts.unpushed === 0 && ![PUBLICATION.local, PUBLICATION.awaitingPr].includes(facts.publication);
 
 export const readyAt = state => state?.settledAt + SETTLED_GRACE_MS;
 

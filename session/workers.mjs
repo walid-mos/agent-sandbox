@@ -28,15 +28,20 @@ export function workers() {
   if (!existsSync(WORKERS)) return [];
   return readdirSync(WORKERS).filter(path => path.endsWith('.json'))
     .map(path => JSON.parse(readFileSync(join(WORKERS, path), 'utf8')))
-    .map(worker => ({ ...worker, ...publishedState(worker) }));
+    .map(withPublication);
 }
 
 export function save(worker) {
   writePrivateJson(join(WORKERS, `${worker.name}.json`), worker);
 }
 
-const publicationRecord = worker => join(WORKERS, `${worker.name}.publication`);
-export const publishedState = worker => readJson(publicationRecord(worker)) ?? {};
+// A local repository worker waits for its first approved push, then for its draft PR, before it is published.
+export const PUBLICATION = Object.freeze({ local: 'local', awaitingPr: 'awaiting-pr', published: 'published' });
+const PUBLICATION_SUFFIX = '.publication';
+const publicationRecord = worker => join(WORKERS, `${worker.name}${PUBLICATION_SUFFIX}`);
+export const isPublicationRecord = file => `${file}`.endsWith(PUBLICATION_SUFFIX);
+// Publication is its own file, which the watcher never rewrites, so it wins over the copy in the worker's record.
+export const withPublication = worker => ({ ...worker, ...readJson(publicationRecord(worker)) });
 export const recordPublication = (worker, state) => writePrivateJson(publicationRecord(worker), state);
 
 export function writeBrief(name, text) {
