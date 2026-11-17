@@ -81,7 +81,8 @@ export async function serve() {
     if (kind === 'INTERACTION_CREATE' && applicationId) enqueue(() => service.press(event));
   }, error => { client.warn(error.message); stop(); process.exitCode = 1; });
   const timer = setInterval(() => enqueue(async () => {
-    checkDiscordPolicy(LAUNCH_POLICY, loadSettings().humanDiscord);
+    try { checkDiscordPolicy(LAUNCH_POLICY, loadSettings().humanDiscord); }
+    catch (error) { client.warn(error.message); stop(); process.exitCode = 1; return; }
     await service.tick();
   }), POLL_MS);
   function stop() { clearInterval(timer); close(); release(); }
