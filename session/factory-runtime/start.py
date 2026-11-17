@@ -61,10 +61,14 @@ def wait_for_docker():
     os.chown("/var/run/docker.sock", FACTORY_UID, FACTORY_UID)
 
 
+def echo(line):
+    sys.stderr.buffer.write(line)
+    sys.stderr.flush()
+
+
 def forward(lines):
     for line in lines:
-        sys.stderr.buffer.write(line)
-        sys.stderr.flush()
+        echo(line)
 
 
 # dockerd logs to stderr; the log keeps being read after readiness so a full pipe never blocks the daemon.
@@ -72,8 +76,7 @@ def start_docker():
     daemon = spawn(["/usr/sbin/dockerd", "--data-root=/var/lib/docker"], privilege="root", stderr=subprocess.PIPE)
     lines = iter(daemon.stderr.readline, b"")
     for line in lines:
-        sys.stderr.buffer.write(line)
-        sys.stderr.flush()
+        echo(line)
         if b"API listen on /var/run/docker.sock" in line:
             threading.Thread(target=forward, args=(lines,), daemon=True).start()
             wait_for_docker()

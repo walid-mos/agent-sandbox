@@ -1,20 +1,17 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { assignments } from './environment.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FACTORY_BOT } from './factory-identity.mjs';
 import { FACTORY_HOME, pullKey, writeRecord } from './factory-records.mjs';
 import { pullUrl } from './github-url.mjs';
-import { isIsolatedFactory } from './factory-authority.mjs';
+import { isIsolatedFactory, REPORT_SOURCE } from './factory-authority.mjs';
 import { askFactory } from './factory-channel.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 import { botId } from './sandbox.mjs';
 
-export { FACTORY_BOT };
 // The scan routine's name, and the source of the wakes it sends, by which the Factory bot recognises them.
 export const WATCH = 'factory-watch';
 const SESSION = dirname(fileURLToPath(import.meta.url));
-const REPORT_SOURCE = assignments(readFileSync(join(SESSION, 'launch.env'), 'utf8')).POTS_FACTORY_REPORT_SOURCE;
 
 export const factoryCommand = (operation, ...arguments_) => [WITH_VAULT, 'node', join(SESSION, 'factory.mjs'), operation, ...arguments_].join(' ');
 

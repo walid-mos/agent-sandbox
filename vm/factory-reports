@@ -17,7 +17,7 @@ def report(request):
         raise Refused("factory-reports: expected a report ID and plain text only.")
     if not isinstance(request["id"], str) or not re.fullmatch(r"[a-zA-Z0-9_.-]{1,240}", request["id"]):
         raise Refused("factory-reports: malformed report ID.")
-    if not isinstance(request["text"], str) or not request["text"] or len(request["text"].encode()) > REQUEST_LIMIT // 2:
+    if not isinstance(request["text"], str) or not request["text"] or len(json.dumps(request["text"])) > REQUEST_LIMIT // 2:
         raise Refused("factory-reports: expected bounded report text.")
     configuration = json.loads((Path(LAUNCH["POTS_SESSION_CONFIGURATION"]) / "sandbox.json").read_text())
     bot = configuration["bot"].lower()

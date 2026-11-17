@@ -1,5 +1,4 @@
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { potsBotHome } from './pots-home.mjs';
 
 export const FACTORY_BOT = { name: 'Factory', id: 'factory' };
-export const factoryBotHome = () => join(homedir(), '.pots', 'bots', FACTORY_BOT.id);
+export const factoryBotHome = () => potsBotHome(FACTORY_BOT.id);

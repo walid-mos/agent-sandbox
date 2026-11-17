@@ -12,7 +12,10 @@ GIT_OPTIONS = (*SOURCE_GIT_OPTIONS, "-c", "credential.helper=", "-c", "protocol.
 
 
 def execute(arguments, *, input=None, environment=ENVIRONMENT, timeout=120):
-    result = subprocess.run(arguments, input=input, env=environment, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout)
+    try:
+        result = subprocess.run(arguments, input=input, env=environment, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise Refused(f"{Path(arguments[0]).name} timed out.") from None
     if result.returncode:
         raise Refused(f"{Path(arguments[0]).name} refused the operation.")
     return result.stdout
