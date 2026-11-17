@@ -35,7 +35,7 @@ async function connect() {
   const api = discordAdminApi(account.secrets);
   const protection = await discoverProtection({ api, config: sandbox, primaryHome: botHome, stateDirectory: join(homedir(), '.config/agent-sandbox/discord-admin') });
   const approvals = discordAdminApprovals({ clicks: humanStore(join(HUMAN_HOME, 'discord')), pending: humanStore(join(HUMAN_HOME, 'discord-admin')),
-    channelAccount: account.id, guildId: protection.guildId });
+    channelAccount: account.id, guildId: protection.guildId, api });
   return { api, protection, approvals };
 }
 

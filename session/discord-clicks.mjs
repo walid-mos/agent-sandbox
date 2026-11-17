@@ -1,6 +1,7 @@
 import { answerParts, answersOf, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
 import { bindsTo, eventOf } from './discord-event.mjs';
 import { isPotName, isRequestId } from './door-messages.mjs';
+import { requireApprovalDisplay } from './discord-admin-message.mjs';
 
 const MESSAGE_LIMIT = 2000;
 
@@ -33,7 +34,9 @@ async function saveRegistration(registration, store, identity, state) {
 }
 
 function requireApprovalOwner(record, event) {
-  if (record.localAdmin && event.userId !== record.ownerId) throw new Error('discord-human: only the guild owner can decide this administration approval.');
+  if (!record.localAdmin) return;
+  if (![event.userId === record.ownerId, event.guildId === record.registration.guildId].every(Boolean)) throw new Error('discord-human: only the guild owner in the registered guild can decide this administration approval.');
+  requireApprovalDisplay(event.interaction?.message, record.registration.messages[event.questionIndex]);
 }
 
 const formChildren = component => component.components ?? (component.component ? [component.component] : []);

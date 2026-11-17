@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { closeDiscordQuestion, registerOwnerQuestion } from './discord-clicks.mjs';
 import { DIALOG_ID, MASTERMIND_POT, packet } from './human-contract.mjs';
 import { questionDigest, questionPacket } from './human-dialogs.mjs';
+import { approvalMessage, canonicalJson, requireApprovalDisplay } from './discord-admin-message.mjs';
+import { snowflake } from './discord-admin-operations.mjs';
 
 export const DISCORD_ADMIN = { id: 'discord-admin', name: 'Discord Admin' };
 export const APPROVE = 'Approve this operation';
@@ -11,13 +13,7 @@ const DIALOG_BYTES = 16;
 const APPROVAL_TTL_MS = 15 * 60 * 1000;
 const SCOPE_LIMIT = 1400;
 
-const canonical = value => {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
-  return value;
-};
-
-const operationScope = ({ approval: _approval, ...request }) => JSON.stringify(canonical(request));
+const operationScope = ({ approval: _approval, ...request }) => canonicalJson(request);
 const requestId = dialog => `${MASTERMIND_POT}.${dialog}`;
 const isUnused = prepared => prepared && !prepared.consumed && prepared.expiresAt > Date.now();
 
@@ -54,7 +50,8 @@ async function prepareApproval(request, ownerId, pending) {
   const id = randomBytes(DIALOG_BYTES).toString('hex');
   const question = approvalQuestion(id, request);
   await pending.locked(({ save }) => save({ id, question, ownerId, expiresAt: Date.now() + APPROVAL_TTL_MS }), id);
-  return { status: 'approval_required', approval: id, question: questionPacket(question) };
+  const packet = questionPacket(question);
+  return { status: 'approval_required', approval: id, question: packet, message: approvalMessage(packet, 'disabled') };
 }
 
 async function closeApproval(id, question, answer, clicks) {
@@ -87,10 +84,22 @@ async function authorize(request, { ownerId }, dependencies) {
   return { ...decision, discordMessage: await closeApproval(decision.approval, question, answer, dependencies.clicks) };
 }
 
-async function registerApproval(input, { pending, clicks, channelAccount, guildId }) {
+async function verifiedMessage(input, question, api) {
+  if (!Array.isArray(input.messages) || input.messages.length !== 1) throw new Error('discord-admin: register one approval display message.');
+  const { channelId, messageId } = input.messages[0];
+  if (![channelId, messageId].every(snowflake)) throw new Error('discord-admin: invalid approval display message IDs.');
+  const bot = await api('GET', '/users/@me');
+  const expected = { channelId, messageId, authorId: bot.id, ...approvalMessage(question, 'disabled') };
+  requireApprovalDisplay(await api('GET', `/channels/${channelId}/messages/${messageId}`), expected);
+  return { ...expected, components: approvalMessage(question, 'enabled').components };
+}
+
+async function registerApproval(input, { pending, clicks, channelAccount, guildId, api }) {
   const prepared = pendingApproval(input?.dialog, pending);
   if (!isUnused(prepared)) throw new Error('discord-admin: no unused approval has that dialog ID.');
-  const registration = { question: questionPacket(prepared.question), request: requestId(prepared.id), pot: MASTERMIND_POT, channelAccount, guildId, messages: input.messages };
+  const question = questionPacket(prepared.question);
+  const message = await verifiedMessage(input, question, api);
+  const registration = { question, request: requestId(prepared.id), pot: MASTERMIND_POT, channelAccount, guildId, messages: [message] };
   const record = await registerOwnerQuestion(registration, clicks, prepared.ownerId);
   return { dialog: record.id, registered: true, state: record.registrationState };
 }

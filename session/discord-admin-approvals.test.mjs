@@ -7,7 +7,7 @@ import { discordAdminApprovals, APPROVE, DECLINE } from './discord-admin-approva
 import { acceptDiscordClick } from './discord-clicks.mjs';
 import { humanStore } from './human-store.mjs';
 import { administerDiscord } from './discord-admin-service.mjs';
-import { fixture, guildId, channelId, ownerId, userId, request } from '../probes/fixtures/discord-admin.mjs';
+import { fixture, guildId, channelId, botId, ownerId, userId, request } from '../probes/fixtures/discord-admin.mjs';
 
 const messageId = '100000000000000020';
 
@@ -16,17 +16,56 @@ async function setup(t, input = request('channel.delete', { channelId })) {
   t.after(() => rmSync(folder, { recursive: true, force: true }));
   const clicks = humanStore(join(folder, 'clicks'));
   const pending = humanStore(join(folder, 'pending'));
-  const approvals = discordAdminApprovals({ clicks, pending, channelAccount: 'discord', guildId });
+  const approvals = discordAdminApprovals({ clicks, pending, channelAccount: 'discord', guildId, api: (...arguments_) => dependencies.api(...arguments_) });
   const dependencies = { ...fixture(), approvals };
   dependencies.channels.find(channel => channel.id === channelId).permission_overwrites = [{ id: guildId, type: 0, allow: '1024', deny: '0' }];
   const prepared = await administerDiscord(input, dependencies);
   const id = prepared.approval;
-  const buttons = [APPROVE, DECLINE].map((label, index) => ({ type: 2, style: 1, label, custom_id: `human:${id}:0:${index}` }));
+  const buttons = [APPROVE, DECLINE].map((label, index) => ({ type: 2, style: index === 0 ? 1 : 2, label, custom_id: `human:${id}:0:${index}` }));
   const registration = { dialog: id, messages: [{ channelId, messageId, components: [{ type: 1, components: buttons }] }] };
+  const display = { id: messageId, channel_id: channelId, author: { id: botId }, content: `Discord Admin approval\n\`\`\`json\n${prepared.question.scope}\n\`\`\`\n${prepared.question.questions[0].prompt}`,
+    components: [{ type: 1, components: buttons.map(button => ({ ...button, disabled: true })) }], embeds: [], attachments: [] };
+  const api = dependencies.api;
+  dependencies.api = (method, path, ...arguments_) => method === 'GET' && path === `/channels/${channelId}/messages/${messageId}` ? display : api(method, path, ...arguments_);
   const click = (index = 0, overrides = {}) => acceptDiscordClick({ raw: JSON.stringify({ type: 3, guild_id: guildId, channel_id: channelId,
-    message: { id: messageId }, member: { user: { id: ownerId } }, data: { custom_id: `human:${id}:0:${index}` }, ...overrides }) }, { store: clicks, channelAccount: 'discord' });
-  return { approvals, pending, clicks, dependencies, input: { ...input, approval: id }, prepared, registration, click };
+    message: { ...display, components: registration.messages[0].components }, member: { user: { id: ownerId } }, data: { custom_id: `human:${id}:0:${index}` }, ...overrides }) }, { store: clicks, channelAccount: 'discord' });
+  return { approvals, pending, clicks, dependencies, input: { ...input, approval: id }, prepared, registration, display, click };
 }
+
+for (const content of [undefined, 'Discord Admin asks', 'Rename a harmless channel?', 'Approve a routine health check']) {
+  test(`registration refuses absent, truncated or misleading operation text: ${content}`, async t => {
+    const proof = await setup(t);
+    proof.display.content = content;
+    await assert.rejects(proof.approvals.register(proof.registration), /display|scope|content/);
+    assert.equal(proof.dependencies.mutations.length, 0);
+  });
+}
+
+test('a message edited after registration cannot authorize the saved operation', async t => {
+  const proof = await setup(t);
+  await proof.approvals.register(proof.registration);
+  await assert.rejects(proof.click(0, { message: { ...proof.display, content: 'Approve a health check', components: proof.registration.messages[0].components } }), /display|scope|content/);
+  assert.equal((await administerDiscord(proof.input, proof.dependencies)).status, 'approval_pending');
+  assert.equal(proof.dependencies.mutations.length, 0);
+});
+
+test('registration refuses a non-bot author and changed controls', async t => {
+  const proof = await setup(t);
+  proof.display.author.id = userId;
+  await assert.rejects(proof.approvals.register(proof.registration), /display/);
+  proof.display.author.id = botId;
+  proof.display.components[0].components[0].label = 'Do something else';
+  await assert.rejects(proof.approvals.register(proof.registration), /display/);
+  assert.equal(proof.dependencies.mutations.length, 0);
+});
+
+test('a text-only click without its canonical message snapshot claims nothing', async t => {
+  const proof = await setup(t);
+  await proof.approvals.register(proof.registration);
+  await assert.rejects(proof.click(0, { message: { id: messageId } }), /display|registered/);
+  assert.equal((await administerDiscord(proof.input, proof.dependencies)).status, 'approval_pending');
+  assert.equal(proof.dependencies.mutations.length, 0);
+});
 
 test('only a registered owner click authorizes the exact operation once', async t => {
   const proof = await setup(t);
