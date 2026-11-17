@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { CHANNEL } from './discord-admin-operations.mjs';
 import { isApplicationRole } from './discord-admin-policy.mjs';
 import { isSnowflake } from './human-contract.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
@@ -34,7 +35,7 @@ function requireOneGuild(guilds) {
 
 function potChannelId(name, channels, cache) {
   const previous = cache?.potChannels?.[name];
-  const matches = previous ? channels.filter(channel => channel.id === previous) : channels.filter(channel => channel.name === name && channel.type === 0);
+  const matches = previous ? channels.filter(channel => channel.id === previous) : channels.filter(channel => channel.name === name && channel.type === CHANNEL.text);
   if (matches.length !== 1) throw new Error('discord-admin: a pot channel cannot be identified from owning configuration and Discord metadata. Restore protection metadata.');
   return matches[0].id;
 }
