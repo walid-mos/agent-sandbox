@@ -3,14 +3,21 @@ set -eu
 repo=$(cd "$(dirname "$0")/.." && pwd)
 NODE="$repo/lib/tailnet_node.py"
 PUBLIC_KEY='^ssh-ed25519 [A-Za-z0-9+/]{68}$'
+NEWLINE='
+'
 
 [ "$#" -ge 2 ] || { echo 'usage: pots-doors POT POT... (every pot of the mesh, each run rewrites the whole mesh)' >&2; exit 2; }
 keys=$(mktemp -d)
 trap 'rm -rf "$keys"' EXIT INT TERM
 
+is_one_public_key() {
+	case $1 in *"$NEWLINE"*) return 1 ;; esac
+	printf '%s\n' "$1" | grep -Eqx "$PUBLIC_KEY"
+}
+
 checked_public_key() {
 	key=$(cat)
-	printf '%s\n' "$key" | grep -Eqx "$PUBLIC_KEY" || { echo "pots-doors: $1 of $SANDBOX is not one ed25519 public key" >&2; return 1; }
+	is_one_public_key "$key" || { echo "pots-doors: $1 of $SANDBOX is not exactly one line holding one ed25519 public key" >&2; return 1; }
 	printf '%s\n' "$key"
 }
 
