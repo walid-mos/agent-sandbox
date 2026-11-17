@@ -9,9 +9,9 @@ const MESSAGE_PREFIX = '<pots-follow-up id="';
 const MESSAGE_SEPARATOR = '">\n';
 const MESSAGE_SUFFIX = '\n</pots-follow-up>';
 
-export function lifecyclePath(worker, suffix = 'json') {
-  return join(LIFECYCLE, `${worker.name}-${worker.launchId}.${suffix}`);
-}
+const lifecycleFile = (worker, suffix) => join(LIFECYCLE, `${worker.name}-${worker.launchId}.${suffix}`);
+export const statePath = worker => lifecycleFile(worker, 'json');
+export const receiptPath = worker => lifecycleFile(worker, 'receipt');
 
 export function writeLifecycle(path, value) {
   mkdirSync(LIFECYCLE, { recursive: true });
@@ -26,7 +26,7 @@ export function readLifecycle(path) {
 
 export function lifecycleOf(worker) {
   if (!worker.launchId) return undefined;
-  const state = readLifecycle(lifecyclePath(worker));
+  const state = readLifecycle(statePath(worker));
   if (!state) return undefined;
   if (![state.launchId === worker.launchId, state.owner === worker.owner, state.name === worker.name].every(Boolean)) return undefined;
   return state;

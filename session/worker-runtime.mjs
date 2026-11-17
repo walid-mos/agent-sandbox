@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, watch } from 'node:fs';
+import { rmSync, watch } from 'node:fs';
+import { join } from 'node:path';
 import { command } from './run.mjs';
 import { allTerminals } from './workers.mjs';
 import { queued } from './queue.mjs';
-import { canFinish, followUp, hasFinalReply, hasUncollectedHelpers, LIFECYCLE, lifecyclePath, readLifecycle, resultId, SETTLED_GRACE_MS, writeLifecycle } from './worker-lifecycle.mjs';
+import { canFinish, followUp, hasFinalReply, hasUncollectedHelpers, LIFECYCLE, readLifecycle, receiptPath, resultId, SETTLED_GRACE_MS, statePath, writeLifecycle } from './worker-lifecycle.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
 const PROTOCOL_VERSION = 1;
@@ -41,20 +42,19 @@ export class WorkerRuntime {
       sessionFile: context.sessionManager.getSessionFile(), sessionId: context.sessionManager.getSessionId(),
       leaf: context.sessionManager.getLeafId(), generation: randomUUID(), phase, received: [...this.#received],
       ...(phase === 'settled' && { settledAt: Date.now() }) };
-    writeLifecycle(lifecyclePath(this.#worker), this.#state);
+    writeLifecycle(statePath(this.#worker), this.#state);
   }
 
   invalidate(context) {
     clearTimeout(this.#timer);
-    rmSync(lifecyclePath(this.#worker, 'receipt'), { force: true });
+    rmSync(receiptPath(this.#worker), { force: true });
     this.#publish(context, 'active');
   }
 
   start(context) {
-    mkdirSync(LIFECYCLE, { recursive: true });
     this.#publish(context, 'starting');
     this.#observer = watch(LIFECYCLE, (_event, file) => {
-      if (`${file}` === `${this.#worker.name}-${this.#worker.launchId}.receipt`) this.finish(context);
+      if (join(LIFECYCLE, `${file}`) === receiptPath(this.#worker)) this.finish(context);
     });
     this.#removeInput = context.ui.onTerminalInput(() => this.invalidate(context));
   }
@@ -80,7 +80,7 @@ export class WorkerRuntime {
   }
 
   #hasReceipt() {
-    const receipt = readLifecycle(lifecyclePath(this.#worker, 'receipt'));
+    const receipt = readLifecycle(receiptPath(this.#worker));
     return this.#state && receipt?.id === resultId(this.#state);
   }
 

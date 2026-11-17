@@ -16,7 +16,7 @@ const { inspectWorker } = await import('./inspect-worker.mjs');
 const { serveQueue } = await import('./serve-queue.mjs');
 const { acknowledgeResult } = await import('./worker-results.mjs');
 const { enqueue, queued, QUEUE } = await import('./queue.mjs');
-const { lifecyclePath, writeLifecycle, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
+const { receiptPath, statePath, writeLifecycle, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
 const { save, workers, WORKERS } = await import('./workers.mjs');
 const sessionFile = join(scratch, 'task', 'exact.jsonl');
 mkdirSync(join(scratch, 'task'));
@@ -53,7 +53,7 @@ function setTerminals(terminals) {
   writeFileSync(boundaryPath, JSON.stringify({ ...boundary(), terminals }));
 }
 function settle() {
-  writeLifecycle(lifecyclePath(worker), { ...worker, phase: 'settled', generation: 'result-1',
+  writeLifecycle(statePath(worker), { ...worker, phase: 'settled', generation: 'result-1',
     sessionId: 'exact', received: [], settledAt: Date.now() - SETTLED_GRACE_MS });
 }
 function inspect() {
@@ -95,7 +95,7 @@ test('a finished-idle report can be acknowledged without a Herdr app', () => {
   inspect();
   const id = workers()[0].result.id;
   acknowledgeResult(['owned', id]);
-  assert.equal(JSON.parse(readFileSync(lifecyclePath(worker, 'receipt'), 'utf8')).id, id);
+  assert.equal(JSON.parse(readFileSync(receiptPath(worker), 'utf8')).id, id);
 });
 
 test('newly active or newly owned helpers invalidate coordinator receipt', () => {
@@ -153,13 +153,13 @@ test('follow-up stays durable until Pi accepts it and is sent only once per laun
   assert.equal(request.sentTo, worker.launchId);
   serve();
   assert.equal(boundary().calls.filter(call => call.args[0] === 'send').length, 1);
-  writeLifecycle(lifecyclePath(worker), { ...worker, phase: 'active', received: [request.file] });
+  writeLifecycle(statePath(worker), { ...worker, phase: 'active', received: [request.file] });
   serve();
   assert.equal(queued().length, 0);
 });
 
 test('a follow-up arriving as shutdown starts reopens the exact session, never the newer folder session', () => {
-  writeLifecycle(lifecyclePath(worker), { ...worker, phase: 'closing', received: [] });
+  writeLifecycle(statePath(worker), { ...worker, phase: 'closing', received: [] });
   enqueue({ worker: worker.name, message: 'Follow up after close' });
   serve();
   assert.equal(boundary().calls.some(call => call.args[0] === 'send'), false);
@@ -171,7 +171,7 @@ test('a follow-up arriving as shutdown starts reopens the exact session, never t
   assert.equal(queued().length, 1);
   const resumed = workers()[0];
   setTerminals([{ ...terminal, address: 't-resumed', labels: { 'pots.owner': 'nextnode', 'pots.launch': resumed.launchId } }]);
-  writeLifecycle(lifecyclePath(resumed), { ...resumed, phase: 'starting', received: [] });
+  writeLifecycle(statePath(resumed), { ...resumed, phase: 'starting', received: [] });
   serve();
   assert.equal(boundary().calls.filter(call => call.args[0] === 'send').length, 1);
   assert.equal(queued().length, 1);

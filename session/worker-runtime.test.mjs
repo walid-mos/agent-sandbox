@@ -13,7 +13,7 @@ const boundaryPath = join(scratch, 'boundary.json');
 process.env.POTS_TEST_BOUNDARY = boundaryPath;
 process.env.PATH = `${bin}:${process.env.PATH}`;
 const { WorkerRuntime } = await import('./worker-runtime.mjs');
-const { lifecyclePath, readLifecycle, resultId, SETTLED_GRACE_MS, writeLifecycle } = await import('./worker-lifecycle.mjs');
+const { readLifecycle, receiptPath, resultId, SETTLED_GRACE_MS, statePath, writeLifecycle } = await import('./worker-lifecycle.mjs');
 const { enqueue, QUEUE } = await import('./queue.mjs');
 const worker = { name: 'owned', owner: 'nextnode', launchId: 'launch-1' };
 const terminal = { address: 't-owned', name: 'owned', cwd: '/work/task', state: 'live', status: { state: 'idle' },
@@ -65,8 +65,8 @@ after(() => rmSync(scratch, { recursive: true, force: true }));
 
 function acknowledge(t) {
   runtime.settle(context);
-  const state = readLifecycle(lifecyclePath(worker));
-  writeLifecycle(lifecyclePath(worker, 'receipt'), { id: resultId(state) });
+  const state = readLifecycle(statePath(worker));
+  writeLifecycle(receiptPath(worker), { id: resultId(state) });
   t.mock.timers.tick(SETTLED_GRACE_MS);
 }
 
@@ -75,15 +75,15 @@ test('an unread final result keeps its live process until exact coordinator rece
   t.mock.timers.tick(SETTLED_GRACE_MS);
   runtime.finish(context);
   assert.equal(shutdowns, 0);
-  const state = readLifecycle(lifecyclePath(worker));
+  const state = readLifecycle(statePath(worker));
   assert.equal(state.sessionFile, '/saved/exact.jsonl');
-  writeLifecycle(lifecyclePath(worker, 'receipt'), { id: 'stale-result' });
+  writeLifecycle(receiptPath(worker), { id: 'stale-result' });
   runtime.finish(context);
   assert.equal(shutdowns, 0);
-  writeLifecycle(lifecyclePath(worker, 'receipt'), { id: resultId(state) });
+  writeLifecycle(receiptPath(worker), { id: resultId(state) });
   runtime.finish(context);
   assert.equal(shutdowns, 1);
-  assert.equal(readLifecycle(lifecyclePath(worker)).phase, 'closing');
+  assert.equal(readLifecycle(statePath(worker)).phase, 'closing');
 });
 
 for (const status of ['idle', 'done']) {
@@ -150,14 +150,14 @@ test('new terminal input invalidates the old result receipt', t => {
   rawInput('x');
   runtime.finish(context);
   assert.equal(shutdowns, 0);
-  assert.equal(readLifecycle(lifecyclePath(worker, 'receipt')), undefined);
+  assert.equal(readLifecycle(receiptPath(worker)), undefined);
 });
 
 test('hc input is durably received and invalidates an earlier close', t => {
   acknowledge(t);
   const transformed = runtime.input({ text: '<hc from="bot"><pots-follow-up id="100-a.json">\nAgain\n</pots-follow-up></hc>' }, context);
   assert.equal(transformed.text, '<hc from="bot">Again</hc>');
-  assert.deepEqual(readLifecycle(lifecyclePath(worker)).received, ['100-a.json']);
+  assert.deepEqual(readLifecycle(statePath(worker)).received, ['100-a.json']);
   runtime.finish(context);
   assert.equal(shutdowns, 0);
 });
