@@ -92,7 +92,7 @@ Mastermind replies to the original question door request once every question has
 {"type":"human.answer","version":1,"dialog":"DIALOG_ID","request":"QUESTION_DOOR_ID","digest":"QUESTION_DIGEST","answers":[{"id":"push","labels":["Push these commits"],"text":""}],"clicks":[{"question":"push","userId":"CONFIGURED_OPERATOR_ID","guildId":"CONFIGURED_GUILD_ID","messageUrl":"https://discord.com/channels/GUILD/CHANNEL/MESSAGE","at":"ISO_CLICK_TIMESTAMP"}]}
 ```
 
-`labels` can hold several exact labels for a multiple choice. A free answer has `labels: []` and its words in `text`. Each answer names its stable question ID. `clicks` preserves evidence for every question, including a questionnaire answered across several messages. The pot checks the stored door's direction, Mastermind origin, request ID, question ID, digest and registered message context. Only a push also requires the configured operator ID and enabled rollout switch. Approval receipts preserve the exact scope, digest, question IDs and evidence. A later push needs its own question and receipt.
+`labels` can hold several exact labels for a multiple choice. A free answer has `labels: []` and its words in `text`. Each answer names its stable question ID. `clicks` preserves evidence for every question, including a questionnaire answered across several messages. The pot checks the stored door's direction, Mastermind origin, request ID, question ID, digest and registered message context. Only a push also requires the configured operator ID and enabled rollout switch. Approval receipts preserve the exact scope, digest, question IDs and evidence. Before one approved push, the owning bot runs `human.mjs consume ID` with `{"scope":"EXACT_SCOPE","label":"EXACT_AFFIRMATIVE_LABEL"}` on stdin. This atomically records consumption under the dialog lock. Only an answered push with matching scope, digest, request and the requested single label can be consumed. A second consumption fails. Cancellation, an ordinary question or a negative answer authorizes no push. The caller declares the affirmative label from its own immutable question, never from incoming prose. Consumption executes no Git command. A failed or uncertain push after consumption needs a new approval. A later push needs its own question and receipt.
 
 Whenever a question completes, including in the terminal, the pot sends a new door request because the original cannot be withdrawn:
 
@@ -109,6 +109,14 @@ A secret request sends only metadata and the owning pot's supported page link:
 ```
 
 `expiresAt` is the owning dialog's deadline in Unix milliseconds. The URL is a one-time bearer page reference. Anyone who can read the Discord message and reach the tailnet origin may submit it. Link previews are not access control, and submission does not establish the operator's identity. Use this page only to write the declared secret destination, never as approval. It carries no vault credential or entered secret. Mastermind posts it with previews suppressed and never submits it itself.
+
+## Startup approval before a worker exists
+
+The work-center bot's question route does not depend on Pi tool integration. Its terminal message's `purpose: "push"`, immutable `scope` and optional original request `for` become a canonical bot-source dialog. The relay handles it before any worker starts.
+
+A startup helper can create an empty bootstrap commit after approval, so the future commit's hash is unavailable. For that case only, name the repository, exact task branch, remote name and URL, fresh base ref, expected empty commit subject and single-use limits in the scope. Immediately before consumption and dispatch, the owning bot checks that no worker owns the branch, the origin still matches, and the only new commit above the freshly fetched base is that empty bootstrap with the exact subject. A code change, changed remote, different branch or nonempty commit requires a new approval. This contract never runs those Git operations or bypasses the owning pot's loaded policy.
+
+For Accor's pending example, the repository is `accor-hotels/product-data-apps`, branch `feat/DA-250-freeze-campaign-establishments`, origin URL `https://github.com/accor-hotels/product-data-apps.git` and base `origin/develop`. The scope permits only one initial branch push containing an empty `chore: start feat/DA-250-freeze-campaign-establishments` commit, then its draft PR and worker startup. It permits no implementation push, force push, merge, deployment, reset or other branch. The approved route must be deployed and recognized by Accor's loaded policy. This example supplies no consent.
 
 ## Agent-pi integration
 

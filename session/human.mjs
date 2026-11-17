@@ -1,4 +1,5 @@
 import { answerQuestion, cancelDialog, openDialog } from './human-dialogs.mjs';
+import { consumePush } from './human-consume.mjs';
 import { storeDialogSecret } from './human-secrets.mjs';
 import { humanStore } from './human-store.mjs';
 import { workers } from './workers.mjs';
@@ -19,8 +20,8 @@ async function input() {
 
 function view(dialog) {
   if (!dialog) throw new Error('human: no such dialog.');
-  const { id, kind, policy, result, expiresAt, delivery, issue } = dialog;
-  return { id, kind, policy, result, expiresAt, delivery, issue, isWriting: dialog.writing === true };
+  const { id, kind, policy, result, expiresAt, delivery, issue, consumption } = dialog;
+  return { id, kind, policy, result, expiresAt, delivery, issue, consumption, isWriting: dialog.writing === true };
 }
 
 main(import.meta, async () => {
@@ -34,9 +35,10 @@ main(import.meta, async () => {
     get: () => view(humanStore().get(id)),
     answer: async () => view(await answerQuestion(id, await input())),
     secret: async () => view(await storeDialogSecret(id, await input())),
+    consume: async () => view(await consumePush(id, await input())),
     cancel: async () => view(await cancelDialog(id)),
     pause: async () => view(await cancelDialog(id, 'paused')),
   };
-  if (!Object.hasOwn(operations, operation)) throw new Error('usage: human.mjs open|answer ID|secret ID <json | get|cancel|pause ID');
+  if (!Object.hasOwn(operations, operation)) throw new Error('usage: human.mjs open|answer ID|secret ID|consume ID <json | get|cancel|pause ID');
   process.stdout.write(`${JSON.stringify(await operations[operation]())}\n`);
 });
