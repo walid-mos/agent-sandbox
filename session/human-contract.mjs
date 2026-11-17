@@ -106,7 +106,7 @@ export function checkDiscordPolicy(policy, identity) {
   if (identity?.pushApprovalsEnabled !== true || !SNOWFLAKE.test(identity.userId)) throw new Error('human: Discord push approvals stay off until merged and verified live.');
 }
 
-export function discordEvidence(evidence, identity, policy = 'ordinary') {
+export function discordEvidence(evidence, identity, policy) {
   checkDiscordPolicy(policy, identity);
   const message = discordMessage(evidence?.messageUrl);
   if (!SNOWFLAKE.test(evidence?.userId) || message.guildId !== evidence.guildId || !Number.isFinite(Date.parse(evidence?.at))) throw new Error('human: Discord answer has no valid click metadata.');

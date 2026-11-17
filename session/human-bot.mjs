@@ -67,7 +67,7 @@ export async function deliverBotResult(id, store = humanStore()) {
     if (!conversation().some(record => record.id === messageId || record.answers === dialog.source.message)) {
       const text = dialog.result.status === 'stored' ? SECRET_STORED
         : dialog.result.status === 'answered' ? answerText(dialog.result.answers) : `Question ${dialog.result.status}.`;
-      if (text) say({ id: messageId, text, ...(dialog.kind === 'secret' && { answers: dialog.source.message }), humanDialog: id, humanStatus: dialog.result.status,
+      say({ id: messageId, text, ...(dialog.kind === 'secret' && { answers: dialog.source.message }), humanDialog: id, humanStatus: dialog.result.status,
         neighbourReport: dialog.result.evidence ? { pot: MASTERMIND_POT, ...dialog.result.evidence, approval: dialog.policy === 'push', scope: dialog.scope, dialog: dialog.id, digest: dialog.result.digest } : undefined });
     }
     save({ ...dialog, deliveredToBot: true });

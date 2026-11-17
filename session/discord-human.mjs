@@ -80,7 +80,7 @@ async function deliverAnswer(record) {
   await store().patch(record.id, { replySent: find(request.id).state === ANSWERED });
 }
 
-export function startDiscordHuman({ onError = () => {} } = {}) {
+function startDiscordHuman({ onError = () => {} } = {}) {
   const inbox = discordInbox(join(botHome, 'bot.sqlite'));
   const cursorPath = join(FOLDER, 'cursor.json');
   store();

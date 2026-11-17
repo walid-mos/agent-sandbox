@@ -30,7 +30,7 @@ export function humanStore(folder = HUMAN_HOME) {
     try {
       const lock = spawnSync('flock', ['-x', '-w', `${LOCK_SECONDS}`, `${LOCK_DESCRIPTOR}`], { stdio: ['ignore', 'ignore', 'ignore', descriptor] });
       if (lock.error || lock.status !== 0) throw new Error('human: dialog storage is busy. Try again.');
-      return await operation({ get, save, all });
+      return await operation({ get, save });
     } finally {
       closeSync(descriptor);
     }
