@@ -84,6 +84,7 @@ Source changes, all implemented:
 | --- | --- |
 | [`session/launch.env`](../session/launch.env) | Names the key home, the landing state, the signer socket, and the isolated factory's container, volumes, network, state and report socket. |
 | [`vm/landing.py`](../vm/landing.py), [`vm/landing-signer`](../vm/landing-signer), [`vm/pots-landing.service`](../vm/pots-landing.service) | The root signer: policy, the one commit it builds, and its receipt. |
+| [`vm/factory_root.py`](../vm/factory_root.py) | The fixed environment, Git options, GnuPG calls and private directories the VM-root factory services share. |
 | [`lib/factory_socket.py`](../lib/factory_socket.py) | The token-checked socket the signer and the report service serve, and [`session/factory-channel`](../session/factory-channel) calls. |
 | [`vm/landing-key`](../vm/landing-key), [`bin/landing-key`](../bin/landing-key) | Creates and exports the key as VM root, from the Mac. |
 | [`vm/factory-runtime`](../vm/factory-runtime), [`vm/pots-factory.service`](../vm/pots-factory.service), [`vm/factory-seed`](../vm/factory-seed), [`vm/factory-reports`](../vm/factory-reports), [`vm/pots-factory-reports.service`](../vm/pots-factory-reports.service) | The isolated factory's container, its operator seed, and its one-way reports to Principal. |

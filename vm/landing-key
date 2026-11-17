@@ -5,7 +5,11 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from landing import LAUNCH, Refused, execute, fingerprint, private_directory
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from factory_root import fingerprints, gpg, private_directory
+from factory_socket import Refused
+from landing import IDENTITY_EMAIL, IDENTITY_NAME, fingerprint
+from launch import LAUNCH
 
 
 def main():
@@ -16,13 +20,12 @@ def main():
     with (home / "operator.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if sys.argv[1] == "create":
-            existing = execute(["/usr/bin/gpg", "--no-options", "--batch", "--homedir", str(home), "--with-colons", "--list-secret-keys"])
-            if b"sec:" in existing:
+            if fingerprints(gpg(home, "--with-colons", "--list-secret-keys")):
                 raise Refused("landing-key: a key already exists. Export it instead of replacing it.")
-            execute(["/usr/bin/gpg", "--no-options", "--batch", "--homedir", str(home), "--pinentry-mode", "loopback", "--passphrase", "", "--quick-generate-key", "PR factory <factory@agent-sandbox.invalid>", "ed25519", "sign", "0"])
+            gpg(home, "--pinentry-mode", "loopback", "--passphrase", "", "--quick-generate-key", f"{IDENTITY_NAME} <{IDENTITY_EMAIL}>", "ed25519", "sign", "0")
             print(fingerprint(home))
             return
-        sys.stdout.buffer.write(execute(["/usr/bin/gpg", "--no-options", "--batch", "--homedir", str(home), "--armor", "--export", fingerprint(home)]))
+        sys.stdout.buffer.write(gpg(home, "--armor", "--export", fingerprint(home)))
 
 
 if __name__ == "__main__":

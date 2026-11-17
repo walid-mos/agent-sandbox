@@ -5,8 +5,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from landing import LAUNCH, Signer
 from factory_socket import serve
+from landing import Signer
+from launch import LAUNCH
 
 REQUEST_BYTES = 2048
 

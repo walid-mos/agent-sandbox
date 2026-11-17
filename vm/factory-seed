@@ -6,7 +6,10 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from landing import LAUNCH, Refused, private_directory
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from factory_root import private_directory
+from factory_socket import Refused
+from launch import LAUNCH
 
 SEED_LIMIT = 16 * 1024 * 1024
 PASSPHRASE = re.compile(rb"[0-9a-f]{48}\n")
