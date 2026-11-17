@@ -73,7 +73,7 @@ export function hasUncollectedHelpers(terminal, terminals) {
 export function canFinish(state, terminal, terminals, now) {
   if (!state) return false;
   const { labels = {} } = terminal;
-  return [state.phase === 'settled', Number.isFinite(state.settledAt), now >= readyAt(state),
+  return [state.phase === 'settled', now >= readyAt(state),
     terminal.address === state.terminal, ownsTerminal(state, terminal), isLive(terminal), ['done', 'idle'].includes(terminal.status),
     !labels['agent.waiting'], !labels['agent.goal'], !labels['lifecycle.keep'], !hasUncollectedHelpers(terminal, terminals)].every(Boolean);
 }
