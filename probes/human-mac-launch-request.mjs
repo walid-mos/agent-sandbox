@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { humanStore } from '../session/human-store.mjs';
-import { launchRequest, launchNotice, noticeOf, noticeText } from '../session/launch-contract.mjs';
+import { launchNotice, launchRequest, launchStatus, noticeOf, noticeText } from '../session/launch-contract.mjs';
 import { launchSettings, openLaunch, retireLaunch, shownLaunch, recordStatus, expireLaunches } from '../session/launch-requests.mjs';
-import { launchStatus } from '../session/launch-contract.mjs';
 import { ownedFolder, now, settings as gateSettings } from './fixtures/mac-launch.mjs';
 import { piArguments } from '../mac/launch-pi.mjs';
 
