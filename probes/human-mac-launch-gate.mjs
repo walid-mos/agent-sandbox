@@ -2,15 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buttonId, verifyOffer, verifyPress } from '../mac/launch-approval.mjs';
 import { launchNotice, launchRequest, shownRequest } from '../session/launch-contract.mjs';
-import { application, now, settings, snowflake } from './fixtures/mac-launch.mjs';
+import { application, now, pressEvent, settings, snowflake } from './fixtures/mac-launch.mjs';
 
 const { guildId: guild, channelId: channel, humanDiscord: { userId: operator } } = settings;
 const message = '444444444444444444';
 const request = launchRequest({ launch: 'a'.repeat(32), target: 'mac-studio', pot: 'alpha', title: 'Reply', prompt: 'Reply ready.', createdAt: now });
 const offer = { request, prompt: 'Reply ready.', content: 'Approve this prompt', messageId: message, applicationId: application, attachment: { id: '666666666666666666', filename: 'prompt.txt', size: 12 } };
-const click = () => ({ id: snowflake(now), type: 3, application_id: application, guild_id: guild, channel_id: channel,
-  member: { user: { id: operator } }, data: { component_type: 2, custom_id: buttonId(request, 'ml') },
-  message: { id: message, author: { id: application }, edited_timestamp: null, content: offer.content, attachments: [offer.attachment] } });
+const click = () => pressEvent(offer, now);
 
 test('only the enabled operator may approve the gate message', () => {
   const event = click();

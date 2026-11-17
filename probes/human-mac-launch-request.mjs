@@ -30,17 +30,18 @@ test('an act the gate owns cannot hide in a title, a cost or behind a blank mark
   assert.deepEqual(declared.acts, ['launch-gate']);
 });
 
+const open = store => openLaunch(input, { settings: { targets: { 'mac-studio': 'Mac Studio' } }, store, pot: 'alpha', now });
+
 test('the source expires and retires its prompt and refuses a mismatched report', async t => {
   const store = humanStore(ownedFolder(t));
-  const settings = { targets: { 'mac-studio': 'Mac Studio' } };
-  const opened = await openLaunch(input, { settings, store, pot: 'alpha', now });
+  const opened = await open(store);
   assert.equal(shownLaunch(opened.launch, store, now).state, 'open');
   assert.equal(shownLaunch(opened.launch, store, now + 1_800_000).state, 'expired');
   await askClosure(opened.launch, 'superseded', store, now);
   assert.equal(shownLaunch(opened.launch, store, now).state, 'superseded');
   await assert.rejects(askClosure(opened.launch, 'cancelled', store, now));
   await assert.rejects(recordStatus(launchStatus({ ...opened, digest: 'b'.repeat(64), status: 'started' }), store));
-  const second = await openLaunch(input, { settings, store, pot: 'alpha', now });
+  const second = await open(store);
   await recordStatus(launchStatus({ ...second, status: 'started' }), store);
   await assert.rejects(askClosure(second.launch, 'superseded', store, now));
 });
@@ -49,7 +50,7 @@ const listed = (store, launch) => listedLaunches(store, now).find(entry => entry
 
 test('a cancellation is only asked until the Mac reports the launch closed', async t => {
   const store = humanStore(ownedFolder(t));
-  const opened = await openLaunch(input, { settings: { targets: { 'mac-studio': 'Mac Studio' } }, store, pot: 'alpha', now });
+  const opened = await open(store);
   await askClosure(opened.launch, 'cancelled', store, now);
   assert.equal(listed(store, opened.launch).state, 'open');
   assert.equal(listed(store, opened.launch).asked, 'cancelled');
@@ -60,21 +61,20 @@ test('a cancellation is only asked until the Mac reports the launch closed', asy
 
 test('a start the Mac committed first is reported as too late for the cancellation or the expiry', async t => {
   const store = humanStore(ownedFolder(t));
-  const settings = { targets: { 'mac-studio': 'Mac Studio' } };
-  const cancelled = await openLaunch(input, { settings, store, pot: 'alpha', now });
+  const cancelled = await open(store);
   await askClosure(cancelled.launch, 'cancelled', store, now);
   assert.equal((await recordStatus(launchStatus({ ...cancelled, status: 'started' }), store)).tooLate, 'cancelled');
   assert.equal(listed(store, cancelled.launch).state, 'started');
-  const expired = await openLaunch(input, { settings, store, pot: 'alpha', now });
+  const expired = await open(store);
   await expireLaunches(store, async () => {}, now + 1_860_000);
   assert.equal((await recordStatus(launchStatus({ ...expired, status: 'started' }), store)).tooLate, 'expired');
-  const plain = await openLaunch(input, { settings, store, pot: 'alpha', now });
+  const plain = await open(store);
   assert.equal((await recordStatus(launchStatus({ ...plain, status: 'started' }), store)).tooLate, undefined);
 });
 
 test('an offline Mac does not prevent the pot reporting expiry, with retries', async t => {
   const store = humanStore(ownedFolder(t));
-  const opened = await openLaunch(input, { settings: { targets: { 'mac-studio': 'Mac Studio' } }, store, pot: 'alpha', now });
+  const opened = await open(store);
   const deadline = now + 1_800_000;
   const told = [];
   await expireLaunches(store, async report => told.push(report), deadline + 59_999);

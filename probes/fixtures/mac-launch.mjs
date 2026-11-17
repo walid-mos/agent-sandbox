@@ -23,6 +23,11 @@ export function ownedFolder(t) {
   return folder;
 }
 
+// The Discord interaction an operator's button press delivers for this offer.
+export const pressEvent = (offer, at, action = 'ml') => ({ type: 3, id: snowflake(at), application_id: application, guild_id: settings.guildId, channel_id: settings.channelId,
+  member: { user: { id: settings.humanDiscord.userId } }, data: { component_type: 2, custom_id: buttonId(offer.request, action) },
+  message: { id: offer.messageId, author: { id: application }, content: offer.content, edited_timestamp: null, attachments: [offer.attachment] } });
+
 export function scenario(t) {
   const store = gateStore(ownedFolder(t));
   const prompt = 'Reply ready.';
@@ -48,11 +53,6 @@ export function scenario(t) {
   }, result: () => source.result };
   const dependencies = { store, discord, pots, runner, settings: () => source.config, warn: () => {}, clock: () => source.time };
   const service = launchService(dependencies);
-  const press = (action = 'ml') => {
-    const offer = store.get(request.launch);
-    return { type: 3, id: snowflake(source.time), application_id: application, guild_id: settings.guildId, channel_id: settings.channelId,
-      member: { user: { id: settings.humanDiscord.userId } }, data: { component_type: 2, custom_id: buttonId(request, action) },
-      message: { id: offer.messageId, author: { id: application }, content: offer.content, edited_timestamp: null, attachments: [offer.attachment] } };
-  };
+  const press = (action = 'ml') => pressEvent(store.get(request.launch), source.time, action);
   return { service, dependencies, store, source, notice, request, posted, edits, reports, runs, told, press };
 }
