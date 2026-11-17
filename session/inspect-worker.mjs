@@ -30,14 +30,15 @@ function report(worker, terminal, status, wake, state, isSettled) {
 }
 
 // A launch whose terminal never opened failed to start, which the bot hears about and answers with a send, so only a crash resumes.
+// A resume gets a new launch ID, so the guard holds the worker's name: a launch that crashes as it starts is resumed once, not in a loop.
 function recover(worker, state, pending) {
   if (state?.phase === 'closing') {
     save({ ...worker, isClosed: true });
     return;
   }
-  if ([!worker.terminal, worker.isClosed, pending.has(worker.name), resumed.has(worker.launchId)].some(Boolean)) return;
+  if ([!worker.terminal, worker.isClosed, pending.has(worker.name), resumed.has(worker.name)].some(Boolean)) return;
   enqueue({ worker: worker.name });
-  resumed.add(worker.launchId);
+  resumed.add(worker.name);
 }
 
 function recordSession(worker, state) {
@@ -64,6 +65,8 @@ function reportCurrent(worker, terminal, state, isSettled) {
 
 function inspectLaunch(worker, view) {
   const state = lifecycleOf(worker);
+  // A launch that settled ran, so a later crash of the worker may be resumed again.
+  if (state?.phase === 'settled') resumed.delete(worker.name);
   const current = recordSession(worker, state);
   const terminal = terminalOf(current, view.terminals);
   if (!terminal || terminal.state === 'finished') {

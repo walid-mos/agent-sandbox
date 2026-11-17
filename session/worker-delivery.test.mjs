@@ -131,6 +131,18 @@ test('crash recovery does not reread a terminal the watcher has already swept', 
   assert.deepEqual(boundary().calls, []);
 });
 
+test('a resumed launch that crashes before it settles is not resumed again', () => {
+  setTerminals([{ ...terminal, state: 'finished' }]);
+  inspect();
+  setTerminals([]);
+  serve();
+  const resumed = workers()[0];
+  assert.notEqual(resumed.launchId, worker.launchId);
+  setTerminals([{ ...terminal, address: resumed.terminal, state: 'finished', labels: { 'pots.owner': 'nextnode', 'pots.launch': resumed.launchId } }]);
+  inspect();
+  assert.equal(queued().length, 0);
+});
+
 test('first launch preallocates one exact session identity before starting Pi', () => {
   const first = { ...worker, sessionFile: undefined, sessionId: undefined, launchId: undefined, terminal: undefined,
     startedAt: undefined, brief: '/brief.md' };
