@@ -37,11 +37,12 @@ vm_start() {
 	vm_is_running || colima start --profile "$POTS_PROFILE" --mount none
 }
 
-# The Colima VMs share one network and the Mac publishes each SealSkin server, so a session is checked against every Colima sandbox, its own included.
+# The Colima VMs share one network and the Mac publishes the SealSkin server of each running one, so a session is checked against every running Colima sandbox, its own included.
 colima_sandbox_endpoints() {
 	for config in "$POTS_SANDBOX_ROOT"/*/sandbox.json; do
 		[ "$(sandbox_provider "$config")" = colima ] || continue
 		profile=$(basename "$(dirname "$config")")
+		colima status --profile "$profile" > /dev/null 2>&1 || continue
 		address=$(colima ssh -p "$profile" -- ip -4 -o addr show "$COLIMA_VM_INTERFACE" | awk '{ sub("/.*", "", $4); print $4 }')
 		printf '%s:22 ' "$address"
 		server_port=$(jq -r '.serverPort // empty' "$config")
