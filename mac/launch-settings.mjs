@@ -1,13 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { ACTS, DEFAULT_REFUSED_ACTS, isTarget } from '../session/launch-contract.mjs';
 import { isSnowflake } from '../session/human-contract.mjs';
 import { readPrivate, privateDirectory, writePrivate } from './launch-store.mjs';
 
-export const SETTINGS = join(homedir(), '.config/agent-sandbox/mac-launch.json');
+const SETTINGS = join(homedir(), '.config/agent-sandbox/mac-launch.json');
 export const STATE_HOME = join(homedir(), '.config/agent-sandbox/mac-launch');
-export const KEYCHAIN_SERVICE = 'agent-sandbox-mac-launch';
+const KEYCHAIN_SERVICE = 'agent-sandbox-mac-launch';
 
 function checkedSettings(settings) {
   const hasLists = ['announcers', 'pots', 'refusedActs', 'path', 'piArguments'].every(key => Array.isArray(settings[key]));
@@ -29,6 +29,16 @@ export function configure(values) {
     refusedActs: DEFAULT_REFUSED_ACTS, directory: values.directory ?? homedir(), path: ['/opt/homebrew/bin', '/usr/local/bin', join(homedir(), '.local/bin')], piArguments: [] });
   privateDirectory(join(homedir(), '.config/agent-sandbox'));
   writePrivate(SETTINGS, settings);
+}
+
+export function setEnabled(isEnabled) {
+  const settings = loadSettings();
+  writePrivate(SETTINGS, { ...settings, humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: isEnabled } });
+}
+
+export function storeToken() {
+  if (process.platform !== 'darwin' || !process.stdin.isTTY) throw new Error('mac-launch: run token yourself in a terminal on the Mac.');
+  execFileSync('/usr/bin/security', ['add-generic-password', '-U', '-a', userInfo().username, '-s', KEYCHAIN_SERVICE, '-w'], { stdio: 'inherit' });
 }
 
 export function keychainToken() {
