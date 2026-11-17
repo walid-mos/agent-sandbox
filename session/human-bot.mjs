@@ -16,14 +16,21 @@ function inputOf(record) {
     questions: [{ id: 'answer', prompt: asked.text || 'Choose an answer.', ...asked.question }] };
 }
 
+// A plain reply answers the newest bot question before it, as a send from the pane does.
+function replyTo(record, following) {
+  if (record.secret) return following.find(item => !isFromBot(item) && item.answers === record.id);
+  const nextQuestion = following.findIndex(item => isFromBot(item) && inputOf(item)?.kind === 'question');
+  const replies = nextQuestion < 0 ? following : following.slice(0, nextQuestion);
+  return replies.find(item => !isFromBot(item) && !item.answers);
+}
+
 export async function syncBotDialogs(store = humanStore(), snapshot = conversation()) {
   const records = snapshot.filter(record => record.type === 'message');
   for (const [index, record] of records.entries()) {
     if (!isFromBot(record)) continue;
     const input = inputOf(record);
     if (!input) continue;
-    const following = records.slice(index + 1);
-    const reply = following.find(item => !isFromBot(item) && (record.secret ? item.answers === record.id : !item.answers));
+    const reply = replyTo(record, records.slice(index + 1));
     const existing = store.get(botDialogId(record.id));
     if (reply && !existing) continue;
     const dialog = await openDialog(input, store);
