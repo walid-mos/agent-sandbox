@@ -1,4 +1,5 @@
 import { answerParts, answersOf, capture, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
+import { isPotName, isRequestId } from './door-messages.mjs';
 
 const MESSAGE_LIMIT = 2000;
 const CUSTOM_ID = new RegExp(`^(?:human|form:human-answer):${capture(DIALOG_ID)}:(\\d+)(?::(\\d+|select))?$`);
@@ -6,7 +7,7 @@ const CUSTOM_ID = new RegExp(`^(?:human|form:human-answer):${capture(DIALOG_ID)}
 export async function registerDiscordQuestion(registration, store, identity) {
   const { question, request, pot, channelAccount, guildId, messages } = registration;
   if (question?.type !== 'human.question' || question.version !== VERSION || !DIALOG_ID.test(question.dialog) || !DIGEST.test(question.digest)) throw new Error('discord-human: invalid question packet.');
-  if (!/^[a-z][a-z0-9-]*\.[a-z0-9]{8,32}$/.test(request) || !/^[a-z][a-z0-9-]*$/.test(pot) || !channelAccount || !isSnowflake(guildId)) throw new Error('discord-human: register the originating door and channel account.');
+  if (!isRequestId(request) || !isPotName(pot) || !channelAccount || !isSnowflake(guildId)) throw new Error('discord-human: register the originating door and channel account.');
   questionsOf(question.questions);
   if (!RELAYED_POLICIES.includes(question.policy)) throw new Error('discord-human: this question is local only.');
   checkDiscordPolicy(question.policy, identity);
