@@ -2,6 +2,7 @@ import { realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { command } from './run.mjs';
+import { requireSecretKeys } from './human-secret-values.mjs';
 
 const LINE_BREAK = /[\r\n]/;
 const SESSION_LIBRARY = fileURLToPath(new URL('./lib.sh', import.meta.url));
@@ -41,20 +42,16 @@ function typedSecrets(input) {
   return values;
 }
 
-/**
- * Writes the values typed for one ask-secret, given as `{"KEY": "value"}` text, as `pots chat` does: pots checks the
- * file and the keys, writes the given keys to that file in its secrets folder, readable by this user only, and skips
- * the empty ones. Returns the message `pots chat` answers the bot with, which names the keys and never a value.
- */
 export async function storeSecrets(asked, input) {
   const typed = typedSecrets(input);
+  requireSecretKeys(asked.keys, typed);
   const { secretRequest, writeSecrets, secretsFolder } = await potsModules();
   const { file, keys } = secretRequest({ ...asked });
   const path = join(secretsFolder, file);
-  const given = keys.filter(key => typed[key]);
-  const skipped = keys.filter(key => !typed[key]);
-  if (given.length) writeSecrets(path, Object.fromEntries(given.map(key => [key, typed[key]])));
-  const written = [given.length ? `wrote ${given.join(', ')} to ${path}` : '', skipped.length ? `skipped ${skipped.join(', ')}` : '']
-    .filter(Boolean).join('; ');
-  return `(pots chat: ${written})`;
+  try {
+    writeSecrets(path, Object.fromEntries(keys.map(key => [key, typed[key]])));
+  } catch {
+    throw Object.assign(new Error('pots: the secret file write outcome is unknown. Check the destination before opening a new request.'), { isUncertain: true });
+  }
+  return `(pots chat: wrote ${keys.join(', ')} to ${path})`;
 }

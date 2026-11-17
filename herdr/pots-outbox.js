@@ -58,8 +58,8 @@ export class Outbox {
 
   async leave(item) {
     try {
-      await sendMessage(this.sandbox, { id: item.id, text: item.draft.text, attachments: item.draft.attachments });
-      this.update(item, { state: "sent" });
+      const deliveredId = await sendMessage(this.sandbox, { id: item.id, text: item.draft.text, attachments: item.draft.attachments, questionId: item.draft.questionId });
+      this.update(item, { state: "sent", id: deliveredId });
       this.reachedBot();
       this.delivered.set(item.id, item.draft.attachments);
       return true;

@@ -13,6 +13,7 @@ const TERMINAL_NAME_LIMIT = 32;
 const DIGEST_LENGTH = 6;
 // The session user can lower a priority and never raise one, so workers and passes step down and the pane's requests keep theirs.
 const WORKER_NICENESS = '10';
+const HUMAN_BROKER = join(import.meta.dirname, 'human.mjs');
 
 export function terminalName(text, identity = text) {
   const readable = text.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -119,6 +120,17 @@ export function openTerminal({ name, cwd, tab, options = [], labels = [], label,
   return JSON.parse(command('hc', ['get', name])).address;
 }
 
+let hasHumanDialogFlags;
+
+function humanDialogFlags(worker) {
+  if (hasHumanDialogFlags === undefined) {
+    const help = command('pi', ['--help'], { timeout: 15_000 });
+    hasHumanDialogFlags = help.includes('--human-dialog-worker') && help.includes('--human-dialog-broker');
+  }
+  if (!hasHumanDialogFlags) return [];
+  return ['--human-dialog-worker', worker.name, '--human-dialog-broker', HUMAN_BROKER];
+}
+
 function sessionArguments(worker, sessionDir, sessionId) {
   if (!worker.sessionFile) return ['--session-dir', sessionDir, '--session-id', sessionId];
   if (!existsSync(worker.sessionFile)) throw new Error('dispatch: the recorded session file is missing. Restore it before resuming.');
@@ -139,7 +151,7 @@ export function launch(worker, conversation) {
     options: ['--no-parent', '--no-notify', '--outlive-parent'],
     vaultCommand: ['env', `POTS_WORKER=${worker.name}`, `POTS_OWNER=${worker.owner}`, `POTS_LAUNCH=${launchId}`,
       'pi', '--extension', join(import.meta.dirname, 'worker-agent.mjs'), ...session,
-      '--provider', 'magpie', '--model', model, ...conversation],
+      '--provider', 'magpie', '--model', model, ...humanDialogFlags(worker), ...conversation],
   });
   save({ ...launched, terminal });
   return { ...launched, terminal };

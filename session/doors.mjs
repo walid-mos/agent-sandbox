@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { DOOR_COMMAND } from './door-command.mjs';
 import { knock } from './door-knock.mjs';
 import { HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, parse, Refusal, REPLY, replyMessage, REQUEST, requestMessage } from './door-messages.mjs';
-import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, remove, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
+import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, remove, RESENDABLE, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId, sandbox } from './sandbox.mjs';
@@ -10,7 +10,6 @@ import { botId, sandbox } from './sandbox.mjs';
 const CONNECTED = 'Running';
 // A pot that answers nothing cannot be made to hold an endless list: its neighbour waits for an answer first.
 const UNANSWERED_REQUESTS_PER_POT = 20;
-const RESENDABLE = [UNKNOWN, UNDELIVERED];
 const SETTLED = [ANSWERED, REFUSED];
 const DELIVERED_STATE = { [ASKED]: OPEN, [RECEIVED]: ANSWERED };
 const USAGE = `usage: ${DOOR_COMMAND} ask POT --need TEXT [--for REQUEST_ID] | ${DOOR_COMMAND} reply REQUEST_ID --text TEXT | ${DOOR_COMMAND} resend REQUEST_ID | ${DOOR_COMMAND} requests [--all]`;
@@ -59,28 +58,47 @@ function settle(id, outcome) {
   return settled;
 }
 
+function knockAndSettle(request, wire) {
+  const outcome = knock(request.pot, wire);
+  return underLock(() => settle(request.id, outcome));
+}
+
 // The message is saved before its door opens, so a cut line leaves it to resend under its own ID, never to ask twice.
 function send(request, wire, done) {
-  const outcome = knock(request.pot, wire);
-  const { state, failure } = underLock(() => settle(request.id, outcome));
+  const { state, failure } = knockAndSettle(request, wire);
   if (state === UNKNOWN) throw new Error(`pots: ${request.id} may have reached ${request.pot}: ${failure}. ${DOOR_COMMAND} resend ${request.id} sends the same message, and ${request.pot} takes it once.`);
   if (state === UNDELIVERED) throw new Error(`pots: ${request.id} did not reach ${request.pot}: ${failure}. ${DOOR_COMMAND} resend ${request.id} sends it once the cause is gone.`);
   if (state === REFUSED) throw new Error(`pots: ${request.pot} refused ${request.id}: ${failure}. It is closed, and ${DOOR_COMMAND} resend refuses it. Tell the person; ${DOOR_COMMAND} requests lists what this pot still waits on from ${request.pot}.`);
   process.stdout.write(`${done} ${request.id}\n`);
 }
 
+export function prepareAsk({ pot, need, served, key }) {
+  return underLock(() => {
+    const existing = key && all().find(request => request.direction === ASKED && request.key === key);
+    if (existing) return existing;
+    const hop = chainHop();
+    const target = neighbour(pot);
+    const parent = served === undefined ? undefined : servedRequest(served);
+    const id = newRequestId(ownName());
+    requestMessage(id, hop, need);
+    const request = { id, direction: ASKED, pot: target, need, hop, for: parent, key, state: UNKNOWN, at: Date.now() };
+    save(request);
+    return request;
+  });
+}
+
+export function transmitAsk(request) {
+  const current = find(request.id);
+  if (!RESENDABLE.includes(current.state)) return current;
+  return knockAndSettle(current, requestMessage(current.id, current.hop, current.need));
+}
+
 function ask(arguments_) {
   const options = { need: { type: 'string' }, for: { type: 'string' } };
   const { values, positionals: [pot] } = parseArgs({ args: arguments_, options, allowPositionals: true });
   if (!pot || values.need === undefined) throw new Error(USAGE);
-  const hop = chainHop();
-  const target = neighbour(pot);
-  const served = values.for === undefined ? undefined : servedRequest(values.for);
-  const id = newRequestId(ownName());
-  const wire = requestMessage(id, hop, values.need);
-  const request = { id, direction: ASKED, pot: target, need: values.need, hop, for: served, state: UNKNOWN, at: Date.now() };
-  underLock(() => save(request));
-  send(request, wire, 'asked');
+  const request = prepareAsk({ pot, need: values.need, served: values.for });
+  send(request, requestMessage(request.id, request.hop, request.need), 'asked');
 }
 
 function recordReply(id, text) {

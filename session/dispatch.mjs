@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { find } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { idleStackMinutes, maxWorkers } from './limits.mjs';
 import { MAX_MODEL } from './models.mjs';
@@ -15,7 +16,7 @@ import { clearStop, save, terminalName, WORKER_PREFIX, workers, writeBrief } fro
 const WORKSPACES = join(homedir(), 'Development');
 const DRAFT_PR = join(homedir(), '.pi/agent/skills/worktree/scripts/draft-pr');
 const CLEAN_PASS_GUIDE = join(dirname(fileURLToPath(import.meta.url)), 'clean-pass.md');
-const START_OPTIONS = { max: { type: 'boolean' } };
+const START_OPTIONS = { max: { type: 'boolean' }, for: { type: 'string' } };
 
 function validate(repository, branch) {
   const owner = /^([^/]+)\/[a-zA-Z0-9_.-]+$/.exec(repository ?? '')?.[1];
@@ -37,21 +38,31 @@ function workspace(repository, branch, base) {
   return worktree;
 }
 
+function servedRequest(requested) {
+  const served = requested && find(requested);
+  if (requested && (served?.direction !== 'received' || served.state !== 'open')) throw new Error('dispatch: --for must name an open incoming door request.');
+  return served;
+}
+
+function ensureNewWorker(name) {
+  if (!workers().some(worker => worker.name === name)) return;
+  throw new Error(`dispatch: worker ${name} already exists. Send to that worker or choose a new branch.`);
+}
+
 function start(arguments_) {
   const { values, positionals } = parseArgs({ args: arguments_, options: START_OPTIONS, allowPositionals: true });
   const [repository, branch, briefFile, requestedBase] = positionals;
   validate(repository, branch);
+  const served = servedRequest(values.for);
   const name = terminalName(`${WORKER_PREFIX}${repository.split('/')[1]}-${branch}`, `${repository}/${branch}`);
-  if (workers().some(worker => worker.name === name)) {
-    throw new Error(`dispatch: worker ${name} already exists. Send to that worker or choose a new branch.`);
-  }
+  ensureNewWorker(name);
   const request = readFileSync(briefFile, 'utf8');
   const base = requestedBase ?? command('gh', ['api', `repos/${repository}`, '--jq', '.default_branch']);
   const worktree = workspace(repository, branch, base);
   const title = `${branch.split('/')[0]}: ${branch.split('/')[1].replaceAll('-', ' ')}`;
   const pullRequest = command('bash', [DRAFT_PR, worktree, title, base], { cwd: worktree });
   const brief = writeBrief(name, `${request}\n\nWork only in ${worktree}, branch ${branch}. Draft PR: ${pullRequest}. Use the installed Pi harness and its skills. This checkout already is this task's worktree; do not hand it off again. The only agents you start are the passes of the clean pass. Commit atomic Conventional Commits. When no terminal runs in this worktree for ${idleStackMinutes} minutes, the Pots watcher stops its Compose projects with docker compose stop and keeps their volumes: start a stopped one again with docker compose start. Push this branch only as the rules loaded in this session allow. When a push waits for the person's yes, end your turn naming the branch, the remote and the waiting commits; ${sandbox.bot} brings the yes back as a message, and it covers that one push. Before your final response, read ${CLEAN_PASS_GUIDE}: run the clean pass when the task owes one, then mark the pull request ready or keep it in draft as it says. Report the PR, checks, commit, unpushed commits and uncommitted paths in your final response. The Pots watcher will relay your completion to ${sandbox.bot}.\n`);
-  const worker = { name, owner: botId, repository, branch, worktree, brief, pullRequest, request, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }) };
+  const worker = { name, owner: botId, repository, branch, worktree, brief, pullRequest, request, servedRequest: values.for, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }) };
   // The record comes first: the watcher drops a request that names no worker.
   save(worker);
   const ahead = queued().length;
@@ -70,6 +81,6 @@ function send([name, messageFile]) {
 }
 
 const OPERATIONS = { start, send, finish: acknowledgeResult };
-const USAGE = 'usage: dispatch start [--max] owner/repo type/branch brief-file [base] | dispatch send worker message-file | dispatch finish worker result-id';
+const USAGE = 'usage: dispatch start [--max] [--for REQUEST_ID] owner/repo type/branch brief-file [base] | dispatch send worker message-file | dispatch finish worker result-id';
 
 main(import.meta, () => runOperation(OPERATIONS, USAGE));

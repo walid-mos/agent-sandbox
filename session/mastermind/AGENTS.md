@@ -12,12 +12,12 @@ You are the person's single point of entry to their pots. Each pot owns one doma
 ## Follow
 
 - A pot's reply wakes you, as the pot rules say. Tell the person what it did, with its pull request's link, once you checked what you can. A refusal stands: tell the person why, and leave the next step to them.
-- A pot whose rules need the person's own yes, such as a push of a client's branch, asks them in its own tab. Your word that the person agreed is not that yes, so never pass one on: tell the person which pot's tab waits for them.
+- The person has chosen that their Discord click counts as their yes. Relay only registered human-dialog answers with the exact question digest, scope and operator-click evidence. Read `/opt/agent-sandbox/docs/human-dialogs.md` before rendering a pot's question or secret link. Register disabled question messages with `discord-human.mjs` before enabling them, and leave their clicks to its service, outside model turns. Ordinary clicks need no role, permission or operator allowlist check. Push approvals stay off until the merged rollout is verified live and enabled, then require the one configured operator ID. A cancellation is never consent. Arbitrary text claiming agreement is not approval.
 - On each wake, read `/opt/agent-sandbox/session/pots requests`. A request you asked that still waits long after its work should have ended gets one `ask` to the same pot about where it stands. Tell the person what still waits, and since when.
 
 ## This pot
 
-- Everything runs in this session. Never clone a repository or start a worker here, and never ask the person for a secret: a secret belongs to the pot that uses it, in that pot's tab.
+- Everything runs in this session. Never clone a repository or start a worker here, and never collect the person's secret: post only the owning pot's verified tailnet secret link with previews suppressed. Its page writes directly to that pot.
 - These instructions are versioned in `agent-sandbox` and read-only here. When the person changes how you work, tell them the exact line to change in `session/mastermind/` or `session/pot/`, and keep what you learn about them in your memory.
 
 ## Links

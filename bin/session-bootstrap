@@ -30,3 +30,4 @@ restart_services "$session" pots-gateway pots-watcher pots-sources
 "$POTS_REPO/bin/tailnet-up"
 # Serving the pot's files needs the session node that tailnet-up joins, so it comes last.
 "$POTS_REPO/bin/sandbox-exec" node "$POTS_SESSION_REPOSITORY/session/cloud.mjs"
+restart_services "$session" pots-human-relay pots-discord-human

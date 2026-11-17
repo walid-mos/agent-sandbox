@@ -15,6 +15,7 @@ mock.module('./run.mjs', { exports: {
   command(binary, args) {
     if (binary === 'pots') return wakes.push(JSON.parse(args.at(-1)));
     if (binary === 'hc' && args[0] === 'read') return 'Finished result.';
+    if (binary === 'hc' && args[0] === 'get') return JSON.stringify({ labels: { 'pi.session': sessionFile } });
     if (binary === 'git') return ({ branch: 'feat/task', 'rev-parse': 'abcdef1', ...publication })[args[0]];
     throw new Error(`Unexpected boundary command: ${binary} ${args[0]}`);
   },
@@ -23,7 +24,9 @@ const { inspectWorker } = await import('./inspect-worker.mjs');
 const { queued, dequeue } = await import('./queue.mjs');
 const { save, workers, WORKERS } = await import('./workers.mjs');
 const { writePrivateJson } = await import('./private-json.mjs');
-const { statePath, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
+const { canFinish, statePath, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
+const { humanStore, HUMAN_HOME } = await import('./human-store.mjs');
+const { openDialog, cancelDialog } = await import('./human-dialogs.mjs');
 const sessionFile = join(scratch, 'exact.jsonl');
 writeFileSync(sessionFile, '{"type":"session","id":"exact"}\n');
 const worker = { name: 'owned', owner: 'nextnode', launchId: 'launch-1', terminal: 't-owned', worktree: scratch, sessionFile };
@@ -41,6 +44,7 @@ function settle(current = worker) {
 
 beforeEach(() => {
   rmSync(WORKERS, { force: true, recursive: true });
+  rmSync(HUMAN_HOME, { force: true, recursive: true });
   save(worker);
   publication = { status: '', 'rev-list': '0' };
   wakes.length = 0;
@@ -67,6 +71,21 @@ test('observing a settled recovery permits recovery after a later crash', async 
   const restarted = await import(`./inspect-worker.mjs?restart=${++restart}`);
   inspect([], restarted.inspectWorker);
   assert.equal(queued().length, 1);
+});
+
+test('a pending published question blocks both watcher collection and runtime closure until settlement', async () => {
+  settle();
+  const dialog = await openDialog({ kind: 'question', source: { type: 'worker', worker: worker.name, session: sessionFile, call: 'pending' },
+    questions: [{ id: 'answer', prompt: 'Continue?' }] });
+  const state = { ...worker, phase: 'settled', settledAt: Date.now() - SETTLED_GRACE_MS };
+  assert.equal(canFinish(state, terminal, [terminal], Date.now()), false);
+  inspect();
+  assert.equal(wakes[0].status, 'blocked');
+  assert.equal(wakes[0].result, undefined);
+  await cancelDialog(dialog.id, 'cancelled', humanStore());
+  assert.equal(canFinish(state, terminal, [terminal], Date.now()), true);
+  inspect();
+  assert.equal(wakes[1].result.state.launchId, worker.launchId);
 });
 
 for (const field of ['status', 'rev-list']) {
