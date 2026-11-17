@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { canFinish, followUp, hasFinalReply, hasUncollectedHelpers, SETTLED_GRACE_MS, wrappedFollowUp } from './worker-lifecycle.mjs';
+import { canFinish, followUp, hasUncollectedHelpers, SETTLED_GRACE_MS, wrappedFollowUp } from './worker-lifecycle.mjs';
+import { hasFinalReply } from './worker-runtime.mjs';
 import { terminalOf } from './workers.mjs';
 
 const finishedAt = 1000;
@@ -12,31 +13,31 @@ const final = { type: 'message', message: { role: 'assistant', stopReason: 'stop
 
 for (const status of ['idle', 'done']) {
   test(`settled ${status} is eligible only after the grace period`, () => {
-    assert.equal(canFinish(state, { ...terminal, status }, now), true);
-    assert.equal(canFinish(state, { ...terminal, status }, now - 1), false);
+    assert.equal(canFinish(state, { ...terminal, status }, [], now), true);
+    assert.equal(canFinish(state, { ...terminal, status }, [], now - 1), false);
   });
 }
 
 for (const status of ['working', 'blocked', 'error', undefined]) {
   test(`${status} never authorizes cleanup`, () => {
-    assert.equal(canFinish(state, { ...terminal, status }, now), false);
+    assert.equal(canFinish(state, { ...terminal, status }, [], now), false);
   });
 }
 
 for (const label of ['agent.goal', 'agent.waiting', 'lifecycle.keep']) {
   test(`${label} preserves the terminal`, () => {
-    assert.equal(canFinish(state, { ...terminal, labels: { ...terminal.labels, [label]: 'pending' } }, now), false);
+    assert.equal(canFinish(state, { ...terminal, labels: { ...terminal.labels, [label]: 'pending' } }, [], now), false);
   });
 }
 
 test('idle without session completion and stable identity is insufficient', () => {
-  assert.equal(canFinish(undefined, terminal, now), false);
-  assert.equal(canFinish({ ...state, phase: 'active' }, terminal, now), false);
-  assert.equal(canFinish({ ...state, settledAt: undefined }, terminal, now), false);
-  assert.equal(canFinish(state, { ...terminal, state: 'finished' }, now), false);
-  assert.equal(canFinish(state, { ...terminal, address: 't-other' }, now), false);
-  assert.equal(canFinish(state, { ...terminal, labels: {} }, now), false);
-  assert.equal(canFinish(state, { ...terminal, labels: { ...terminal.labels, 'pots.owner': 'personal' } }, now), false);
+  assert.equal(canFinish(undefined, terminal, [], now), false);
+  assert.equal(canFinish({ ...state, phase: 'active' }, terminal, [], now), false);
+  assert.equal(canFinish({ ...state, settledAt: undefined }, terminal, [], now), false);
+  assert.equal(canFinish(state, { ...terminal, state: 'finished' }, [], now), false);
+  assert.equal(canFinish(state, { ...terminal, address: 't-other' }, [], now), false);
+  assert.equal(canFinish(state, { ...terminal, labels: {} }, [], now), false);
+  assert.equal(canFinish(state, { ...terminal, labels: { ...terminal.labels, 'pots.owner': 'personal' } }, [], now), false);
 });
 
 test('a name alone cannot establish Pots ownership', () => {

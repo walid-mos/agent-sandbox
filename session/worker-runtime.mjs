@@ -1,12 +1,31 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, watch } from 'node:fs';
-import { command } from './run.mjs';
+import { rmSync, watch } from 'node:fs';
+import { join } from 'node:path';
 import { allTerminals } from './workers.mjs';
-import { queued } from './queue.mjs';
-import { canFinish, followUp, hasFinalReply, hasUncollectedHelpers, LIFECYCLE, lifecyclePath, readLifecycle, resultId, SETTLED_GRACE_MS, writeLifecycle } from './worker-lifecycle.mjs';
+import { hasQueued } from './queue.mjs';
+import { canFinish, followUp, isPublished, LIFECYCLE, publication, receiptPath, resultId, statePath } from './worker-lifecycle.mjs';
+import { readJson, writePrivateJson } from './private-json.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
 const PROTOCOL_VERSION = 1;
+
+function hasOpenGoal(branch) {
+  const goal = branch.findLast(entry => entry.type === 'custom' && entry.customType === 'pi-goal-state-v1');
+  if (!goal) return false;
+  const { blocked, items, paused = [] } = goal.data;
+  return [Boolean(blocked), items.some(item => !item.done), paused.length > 0].some(Boolean);
+}
+
+function isFinalMessage({ message = {} }) {
+  const content = Array.isArray(message.content) ? message.content : [];
+  return [message.role === 'assistant', message.stopReason === 'stop', content.some(part => part.type === 'text' && part.text.trim())].every(Boolean);
+}
+
+export function hasFinalReply(branch) {
+  if (hasOpenGoal(branch)) return false;
+  const entry = branch.findLast(candidate => candidate.type === 'message');
+  return Boolean(entry && isFinalMessage(entry));
+}
 
 function hasNoPendingWork(pi) {
   return Object.entries(WORK_CONTRACTS).every(([event, fields]) => {
@@ -16,19 +35,12 @@ function hasNoPendingWork(pi) {
   });
 }
 
-function hasPublishedWork(cwd) {
-  const options = { cwd };
-  return !command('git', ['status', '--porcelain'], options) &&
-    command('git', ['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'], options) === '0';
-}
-
 export class WorkerRuntime {
   #worker;
   #pi;
   #state;
   #received = new Set();
   #observer;
-  #timer;
   #removeInput;
 
   constructor(pi, worker) {
@@ -41,20 +53,18 @@ export class WorkerRuntime {
       sessionFile: context.sessionManager.getSessionFile(), sessionId: context.sessionManager.getSessionId(),
       leaf: context.sessionManager.getLeafId(), generation: randomUUID(), phase, received: [...this.#received],
       ...(phase === 'settled' && { settledAt: Date.now() }) };
-    writeLifecycle(lifecyclePath(this.#worker), this.#state);
+    writePrivateJson(statePath(this.#worker), this.#state);
   }
 
   invalidate(context) {
-    clearTimeout(this.#timer);
-    rmSync(lifecyclePath(this.#worker, 'receipt'), { force: true });
+    rmSync(receiptPath(this.#worker), { force: true });
     this.#publish(context, 'active');
   }
 
   start(context) {
-    mkdirSync(LIFECYCLE, { recursive: true });
     this.#publish(context, 'starting');
     this.#observer = watch(LIFECYCLE, (_event, file) => {
-      if (`${file}` === `${this.#worker.name}-${this.#worker.launchId}.receipt`) this.finish(context);
+      if (join(LIFECYCLE, `${file}`) === receiptPath(this.#worker)) this.finish(context);
     });
     this.#removeInput = context.ui.onTerminalInput(() => this.invalidate(context));
   }
@@ -68,50 +78,47 @@ export class WorkerRuntime {
 
   settle(context) {
     this.invalidate(context);
-    if (hasFinalReply(context.sessionManager.getBranch()) && hasNoPendingWork(this.#pi)) this.#publish(context, 'settled');
+    if (this.#isDone(context)) this.#publish(context, 'settled');
   }
 
   finish(context) {
     try {
-      this.#finishWhenDue(context);
+      this.#closeWhenFinished(context);
     } catch (error) {
       process.stderr.write(`pots lifecycle: close deferred: ${error instanceof Error ? error.message : 'inspection failed'}\n`);
     }
   }
 
   #hasReceipt() {
-    const receipt = readLifecycle(lifecyclePath(this.#worker, 'receipt'));
+    const receipt = readJson(receiptPath(this.#worker));
     return this.#state && receipt?.id === resultId(this.#state);
   }
 
-  #finishWhenDue(context) {
-    if (!this.#hasReceipt()) return;
-    const due = this.#state.settledAt + SETTLED_GRACE_MS - Date.now();
-    if (due > 0) {
-      this.#timer = setTimeout(() => this.finish(context), due);
-      return;
-    }
-    if (!this.#canClose(context)) return;
+  #closeWhenFinished(context) {
+    if (!this.#hasReceipt() || !this.#canClose(context)) return;
     this.#publish(context, 'closing');
     context.shutdown();
   }
 
+  #isDone(context) {
+    return hasFinalReply(context.sessionManager.getBranch()) && hasNoPendingWork(this.#pi);
+  }
+
   #hasFinishedSession(context) {
     return [context.isIdle(), !context.hasPendingMessages(), !context.ui.getEditorText().trim(),
-      context.sessionManager.getLeafId() === this.#state.leaf, hasFinalReply(context.sessionManager.getBranch()), hasNoPendingWork(this.#pi)].every(Boolean);
+      context.sessionManager.getLeafId() === this.#state.leaf, this.#isDone(context)].every(Boolean);
   }
 
   #canClose(context) {
     if (!this.#hasFinishedSession(context)) return false;
-    if (queued().some(request => request.worker === this.#worker.name)) return false;
+    if (hasQueued(this.#worker.name)) return false;
     const terminals = allTerminals();
     const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
     if (!terminal) return false;
-    return [canFinish(this.#state, terminal, Date.now()), !hasUncollectedHelpers(terminal, terminals), hasPublishedWork(context.cwd)].every(Boolean);
+    return [canFinish(this.#state, terminal, terminals, Date.now()), isPublished(publication(context.cwd))].every(Boolean);
   }
 
   stop() {
-    clearTimeout(this.#timer);
     this.#observer?.close();
     this.#removeInput?.();
   }

@@ -1,10 +1,11 @@
 import { chmodSync, copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { queued } from './queue.mjs';
+import { hasQueued } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { allTerminals, WORKERS, workers } from './workers.mjs';
-import { canFinish, hasUncollectedHelpers, lifecycleOf, lifecyclePath, resultId, writeLifecycle } from './worker-lifecycle.mjs';
+import { canFinish, lifecycleOf, receiptPath, resultId } from './worker-lifecycle.mjs';
+import { writePrivateJson } from './private-json.mjs';
 
 export function keepResult(worker, terminal, state) {
   const id = resultId(state);
@@ -32,14 +33,14 @@ function verifyCurrentResult(worker, id) {
   const terminals = allTerminals();
   const terminal = terminals.find(candidate => candidate.address === worker.terminal);
   if (!state || !terminal) throw new Error('dispatch: the result is no longer live. Read its current report.');
-  const isCurrent = [resultId(state) === id, canFinish(state, terminal, Date.now()), !hasUncollectedHelpers(terminal, terminals)].every(Boolean);
+  const isCurrent = [resultId(state) === id, canFinish(state, terminal, terminals, Date.now())].every(Boolean);
   if (!isCurrent) throw new Error('dispatch: the result changed or the worker still needs attention. Read its current report.');
 }
 
 export function acknowledgeResult([name, id]) {
   const worker = workerForResult(name, id);
   verifyCurrentResult(worker, id);
-  if (queued().some(request => request.worker === name)) throw new Error('dispatch: a follow-up is queued. Let the worker read it first.');
-  writeLifecycle(lifecyclePath(worker, 'receipt'), { id, receivedBy: botId, receivedAt: Date.now() });
+  if (hasQueued(name)) throw new Error('dispatch: a follow-up is queued. Let the worker read it first.');
+  writePrivateJson(receiptPath(worker), { id, receivedBy: botId, receivedAt: Date.now() });
   process.stdout.write(`Acknowledged ${id}. Pots will close ${name} only while its session stays finished.\n`);
 }

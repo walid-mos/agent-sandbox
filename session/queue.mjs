@@ -1,32 +1,32 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { writePrivateJson } from './private-json.mjs';
 import { WORKERS } from './workers.mjs';
 
 // A request is its own file named by its time, so the names sort in arrival order and no two writers share a file.
 export const QUEUE = join(WORKERS, 'queue');
 const REQUEST = '.json';
 
-export const isRequest = file => `${file}`.endsWith(REQUEST) && existsSync(join(QUEUE, file));
+export const isRequestName = file => /^[a-zA-Z0-9.-]+\.json$/.test(`${file}`);
+
+export const isRequest = file => isRequestName(file) && existsSync(join(QUEUE, file));
 
 /** Asks the watcher to start the worker, or to bring it back, with the message when there is one. */
 export function enqueue(request) {
-  mkdirSync(QUEUE, { recursive: true });
-  const path = join(QUEUE, `${Date.now()}-${randomUUID()}${REQUEST}`);
-  writeFileSync(`${path}.tmp`, JSON.stringify(request), { mode: 0o600 });
-  renameSync(`${path}.tmp`, path);
+  writePrivateJson(join(QUEUE, `${Date.now()}-${randomUUID()}${REQUEST}`), request);
 }
 
 export function queued() {
   if (!existsSync(QUEUE)) return [];
-  return readdirSync(QUEUE).filter(file => file.endsWith(REQUEST)).sort()
+  return readdirSync(QUEUE).filter(isRequestName).sort()
     .map(file => ({ ...JSON.parse(readFileSync(join(QUEUE, file), 'utf8')), file }));
 }
 
+export const hasQueued = name => queued().some(request => request.worker === name);
+
 export function updateRequest(request, changes) {
-  const path = join(QUEUE, request.file);
-  writeFileSync(`${path}.tmp`, JSON.stringify({ ...request, ...changes }), { mode: 0o600 });
-  renameSync(`${path}.tmp`, path);
+  writePrivateJson(join(QUEUE, request.file), { ...request, ...changes });
 }
 
 export function dequeue(request) {
