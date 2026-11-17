@@ -1,13 +1,17 @@
 import { realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { command } from './run.mjs';
 
 const LINE_BREAK = /[\r\n]/;
+const SESSION_LIBRARY = fileURLToPath(new URL('./lib.sh', import.meta.url));
+
+// The `pots` on PATH is session/pots, so the installed package is found where lib.sh names it.
+const upstreamPots = () => command('sh', ['-c', '. "$1" && printf %s "$POTS_UPSTREAM"', 'pots-secrets', SESSION_LIBRARY]);
 
 // pots publishes no API, so its own check and writer are loaded from the dist folder of the installed `pots`.
 async function potsModules() {
-  const dist = dirname(dirname(realpathSync(command('sh', ['-c', 'command -v pots']))));
+  const dist = dirname(dirname(realpathSync(upstreamPots())));
   const load = path => import(pathToFileURL(join(dist, path)).href);
   try {
     const [terminal, envFile, home] = await Promise.all(['channels/terminal/index.js', 'core/env-file.js', 'core/home.js'].map(load));

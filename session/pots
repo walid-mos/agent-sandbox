@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+here=$(dirname "$(readlink -f "$0")")
+. "$here/lib.sh"
+
+# The door of this pot's VM runs exactly this shape, so every other wake stays upstream's.
+is_door_delivery() {
+	[ "$#" -eq 5 ] && [ "$1" = wake ] && [ "$2" = --from ] && [ "$4" = --note-file ] && [ "$5" = - ] || return 1
+	case "$3" in
+		pot:*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+case "${1:-}" in
+	ask | reply | resend | requests) exec node "$here/doors.mjs" "$@" ;;
+esac
+if is_door_delivery "$@"; then
+	exec node "$here/doors.mjs" deliver "${3#pot:}"
+fi
+exec "$POTS_UPSTREAM" "$@"

@@ -6,7 +6,7 @@ import { icon, solidButton } from "./pots-icons.js";
 import { isFromBot } from "./pots-source.js";
 
 // A multiple-choice answer names one picked label per line, so the bot reads the picks and the card finds them again.
-// session/pots-questions.mjs refuses a label with a line break for it, and session/bot/AGENTS.md tells the bot.
+// session/pots-questions.mjs refuses a label with a line break for it, and session/pot/AGENTS.md tells the bot.
 const PICK_SEPARATOR = "\n";
 const OPTION_PX = 32;
 const BOX_PX = 16;

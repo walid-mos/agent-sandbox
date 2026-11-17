@@ -5,7 +5,7 @@ export async function main({ main: isEntryPoint }, body) {
     await body();
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
+    process.exitCode = error?.exitCode ?? 1;
   }
 }
 

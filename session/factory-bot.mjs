@@ -45,6 +45,10 @@ function holdCheckIn() {
 }
 
 main(import.meta, () => {
+  if (owners.length === 0) {
+    process.stdout.write('factory: this pot owns no repositories, so it runs no Factory bot\n');
+    return;
+  }
   if (!existsSync(BOT_HOME)) create();
   linkFolder(VERSIONED, BOT_HOME);
   waitUntilRunning();

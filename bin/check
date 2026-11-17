@@ -39,6 +39,10 @@ for path in "$root"/sandboxes.example/*/sandbox.json; do
 	problems=$(jq -r --arg sandbox "$(basename "$(dirname "$path")")" -f "$root/proxmox/config.jq" "$path")
 	[ -z "$problems" ] || { printf 'check: %s is not a valid Proxmox sandbox:\n%s\n' "$path" "$problems" >&2; exit 1; }
 done
+# The session holds the one allowed role, so only its shape is checked here.
+for path in "$root"/sandboxes.example/*/sandbox.json; do
+	jq -e '.role == null or (.role | type == "string")' "$path" > /dev/null || { echo "check: $path needs role as a string, when it has one" >&2; exit 1; }
+done
 for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
 	jq empty "$path"
 done

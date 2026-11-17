@@ -13,10 +13,10 @@ LAUNCH = dict(line.split("=", 1) for line in (REPOSITORY / "session/launch.env")
 # The pane runs this file in a session, which holds it in the pot's clone.
 CONTROL = Path(LAUNCH["POTS_SESSION_REPOSITORY"]) / "session/control.mjs"
 # A sandbox's Herdr machine carries the name of its folder, and the pane reaches each bot through that machine.
-sandboxes = [
-    {"machine": path.parent.name, "bot": json.loads(path.read_text())["bot"]}
-    for path in sorted((STATE / "sandboxes").glob("*/sandbox.json"))
-]
+configs = {path.parent.name: json.loads(path.read_text()) for path in (STATE / "sandboxes").glob("*/sandbox.json")}
+# Only the Mastermind has a role, and it is the person's entry point, so its tab comes first and the pane opens on it.
+sandboxes = [{"machine": name, "bot": config["bot"]}
+             for name, config in sorted(configs.items(), key=lambda entry: ("role" not in entry[1], entry[0]))]
 
 
 # Herdr's first start comes before the refresh, so a Mac that has never run Herdr keeps no half-installed source.

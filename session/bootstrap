@@ -100,8 +100,10 @@ configure_git() {
 }
 
 install_pots() {
-	if command -v pots > /dev/null; then return 0; fi
-	npm install --global --no-fund --no-audit "$POTS_PACKAGE@latest"
+	if [ ! -x "$POTS_UPSTREAM" ]; then
+		npm install --global --prefix "${POTS_UPSTREAM%/bin/pots}" --no-fund --no-audit "$POTS_PACKAGE@latest"
+	fi
+	ln -sf "$here/pots" "$POTS_TOOLS/bin/pots"
 }
 
 install_harness() {

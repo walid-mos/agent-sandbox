@@ -6,6 +6,7 @@ set -eu
 REACH="$POTS_SESSION_REPOSITORY/probes/reach.sh"
 SESSION_ATTACKS="$POTS_SESSION_REPOSITORY/probes/session-attacks.sh"
 HOST_PATHS="$POTS_SESSION_REPOSITORY/vm/check-host-paths"
+DOOR_DELIVERIES="$POTS_SESSION_REPOSITORY/probes/door-deliveries.sh"
 TAILNET_ATTACKS="$POTS_SESSION_REPOSITORY/probes/tailnet-attacks.sh"
 SESSION_TAILSCALE="$POTS_SESSION_HOME/.local/bin/tailscale"
 DOOR_CLIENT_CONFIG="$POTS_SESSION_REPOSITORY/session/door.ssh_config"
@@ -142,6 +143,7 @@ judge_forbidden || status=1
 judge_allowed || status=1
 in_session bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_CONFIGURATION" || status=1
 in_session_as_root bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_CONFIGURATION" || status=1
+in_session bash "$DOOR_DELIVERIES" "$POTS_SESSION_REPOSITORY/session/pots" || status=1
 door_files_before=$(door_files_digest)
 peer_host=$(in_session awk 'NR == 1 { print $1 }' "$DOOR_KNOWN_HOSTS" 2> /dev/null || true)
 in_session bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" "$DOOR_KNOWN_HOSTS" || status=1
