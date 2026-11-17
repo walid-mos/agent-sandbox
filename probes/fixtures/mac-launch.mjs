@@ -32,21 +32,20 @@ export function scenario(t) {
   const edits = [];
   const reports = [];
   const runs = [];
-  const source = { shown: shownRequest(request, prompt, 'open'), config: structuredClone(settings), time: now, result: undefined, isStartBroken: false, isReportBroken: false };
+  const source = { shown: shownRequest(request, prompt, 'open'), config: structuredClone(settings), time: now, result: undefined, isReportBroken: false };
   const discord = { post: async (channel, payload, bytes) => {
     posted.push({ channel, payload, bytes });
     return { id: '444444444444444444', attachments: [{ id: '666666666666666666', filename: payload.attachments[0].filename, size: Buffer.byteLength(bytes) }] };
-  }, edit: async (...args) => edits.push(args), acknowledge: async () => {}, warn: () => {} };
+  }, edit: async (...args) => edits.push(args), acknowledge: async () => {} };
   const pots = { show: async () => structuredClone(source.shown), report: async (pot, packet) => {
     if (source.isReportBroken) throw new Error('offline');
     reports.push({ pot, packet });
   } };
   const runner = { start: offer => {
-    if (source.isStartBroken) throw new Error('start failed');
     runs.push(offer.prompt);
     return { name: 'stand-in' };
   }, result: () => source.result };
-  const dependencies = { store, discord, pots, runner, settings: () => source.config, clock: () => source.time };
+  const dependencies = { store, discord, pots, runner, settings: () => source.config, warn: () => {}, clock: () => source.time };
   const service = launchService(dependencies);
   const press = (action = 'ml') => {
     const offer = store.get(request.launch);

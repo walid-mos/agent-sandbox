@@ -3,7 +3,7 @@ import { launchStatus, noticeOf, OFFERED } from '../session/launch-contract.mjs'
 import { BUTTON, pressedButton, verifyOffer, verifyPress } from './launch-approval.mjs';
 import { closedMessage, offerMessage } from './launch-messages.mjs';
 
-export function launchService({ store, discord, pots, runner, settings, clock = Date.now }) {
+export function launchService({ store, discord, pots, runner, settings, warn, clock = Date.now }) {
   const messageUrl = offer => discordMessageUrl({ guildId: offer.guildId, channelId: offer.channelId, messageId: offer.messageId });
   const saveState = (offer, state, details = {}) => {
     const status = launchStatus({ ...offer.request, status: state, messageUrl: messageUrl(offer), ...details });
@@ -87,7 +87,7 @@ export function launchService({ store, discord, pots, runner, settings, clock = 
         }
         await deliver(store.get(offer.request.launch));
       } catch {
-        discord.warn('A launch refresh or delivery failed. It will retry.');
+        warn('A launch refresh or delivery failed. It will retry.');
       }
     }
   }

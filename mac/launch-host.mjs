@@ -11,6 +11,7 @@ import { keychainToken, loadSettings, STATE_HOME } from './launch-settings.mjs';
 import { gateStore, readPrivate } from './launch-store.mjs';
 
 const POLL_MS = 5000;
+const warn = message => process.stderr.write(`${message}\n`);
 const COMMAND_MS = 10_000;
 
 export async function check() {
@@ -55,7 +56,7 @@ async function history(client, service, config, applicationId) {
     const recent = messages.filter(message => Date.now() - Date.parse(message.timestamp) < LAUNCH_TTL_MS);
     for (const message of recent.reverse()) {
       try { await service.notice({ ...message, guild_id: config.guildId }, applicationId); }
-      catch { client.warn('mac-launch: a historical notice was refused.'); }
+      catch { warn('mac-launch: a historical notice was refused.'); }
     }
     if (recent.length !== messages.length || messages.length < 100) return;
     before = messages.at(-1).id;
@@ -68,10 +69,10 @@ export async function serve() {
   const store = gateStore(STATE_HOME);
   const release = lockService();
   const client = discordClient(keychainToken());
-  const service = launchService({ store, discord: client, pots: potTransport(), runner: herdrRunner(store), settings: loadSettings });
+  const service = launchService({ store, discord: client, pots: potTransport(), runner: herdrRunner(store), settings: loadSettings, warn });
   let applicationId;
   let pending = Promise.resolve();
-  const enqueue = operation => { pending = pending.then(operation).catch(() => client.warn('mac-launch: event refused or unavailable. No approval was inferred.')); };
+  const enqueue = operation => { pending = pending.then(operation).catch(() => warn('mac-launch: event refused or unavailable. No approval was inferred.')); };
   const close = client.listen((kind, event) => {
     if (kind === 'READY') {
       applicationId = event.application.id;
@@ -79,10 +80,10 @@ export async function serve() {
     }
     if (kind === 'MESSAGE_CREATE' && applicationId) enqueue(() => service.notice(event, applicationId));
     if (kind === 'INTERACTION_CREATE' && applicationId) enqueue(() => service.press(event));
-  }, error => { client.warn(error.message); stop(); process.exitCode = 1; });
+  }, error => { warn(error.message); stop(); process.exitCode = 1; });
   const timer = setInterval(() => enqueue(async () => {
     try { checkDiscordPolicy(LAUNCH_POLICY, loadSettings().humanDiscord); }
-    catch (error) { client.warn(error.message); stop(); process.exitCode = 1; return; }
+    catch (error) { warn(error.message); stop(); process.exitCode = 1; return; }
     await service.tick();
   }), POLL_MS);
   function stop() { clearInterval(timer); close(); release(); }

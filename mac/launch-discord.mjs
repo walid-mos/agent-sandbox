@@ -81,5 +81,5 @@ export function discordClient(token, { fetcher = fetch, connect = url => new Web
     if (!Number.isFinite(serverTime) || Math.abs(Date.now() - serverTime) > 5000) throw new Error('mac-launch: this Mac and Discord must agree on time within five seconds.');
   }
   const history = (channel, before) => api('GET', `/channels/${channel}/messages?limit=100${before ? `&before=${before}` : ''}`);
-  return { post, edit, acknowledge, listen, check, history, warn };
+  return { post, edit, acknowledge, listen, check, history };
 }
