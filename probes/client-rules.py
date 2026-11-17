@@ -11,7 +11,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from client_rules import RulesRefused, SNAPSHOT_FILE, STATE_FILE, apply_recipe, digest, read_json
 from client_rules_import import approve_rules, import_rules
 from config_bundle import bundle
-from agent_sources import source_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,6 +39,12 @@ class RecipeTests(unittest.TestCase):
         changed["replacements"].append(changed["replacements"][0])
         with self.assertRaises(RulesRefused):
             apply_recipe(ORIGINAL, changed)
+
+    def test_refuses_overlapping_occurrences_of_one_multiline_anchor(self):
+        original = b"a\na\na\n"
+        plan = {"inputSha256": digest(original), "replacements": [{"before": "a\na\n", "after": "b\n"}]}
+        with self.assertRaises(RulesRefused):
+            apply_recipe(original, plan)
 
     def test_refuses_wrong_hash_and_unknown_fields(self):
         for changed in [{**recipe(), "inputSha256": "0" * 64}, {**recipe(), "extra": True}]:
@@ -136,6 +141,9 @@ class ImportTests(unittest.TestCase):
             bundle(self.host, self.root)
 
     def cli_import(self, privacy):
+        host = self.root / "sandboxes/synthetic"
+        host.mkdir(parents=True, exist_ok=True)
+        (host / "sandbox.json").write_text(json.dumps(self.configuration))
         executables = self.root / "bin"
         executables.mkdir()
         gh = executables / "gh"
@@ -143,8 +151,9 @@ class ImportTests(unittest.TestCase):
         gh.chmod(0o700)
         environment = {"HOME": str(self.root), "PATH": f"{executables}:/usr/bin:/bin", "SANDBOX": "synthetic",
                        "POTS_RUNTIME": str(self.root), "PYTHONDONTWRITEBYTECODE": "1"}
-        return subprocess.run([sys.executable, str(ROOT / "bin/client-rules"), "import", str(self.original),
-                                 "--source", "accor", "--file", "rules/AGENTS.md", "--recipe", "rules/import.json",
+        bootstrap = "import runpy,sys; sys.path.insert(0,sys.argv.pop(1)+'/lib'); import client_rules_import; client_rules_import.source_catalog=lambda: {'synthetic': {'repository':'example/private-fixture','directory':'source'}}; sys.argv=sys.argv[1:]; runpy.run_path(sys.argv[0],run_name='__main__')"
+        return subprocess.run([sys.executable, "-c", bootstrap, str(ROOT), str(ROOT / "bin/client-rules"), "import", str(self.original),
+                                 "--source", "synthetic", "--file", "rules/AGENTS.md", "--recipe", "rules/import.json",
                                  "--recipe-sha256", self.recipe_hash], env=environment, text=True, capture_output=True, check=False)
 
     def test_cli_refuses_public_source_before_import_without_logging_text(self):
@@ -155,14 +164,13 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(self.original.read_bytes(), ORIGINAL)
 
     def test_catalog_privacy_does_not_allow_a_different_checkout_origin(self):
-        checkout = self.root / source_catalog()["accor"]["directory"]
-        checkout.mkdir(parents=True)
+        checkout = self.source
         for arguments in [["init", "--quiet"], ["remote", "add", "origin", "https://github.com/example/public-fixture.git"]]:
             result = subprocess.run(["git", "-C", str(checkout), *arguments], capture_output=True, check=False)
             self.assertEqual(result.returncode, 0)
         host = self.root / "sandboxes/synthetic"
         host.mkdir(parents=True)
-        (host / "sandbox.json").write_text(json.dumps({**self.configuration, "sources": ["accor"]}))
+        (host / "sandbox.json").write_text(json.dumps({**self.configuration, "sources": ["synthetic"]}))
         (checkout / "rules").mkdir()
         (checkout / "rules/import.json").write_bytes(self.plan.read_bytes())
         result = self.cli_import("true")

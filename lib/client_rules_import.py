@@ -66,9 +66,9 @@ def require_selected(directory, source):
 
 
 def import_rules(directory, checkout_for, source, original, relative, recipe, recipe_hash):
-    checkout = checkout_for(source)
     with locked(directory):
         require_selected(directory, source)
+        checkout = checkout_for(source)
         original = regular_file(original)
         before = original.read_bytes()
         plan = regular_file(source_file(checkout, recipe)).read_bytes()

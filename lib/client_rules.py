@@ -82,7 +82,7 @@ def replacement_span(original, replacement):
         refuse("each replacement must change complete nonempty lines.")
     before, after = before.encode("utf-8"), after.encode("utf-8")
     position = original.find(before)
-    if original.count(before) != 1 or (position and original[position - 1:position] != b"\n"):
+    if position < 0 or original.find(before, position + 1) != -1 or (position and original[position - 1:position] != b"\n"):
         refuse("an anchor is missing, repeated or not at a line boundary.")
     return {"start": position, "end": position + len(before), "after": after}
 
