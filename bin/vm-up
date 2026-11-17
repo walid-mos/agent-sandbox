@@ -2,24 +2,9 @@
 set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
 
-vm_setting() {
-	jq -r ".vm.$1" "$POTS_CONFIG"
-}
-
-profile="$HOME/.colima/$POTS_PROFILE/colima.yaml"
-mkdir -p "$(dirname "$profile")"
-template=$("$POTS_REPO/bin/render-config" colima "$SANDBOX")
-[ -n "$template" ] || { echo 'vm-up: rendered profile is empty' >&2; exit 1; }
-pending=$(mktemp "$profile.XXXXXX")
-trap 'rm -f "$pending"' EXIT HUP INT TERM
-printf '%s\n' "$template" | sed -e "s/^cpu: CPU$/cpu: $(vm_setting cpu)/" \
-	-e "s/^memory: MEMORY_GIB$/memory: $(vm_setting memoryGiB)/" \
-	-e "s/^disk: DISK_GIB$/disk: $(vm_setting diskGiB)/" \
-	-e "s/^hostname: HOSTNAME$/hostname: colima-$POTS_PROFILE/" \
-	> "$pending"
-mv "$pending" "$profile"
-if ! colima status --profile "$POTS_PROFILE" > /dev/null 2>&1; then
-	colima start --profile "$POTS_PROFILE"
-fi
-colima ssh -p "$POTS_PROFILE" -- sudo "$POTS_REPO/vm/setup.sh" "$(vm_setting swapGiB)" "$POTS_LAUNCHER"
-colima ssh -p "$POTS_PROFILE" -- "$POTS_REPO/vm/session-keys" "$SANDBOX" "$POTS_CONTEXT" < "$HOME/.ssh/authorized_keys"
+swap_gib=$(vm_setting swapGiB)
+vm_start
+scripts=$(vm_scripts)
+sandbox_vm sudo "$scripts/setup.sh" "$swap_gib" "$POTS_LAUNCHER"
+# Left unquoted: the provider's VARIABLE=VALUE words, none on Colima.
+sandbox_vm "$scripts/session-keys" "$SANDBOX" "$POTS_VM_REPO/bin/sandbox-exec" $POTS_VM_ENTRY_ENVIRONMENT < "$HOME/.ssh/authorized_keys"

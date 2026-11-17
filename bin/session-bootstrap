@@ -13,15 +13,15 @@ install_hc() {
 	fi
 }
 
-if ! session_exec "$session" "$POTS_REPO/session/has-credentials"; then
+if ! session_exec "$session" "$POTS_VM_REPO/session/has-credentials"; then
 	"$POTS_REPO/bin/session-credentials"
 fi
-session_exec "$session" "$POTS_REPO/session/bootstrap"
+session_exec "$session" "$POTS_VM_REPO/session/bootstrap"
 install_hc
 restart_services "$session" pots-router
 # pots creates a bot only once its model answers, so the router gets its configuration first.
 "$POTS_REPO/bin/router-seed"
-"$POTS_REPO/bin/sandbox-exec" node "$POTS_REPO/session/bot.mjs"
+"$POTS_REPO/bin/sandbox-exec" node "$POTS_VM_REPO/session/bot.mjs"
 restart_services "$session" pots-gateway pots-watcher pots-sources
 # The Factory bot's routine needs a running gateway, so it comes after the restart.
-"$POTS_REPO/bin/sandbox-exec" node "$POTS_REPO/session/factory-bot.mjs"
+"$POTS_REPO/bin/sandbox-exec" node "$POTS_VM_REPO/session/factory-bot.mjs"

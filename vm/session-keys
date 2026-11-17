@@ -1,13 +1,26 @@
 #!/bin/sh
 set -eu
+[ $# -ge 2 ] || { echo 'usage: session-keys SANDBOX ENTRY_COMMAND [VARIABLE=VALUE...] < authorized_keys' >&2; exit 2; }
 sandbox=$1
-context=$2
-enter=$(cd "$(dirname "$0")/.." && pwd)/bin/sandbox-exec
+enter=$2
+shift 2
 
-# The VM's Docker takes the Mac's context name, so sandbox-exec runs unchanged in the VM.
-docker context inspect "$context" > /dev/null 2>&1 || docker context create "$context" --docker host=unix:///var/run/docker.sock > /dev/null
+# Every word lands inside a quoted authorized_keys option, where a space, a quote or an expansion would change the forced command.
+for word in "$sandbox" "$enter" "$@"; do
+	case "$word" in
+		'' | *[!A-Za-z0-9_./=:@%+,~-]*) echo "vm/session-keys: '$word' cannot go into a forced command; it may hold letters, digits and _ . / = : @ % + , ~ - only" >&2; exit 2 ;;
+	esac
+done
+for assignment in "$@"; do
+	name=${assignment%%=*}
+	case "$name" in
+		"$assignment" | '' | [0-9]* | *[!A-Z0-9_]*) echo "vm/session-keys: '$assignment' is not a VARIABLE=VALUE word" >&2; exit 2 ;;
+	esac
+done
+environment="SANDBOX=$sandbox${*:+ $*}"
 umask 077
+mkdir -p "$HOME/.ssh"
 # Lima rewrites authorized_keys at each boot and leaves this second file alone. A key listed here runs its shell line in the session and nothing in the VM.
-awk -v sandbox="$sandbox" -v enter="$enter" '/^(ssh|ecdsa|sk)-/ {
-	print "restrict,command=\"SANDBOX=" sandbox " " enter " sh -c \\\"$SSH_ORIGINAL_COMMAND\\\"\" " $0
+awk -v environment="$environment" -v enter="$enter" '/^(ssh|ecdsa|sk)-/ {
+	print "restrict,command=\"" environment " " enter " sh -c \\\"$SSH_ORIGINAL_COMMAND\\\"\" " $0
 }' > "$HOME/.ssh/authorized_keys2"

@@ -10,7 +10,13 @@ MAGPIE_VERSION=0.1.4340
 MAGPIE_RELEASES=https://github.com/yetone/magpie-releases/releases/download
 CLAUDE_CODE_VERSION=2.1.325
 POTS_PACKAGE=pi-durable-bot
-architecture=arm64
+architecture=$(dpkg --print-architecture)
+# Node names its 64-bit Intel build x64, and every other release here calls it amd64.
+case "$architecture" in
+	arm64) node_architecture=arm64 ;;
+	amd64) node_architecture=x64 ;;
+	*) echo "session/bootstrap: no pinned tools for the $architecture architecture; add its release names beside NODE_VERSION" >&2; exit 1 ;;
+esac
 
 download_verified() {
 	archive_url=$1 sums_url=$2 download_directory=$3
@@ -25,7 +31,7 @@ download_verified() {
 install_node() {
 	if [ "$(node --version 2> /dev/null)" = "$NODE_VERSION" ]; then return 0; fi
 	staging=$(mktemp -d)
-	download_verified "https://nodejs.org/dist/$NODE_VERSION/node-$NODE_VERSION-linux-$architecture.tar.gz" \
+	download_verified "https://nodejs.org/dist/$NODE_VERSION/node-$NODE_VERSION-linux-$node_architecture.tar.gz" \
 		"https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt" "$staging"
 	rm -rf "$POTS_TOOLS/node"
 	mkdir -p "$POTS_TOOLS/node"

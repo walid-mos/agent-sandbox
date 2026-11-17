@@ -16,7 +16,7 @@ if [ -z "${SANDBOX:-}" ]; then
 fi
 . "$repo/lib/sandbox.sh"
 
-if ! colima status --profile "$POTS_PROFILE" > /dev/null 2>&1; then
+if ! vm_is_running; then
 	"$POTS_REPO/bin/vm-up"
 fi
 if [ "$POTS_LAUNCHER" = sealskin ] && ! sandbox_docker inspect --format '{{.State.Running}}' "$POTS_SERVER_CONTAINER" 2> /dev/null | grep -qx true; then
@@ -25,8 +25,8 @@ fi
 "$POTS_REPO/bin/pots-session" ensure > /dev/null
 "$POTS_REPO/mac/session-binds"
 session=$(running_session)
-if ! session_exec "$session" "$POTS_REPO/session/bootstrap" --router-current; then
-	session_exec "$session" "$POTS_REPO/session/bootstrap" --router-only
+if ! session_exec "$session" "$POTS_VM_REPO/session/bootstrap" --router-current; then
+	session_exec "$session" "$POTS_VM_REPO/session/bootstrap" --router-only
 	restart_services "$session" pots-router
 fi
 "$POTS_REPO/mac/tailnet-ssh"

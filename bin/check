@@ -6,7 +6,7 @@ compile_python() {
 	PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 -m py_compile "$1"
 }
 
-for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/mac/* "$root"/probes/* "$root"/vm/*.sh "$root"/vm/*.py; do
+for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/proxmox/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/mac/* "$root"/probes/* "$root"/vm/*.sh "$root"/vm/*.py; do
 	[ -f "$path" ] || continue
 	IFS= read -r interpreter < "$path" || true
 	case "$interpreter" in
@@ -32,6 +32,12 @@ done
 # The launcher decides which keys a sandbox needs: only SealSkin has a server and a tailnet ssh port.
 for path in "$root"/sandboxes.example/*/sandbox.json; do
 	jq -e '(.launcher // "docker") as $launcher | ($launcher == "docker") or ($launcher == "sealskin" and (.serverPort | type == "number") and (.tailnetSshPort | type == "number"))' "$path" > /dev/null || { echo "check: $path needs launcher docker or sealskin, and serverPort and tailnetSshPort for sealskin" >&2; exit 1; }
+done
+# A Proxmox example passes the rules lib/providers/proxmox.sh applies before reaching the hypervisor.
+for path in "$root"/sandboxes.example/*/sandbox.json; do
+	[ "$(jq -r '.provider // "colima"' "$path")" = proxmox ] || continue
+	problems=$(jq -r --arg sandbox "$(basename "$(dirname "$path")")" -f "$root/proxmox/config.jq" "$path")
+	[ -z "$problems" ] || { printf 'check: %s is not a valid Proxmox sandbox:\n%s\n' "$path" "$problems" >&2; exit 1; }
 done
 for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
 	jq empty "$path"
