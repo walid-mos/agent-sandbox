@@ -49,6 +49,12 @@ done
 for path in "$root"/sandboxes.example/*/sandbox.json; do
 	jq -e '.doors == null or (.doors | type == "object" and all(.[]; type == "string"))' "$path" > /dev/null || { echo "check: $path needs doors as an object of pot names to one-line descriptions" >&2; exit 1; }
 done
+# Root in a VM runs the clone's code only through the trusted launcher: a unit starts the launcher or an installed copy, and no script hands VM root an interpreter or a clone path.
+for unit in "$root"/vm/*.service; do
+	! grep '^Exec[A-Za-z]*=' "$unit" | grep -qv '^Exec[A-Za-z]*=\(/usr/bin/python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py \|/usr/local/sbin/\)' || { echo "check: $unit starts a program that is neither the trusted launcher nor an installed copy under /usr/local/sbin" >&2; exit 1; }
+done
+untrusted_root=$(grep -nE 'sandbox_vm sudo (env [^ ]+ )*((python3|sh|bash|node)( |$)|"\$POTS_SESSION_REPOSITORY|/opt/agent-sandbox)' "$root"/bin/* "$root"/lib/*.sh | grep -v 'python3 -I "$POTS_TRUSTED_LAUNCHER"' || true)
+[ -z "$untrusted_root" ] || { printf 'check: VM root runs the clone outside the trusted launcher:\n%s\n' "$untrusted_root" >&2; exit 1; }
 # The generated pots policy grants only the ports lib/tailnet_node.py accepts, a door only along doors and their replies, and no Funnel, auto-approval or Tailscale SSH rule.
 . "$root/vm/network.env"
 settings=$(mktemp -d)

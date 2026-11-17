@@ -46,7 +46,8 @@ def require_clean(directory):
 
 # installer_edits(directory) sets aside the edits the source's installer makes to tracked files and puts them back on exit.
 # It runs after the configuration check, because restoring a tracked file can run a configured filter.
-def refresh(url, directory, fetch_with=(), allow_cutover=False, installer_edits=nullcontext, branch=BRANCH):
+# verify(directory, revision) raises to keep the clone where it is before a fetched revision lands.
+def refresh(url, directory, fetch_with=(), allow_cutover=False, installer_edits=nullcontext, branch=BRANCH, verify=None):
     directory = Path(directory).absolute()
     if directory.resolve() != directory:
         raise RuntimeError(f"source-refresh: {directory} contains a symlink. Use an owned source directory.")
@@ -59,16 +60,18 @@ def refresh(url, directory, fetch_with=(), allow_cutover=False, installer_edits=
     require_safe_checkout(directory, branch)
     with installer_edits(directory):
         require_clean(directory)
-        return advance(url, directory, fetch_with, allow_cutover, branch)
+        return advance(url, directory, fetch_with, allow_cutover, branch, verify)
 
 
-def advance(url, directory, fetch_with, allow_cutover, branch):
+def advance(url, directory, fetch_with, allow_cutover, branch, verify):
     origin = git(directory, "remote", "get-url", "origin")
     switching = origin.removesuffix(".git") != url.removesuffix(".git")
     if switching and not allow_cutover:
         raise RuntimeError(f"source-refresh: {directory} has another origin. After reviewing its state, enable allowCutover in private provisioning.json, or pass --allow-cutover to this script.")
     git(directory, "fetch", "--quiet", "--no-tags", "--no-recurse-submodules", "--", url, f"refs/heads/{branch}", prefix=fetch_with)
     revision = git(directory, "rev-parse", "FETCH_HEAD^{commit}")
+    if verify is not None:
+        verify(directory, revision)
     result = {"directory": str(directory), "revision": revision}
     if switching:
         result["previous"] = cutover(url, directory, revision)

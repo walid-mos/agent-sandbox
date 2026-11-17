@@ -3,12 +3,11 @@ set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
 
 NODE="$POTS_REPO/lib/tailnet_node.py"
-VM_NODE="$POTS_SESSION_REPOSITORY/lib/tailnet_node.py"
 session=$(running_session)
 operator_node=$(tailscale status --json --peers=false | jq -er '.Self.DNSName | split(".")[0]')
 
 on_host() {
-	sandbox_vm sudo python3 "$VM_NODE" "$@"
+	run_trusted lib/tailnet_node.py "$@"
 }
 
 on_session() {

@@ -8,4 +8,4 @@ set -- "$POTS_CONFIG" "$POTS_SANDBOX_DIR/vault.json"
 [ ! -f "$POTS_RUNTIME/tailnet.json" ] || set -- "$@" "$POTS_RUNTIME/tailnet.json"
 # The bundle is built before it is sent because sh has no pipefail to report a file that is not JSON.
 bundle=$(jq --null-input 'reduce inputs as $content ({}; .[input_filename | split("/") | last] = $content)' "$@")
-printf '%s\n' "$bundle" | sandbox_vm sudo python3 -I "$POTS_SESSION_REPOSITORY/vm/store-config" "$POTS_SESSION_CONFIGURATION"
+printf '%s\n' "$bundle" | run_trusted vm/store-config "$POTS_SESSION_CONFIGURATION"

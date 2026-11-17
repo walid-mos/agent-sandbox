@@ -73,6 +73,13 @@ else
 	. "$POTS_REPO/lib/providers/$POTS_PROVIDER.sh"
 fi
 
+POTS_TRUSTED_LAUNCHER="$POTS_TRUSTED_SOURCE/lib/trusted_source.py"
+
+# Root in a VM runs the clone's code only through the launcher installed outside it, which first verifies the clone.
+run_trusted() {
+	sandbox_vm sudo env POTS_TRANSPORT=local python3 -I "$POTS_TRUSTED_LAUNCHER" run "$@"
+}
+
 session_exec() {
 	input=
 	if [ "$1" = --interactive ]; then
