@@ -149,19 +149,27 @@ install_harness() {
 	npm install --global --no-fund --no-audit "@earendil-works/pi-coding-agent@$pi_version"
 }
 
+router_tools_installed() {
+	router_installed && codex_installed
+}
+
+install_router_tools() {
+	install_router
+	install_codex
+}
+
 case "${1:-}" in
 	--router-current)
-		router_installed && codex_installed &&
+		router_tools_installed &&
 			curl --silent --fail --max-time 5 "http://$POTS_ROUTER_ADDRESS/api/hello" | jq --exit-status --arg version "$MAGPIE_VERSION" '.version == $version' > /dev/null
 		exit $? ;;
-	--router-only) install_router; install_codex; exit ;;
+	--router-only) install_router_tools; exit ;;
 esac
 
 install_node
 install_cli_tools
 install_tailscale
-install_router
-install_codex
+install_router_tools
 install_claude_code
 ln -sf "$here/gh" "$POTS_TOOLS/bin/gh"
 configure_git
