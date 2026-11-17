@@ -1,4 +1,5 @@
 import { DISCORD_PERMISSIONS } from './discord-admin-operations.mjs';
+import { guildPermissions } from './discord-admin-policy.mjs';
 
 export async function inspectDiscord(input, { api, guildId }) {
   const paths = {
@@ -15,7 +16,7 @@ async function diagnostics(api, guildId) {
   const member = await api('GET', `/guilds/${guildId}/members/${bot.id}`);
   const roles = await api('GET', `/guilds/${guildId}/roles`);
   const app = await api('GET', '/oauth2/applications/@me');
-  const granted = roles.filter(role => role.id === guildId || member.roles.includes(role.id)).reduce((bits, role) => bits | BigInt(role.permissions), 0n);
+  const granted = guildPermissions(roles, member.roles, guildId);
   const hasAdministrator = (granted & DISCORD_PERMISSIONS.Administrator) !== 0n;
   const missingPermissions = Object.entries(DISCORD_PERMISSIONS).filter(([name, bit]) => name !== 'Administrator' && !hasAdministrator && !(granted & bit)).map(([name]) => name);
   return { view: 'diagnostics', missingPermissions, ...applicationDiagnostics(app),

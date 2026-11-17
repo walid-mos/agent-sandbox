@@ -141,8 +141,8 @@ export function requiresApproval(request, snapshot) {
   return changesEveryone(request, snapshot);
 }
 
-function guildPermissions({ guild, botMember, roles }) {
-  return roles.filter(role => role.id === guild.id || botMember.roles.includes(role.id)).reduce((bits, role) => bits | BigInt(role.permissions), 0n);
+export function guildPermissions(roles, memberRoles, guildId) {
+  return roles.filter(role => role.id === guildId || memberRoles.includes(role.id)).reduce((bits, role) => bits | BigInt(role.permissions), 0n);
 }
 
 function requiredThreadPermission(request, operation) {
@@ -158,7 +158,7 @@ function resourcePermissions(granted, snapshot) {
 
 export function requirePermission(request, operation, snapshot) {
   if (snapshot.guild.owner_id === snapshot.bot.id) return;
-  let granted = guildPermissions(snapshot);
+  let granted = guildPermissions(snapshot.roles, snapshot.botMember.roles, snapshot.guild.id);
   if (granted & DISCORD_PERMISSIONS.Administrator) return;
   granted = resourcePermissions(granted, snapshot);
   const permission = requiredThreadPermission(request, operation);
