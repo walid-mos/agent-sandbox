@@ -8,7 +8,11 @@ export default function workerAgent(pi) {
   pi.on('session_start', (_event, context) => {
     if (context.mode !== 'tui') return;
     const record = ownedWorker(worker.name, worker.owner);
-    if (record?.launchId !== worker.launchId) throw new Error('pots lifecycle: this launch has no matching worker record.');
+    if (record?.launchId !== worker.launchId) {
+      context.ui.notify('pots lifecycle: this launch has no matching worker record. Resume it through the owning bot.', 'error');
+      context.shutdown();
+      return;
+    }
     const { kind, resultFile, publication } = record;
     runtime = new WorkerRuntime(pi, { ...worker, kind, resultFile, publication });
     runtime.start(context);
