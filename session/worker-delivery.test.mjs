@@ -83,6 +83,19 @@ test('reporting preserves an unread result without killing the process', () => {
   assert.equal(boundary().calls.filter(call => call.binary === 'pots').length, 1);
 });
 
+test('input on a reported worker wakes the bot once, and a closing worker not at all', () => {
+  inspect();
+  for (const generation of ['keystroke-1', 'keystroke-2', 'keystroke-3']) {
+    writePrivateJson(statePath(worker), { ...worker, phase: 'active', generation, received: [] });
+    inspect();
+  }
+  assert.equal(boundary().calls.filter(call => call.binary === 'pots').length, 2);
+  writePrivateJson(statePath(worker), { ...worker, phase: 'closing', generation: 'closing', received: [] });
+  setTerminals([{ ...terminal, status: 'done' }]);
+  inspect();
+  assert.equal(boundary().calls.filter(call => call.binary === 'pots').length, 2);
+});
+
 test('receipt covers only the current result and refuses a queued follow-up', () => {
   inspect();
   const id = workers()[0].result.id;

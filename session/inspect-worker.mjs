@@ -48,7 +48,9 @@ function recordSession(worker, state) {
   return current;
 }
 
+// A closing worker had its result acknowledged and is exiting, so it has nothing new to report.
 function inspectLive(worker, terminal, state, { now, terminals }) {
+  if (state?.phase === 'closing') return undefined;
   const due = readyAt(state);
   if (now < due) return due;
   reportCurrent(worker, terminal, state, canFinish(state, terminal, terminals, now));
@@ -57,8 +59,9 @@ function inspectLive(worker, terminal, state, { now, terminals }) {
 
 function reportCurrent(worker, terminal, state, isSettled) {
   const { status = 'starting', turn = 0 } = terminal;
-  const { generation = 'unmanaged' } = state ?? {};
-  const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${generation}-${isSettled}`;
+  // Every input and turn writes a new generation, so only a settled result's generation names a wake: one per result, not per keystroke.
+  const result = isSettled ? state.generation : 'open';
+  const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${result}`;
   if (!REPORTABLE.has(status) || worker.lastReport === wake) return;
   report(worker, terminal, status, wake, state, isSettled);
 }
