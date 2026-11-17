@@ -1,0 +1,15 @@
+#!/bin/sh
+set -u
+. /usr/local/lib/agent-sandbox/session/launch.env
+
+# The tailnet guard raises the shields itself; it leaves the nodes unjudged only when the launcher refuses the clone it runs from.
+/usr/bin/python3 -I "$POTS_TRUSTED_SOURCE/lib/trusted_source.py" verify > /dev/null 2>&1 && exit 0
+status=0
+/usr/bin/tailscale set --shields-up=true || status=1
+session=$(/usr/bin/docker ps --filter "label=$POTS_SESSION_LABEL" --filter status=running --format '{{.Names}}' | head -n 1)
+session_tailscale="$POTS_SESSION_HOME/.local/bin/tailscale"
+if [ -n "$session" ] && /usr/bin/docker exec --user root "$session" test -x "$session_tailscale"; then
+	/usr/bin/docker exec --user root "$session" s6-setuidgid "$POTS_SESSION_USER" "$session_tailscale" set --shields-up=true || status=1
+fi
+echo "pots-shields-up: the trusted launcher refuses $POTS_SESSION_REPOSITORY, so the tailnet guard cannot run. The shields stay up until bin/vm-up restores the clone and bin/tailnet-up checks both nodes." >&2
+exit "$status"

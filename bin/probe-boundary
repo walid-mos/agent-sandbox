@@ -113,8 +113,8 @@ door_sudo_takes_only_bindings() {
 	! sandbox_vm sudo -u door sudo -n -l /usr/local/sbin/pots-door intruder "$SANDBOX" ask > /dev/null 2>&1
 }
 
-requires_firewall() {
-	sandbox_vm systemctl show "$1" --property Requires --value | tr ' ' '\n' | grep -qx pots-firewall.service
+unit_lists() {
+	sandbox_vm systemctl show "$1" --property "$2" --value | tr ' ' '\n' | grep -qx "$3"
 }
 
 refused() {
@@ -133,8 +133,8 @@ if [ "$POTS_LAUNCHER" = sealskin ]; then
 else
 	outer_container=$POTS_SESSION_CONTAINER
 fi
-judge docker-requires-firewall requires_firewall docker.service || status=1
-judge door-requires-firewall requires_firewall pots-door.service || status=1
+judge docker-requires-firewall unit_lists docker.service Requires pots-firewall.service || status=1
+judge door-requires-firewall unit_lists pots-door.service Requires pots-firewall.service || status=1
 judge vm-sees-no-host-path run_trusted vm/check-host-paths || status=1
 judge session-sees-no-host-path in_session sh "$HOST_PATHS" || status=1
 judge firewall-closes-tailnet firewall_closes_tailnet || status=1
@@ -145,6 +145,7 @@ tailnet_targets="$operator_node $(peer_pots)"
 judge host-node-matches-policy run_trusted lib/tailnet_node.py check host "$SANDBOX" $tailnet_targets || status=1
 judge session-node-matches-policy in_session "$SESSION_TAILNET_NODE" check session "$SANDBOX" $tailnet_targets || status=1
 judge tailnet-guard-runs-every-minute guard_runs_every_minute || status=1
+judge refused-clone-raises-shields unit_lists pots-tailnet-guard.service OnFailure pots-shields-up.service || status=1
 judge tailnet-guard-passes run_trusted vm/tailnet-guard || status=1
 judge_forbidden || status=1
 judge_allowed || status=1

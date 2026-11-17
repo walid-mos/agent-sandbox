@@ -94,9 +94,11 @@ install_door() {
 
 # The units run this VM's clone in place through the trusted launcher, so a fast-forward reaches the timers' services with no reinstall.
 # A changed unit file waits for the next vm-up, and the long-running broker takes new code at its restart here.
+# The shields unit runs an installed copy instead, since it acts when the launcher refuses the clone.
 install_units() {
+	install -m 0755 "$here/shields-up" /usr/local/sbin/pots-shields-up
 	install -m 0644 "$here/pots-keeper.service" "$here/pots-keeper.timer" "$here/pots-update.service" "$here/pots-update.timer" \
-		"$here/pots-tailnet-guard.service" "$here/pots-tailnet-guard.timer" "$here/pots-vault.service" /etc/systemd/system/
+		"$here/pots-tailnet-guard.service" "$here/pots-tailnet-guard.timer" "$here/pots-shields-up.service" "$here/pots-vault.service" /etc/systemd/system/
 	systemctl daemon-reload
 	systemctl enable pots-vault.service
 	systemctl restart pots-vault.service

@@ -50,8 +50,6 @@ POTS_SERVER_URL=https://127.0.0.1:$POTS_SERVER_PORT
 POTS_APP_ID=pots
 POTS_HOME_NAME=pots
 POTS_SEALSKIN_CONFIG=/config/.config/sealskin
-POTS_SESSION_USER=abc
-POTS_SESSION_HOME=/config
 
 require_sealskin() {
 	[ "$POTS_LAUNCHER" = sealskin ] || { echo "$(basename "$0"): sandbox ${SANDBOX:-of this VM} uses the docker launcher, which has no SealSkin server" >&2; exit 2; }

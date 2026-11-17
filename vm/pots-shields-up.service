@@ -1,0 +1,8 @@
+[Unit]
+Description=Raise the shields of this VM's pot nodes when the trusted launcher refuses the clone the tailnet guard runs from
+After=tailscaled.service docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pots-shields-up
+TimeoutStartSec=2min
