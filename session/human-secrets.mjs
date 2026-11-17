@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { handOffBrowserSecret } from './human-browser.mjs';
+import { BROWSER_KEY, targetKeys } from './human-contract.mjs';
 import { storeSecrets } from './pots-secrets.mjs';
 import { humanStore } from './human-store.mjs';
 
@@ -21,7 +23,7 @@ function writeInfisical(target, value) {
 }
 
 function checkedValues(target, values) {
-  const keys = target.destination === 'pots' ? target.keys : [target.name];
+  const keys = targetKeys(target);
   if (!values || typeof values !== 'object' || Array.isArray(values) || Object.keys(values).some(key => !keys.includes(key))) throw new Error('human: enter only the requested secret keys.');
   if (keys.some(key => typeof values[key] !== 'string' || !values[key].trim() || values[key].length > VALUE_LIMIT || /[\r\n\0]/.test(values[key]))) throw new Error('human: each secret needs a single line of at most 4096 characters.');
   return Object.fromEntries(keys.map(key => [key, values[key]]));
@@ -36,16 +38,23 @@ export async function storeDialogSecret(id, values, { store = humanStore(), orig
     if (dialog.writing) throw new Error('human: a previous write was interrupted. Verify the destination and open a new request.');
     const checked = checkedValues(dialog.target, values);
     save({ ...dialog, writing: true });
-    await write(dialog.target, checked);
-    return save({ ...dialog, result: { status: 'stored', origin, at: Date.now() } });
+    const receipt = await write(dialog, checked);
+    return save({ ...dialog, result: { status: 'stored', origin, at: Date.now(), dialog: id, request: dialog.delivery?.id, ...receipt } });
   }, id);
 }
 
-async function writeTarget(target, values) {
-  if (target.destination === 'infisical') return writeInfisical(target, values[target.name]);
+async function writePots(target, values) {
   try {
     await storeSecrets({ file: target.file, keys: target.keys }, JSON.stringify(values));
   } catch {
     throw new Error('human: the pot did not confirm the secret file write. Check it before opening a new request.');
   }
 }
+
+const WRITERS = {
+  infisical: async ({ target }, values) => { await writeInfisical(target, values[target.name]); return {}; },
+  pots: async ({ target }, values) => { await writePots(target, values); return {}; },
+  browser: (dialog, values) => handOffBrowserSecret(dialog, values[BROWSER_KEY]),
+};
+
+const writeTarget = (dialog, values) => WRITERS[dialog.target.destination](dialog, values);

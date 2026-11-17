@@ -24,7 +24,9 @@ function newDialog(input, id) {
   if (common.policy === 'push' && (typeof input.scope !== 'string' || !input.scope.trim())) throw new Error('human: an approval needs its exact scope.');
   if (input.kind === 'question') return { ...common, questions: questionsOf(input.questions) };
   if (typeof input.purpose !== 'string' || !input.purpose.trim()) throw new Error('human: a secret needs a purpose.');
-  return { ...common, purpose: input.purpose, target: targetOf(input.target), expiresAt: Date.now() + SECRET_TTL_MS };
+  const target = targetOf(input.target);
+  if (target.destination === 'browser' && common.source.type !== 'worker') throw new Error('human: only a waiting worker tool takes a browser secret.');
+  return { ...common, purpose: input.purpose, target, expiresAt: Date.now() + SECRET_TTL_MS };
 }
 
 export async function answerQuestion(id, answer, { store = humanStore(), identity, origin = 'terminal', messageId } = {}) {

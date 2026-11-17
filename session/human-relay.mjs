@@ -79,7 +79,7 @@ async function reconcileDialog(initial, options) {
   const dialog = initial.kind === 'secret' ? await reconcileSecret(initial, options) : await reconcileQuestion(initial, options);
   if (dialog.result) return reportResult(dialog, options);
   if (dialog.kind === 'question' && dialog.policy === 'local') return undefined;
-  if (dialog.kind === 'secret' && !dialog.pageLink) return undefined;
+  if (dialog.kind === 'secret' && (dialog.writing || !dialog.pageLink || dialog.pageRevoked)) return undefined;
   return sendNotice(dialog, 'delivery', dialog.kind === 'question' ? questionNeed(dialog) : secretNeed(dialog), options);
 }
 

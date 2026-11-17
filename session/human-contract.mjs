@@ -1,6 +1,10 @@
 const KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SNOWFLAKE = /^\d{17,20}$/;
 const NAME = /^[\w-]+$/;
+const CAPABILITY = /^[\w-]{43,256}$/;
+// Linux Unix socket addresses hold at most 107 path bytes.
+const SOCKET_PATH_BYTES = 107;
+export const BROWSER_KEY = 'SECRET';
 export const SECRET_TTL_MS = 15 * 60 * 1000;
 export const VERSION = 1;
 
@@ -38,7 +42,26 @@ export function targetOf(target) {
     return { destination: 'infisical', projectId: target.projectId, environment: target.environment,
       name: target.name, path: target.path ?? '/', replace: target.replace === true };
   }
-  throw new Error('human: secrets require a Pots env file or an Infisical target.');
+  if (target?.destination === 'browser' && isExactOrigin(target.origin) && isSocketPath(target.socket) && CAPABILITY.test(target.capability ?? '')) {
+    return { destination: 'browser', origin: target.origin, socket: target.socket, capability: target.capability };
+  }
+  throw new Error('human: secrets require a Pots env file, an Infisical target or a waiting browser tool.');
+}
+
+function isExactOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    return ['http:', 'https:'].includes(url.protocol) && url.origin === origin;
+  } catch {
+    return false;
+  }
+}
+
+const isSocketPath = path => typeof path === 'string' && path.startsWith('/') && !/[\r\n\0]/.test(path) && Buffer.byteLength(path) <= SOCKET_PATH_BYTES;
+
+export function targetKeys(target) {
+  if (target.destination === 'pots') return target.keys;
+  return target.destination === 'browser' ? [BROWSER_KEY] : [target.name];
 }
 
 export function answersOf(questions, answers) {

@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { targetKeys } from './human-contract.mjs';
 import { storeDialogSecret } from './human-secrets.mjs';
 import { humanStore } from './human-store.mjs';
 import { botId, potsHome } from './sandbox.mjs';
@@ -36,14 +37,13 @@ async function pageOrigin() {
 
 const stageFile = id => `human-${id}.env`;
 const stagePath = id => join(homedir(), '.pots/secrets', stageFile(id));
-const keysOf = dialog => dialog.target.destination === 'pots' ? dialog.target.keys : [dialog.target.name];
 
 export async function ensureSecretPage(id, store = humanStore()) {
   const origin = await pageOrigin();
   return store.locked(async ({ get, save }) => {
     const dialog = get(id);
-    if (dialog.result || dialog.pageLink || dialog.expiresAt <= Date.now()) return dialog;
-    const output = await pageCommand('pots', ['page', 'secret', '--bot', botId, '--file', stageFile(id), '--keys', keysOf(dialog).join(','), '--text', dialog.purpose]);
+    if (dialog.result || dialog.writing || dialog.pageLink || dialog.expiresAt <= Date.now()) return dialog;
+    const output = await pageCommand('pots', ['page', 'secret', '--bot', botId, '--file', stageFile(id), '--keys', targetKeys(dialog.target).join(','), '--text', dialog.purpose]);
     const issued = JSON.parse(output);
     if (issued.via !== 'public-url' || new URL(issued.url).origin !== origin || !/^S\d+$/.test(issued.link)) throw new Error('human: Pots did not return the configured tailnet secret link.');
     return save({ ...dialog, pageLink: { id: issued.link, url: issued.url, expires: issued.expires } });

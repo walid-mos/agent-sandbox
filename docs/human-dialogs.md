@@ -64,7 +64,7 @@ stateDiagram-v2
 | Invalid answer or operator evidence | No answer is committed and the dialog records the issue. |
 | Relay or watcher restart | Requests, receipts, pending Discord edits and deliveries remain on disk. |
 | Answered notification arrives before rendering | Mastermind saves a closure record and refuses later registration. |
-| Secret writer interrupted | The dialog records an uncertain write, removes the page's staging file, revokes its link and refuses another write. A new call is needed. |
+| Secret writer or browser handoff interrupted | The dialog records an uncertain write, removes the page's staging file, revokes its link and refuses another write. A new call is needed. |
 
 ## Door packets
 
@@ -132,7 +132,39 @@ For `ask_user_secret` with an Infisical target, register:
 
 The broker also accepts `destination: "pots"` with `file` and `keys`. Terminal secret input goes only through `human.mjs secret ID` on stdin. The CLI returns metadata. The supported page writes a unique private staging file. The pot notices it, claims the same dialog lock, writes the declared destination, and returns `stored` only after the writer confirms success. On success or cancellation it revokes its link and removes its staging file. A relay restart resumes from that file and the private record. It never examines or cleans another dialog's page or file.
 
-Agent-pi must complete its waiting secret tool from that receipt without requesting the value again. Its current browser destination is an in-process origin-bound handoff, not a file or vault write. Keep it terminal-only until agent-pi supplies its own secure process handoff. Do not fake a browser handle from a vault receipt.
+Agent-pi must complete its waiting secret tool from that receipt without requesting the value again.
+
+### Browser secrets
+
+A browser target hands the value to the waiting Pi tool. That tool parks it with its own origin-bound frontend secret API in the same process. The broker never sees, stores or returns the resulting `sec:` handle, and no vault or file receipt stands in for one.
+
+The waiting tool call creates a random private folder (mode 0700), one socket in it (mode 0600) and an unpredictable capability of 43 to 256 URL-safe characters. It registers this target, which only trusted local processes see. No door packet, Discord message, log or tool result carries it.
+
+```json
+{"kind":"secret","source":{"type":"worker","worker":"WORKER_NAME","session":"ABSOLUTE_PI_SESSION_PATH","call":"TOOL_CALL_ID"},"purpose":"Sign in to the issue tracker","target":{"destination":"browser","origin":"https://tracker.example.com","socket":"/run/user/1000/pi-human-RANDOM/call.sock","capability":"CAPABILITY"}}
+```
+
+`origin` must equal its own `URL.origin`, so it has no path and no default port. The socket path is absolute and at most 107 bytes. Only worker sources take a browser target. The page and the terminal use the single key `SECRET`, so terminal input is `{"SECRET":"VALUE"}` on `human.mjs secret ID`. Run that command asynchronously, because the broker connects to the tool's socket while it runs.
+
+After a submission wins the dialog lock, the broker checks that the socket and its folder belong to its user, with modes 0600 and 0700 respectively. It then sends one JSON line:
+
+```json
+{"version":1,"dialog":"DIALOG_ID","source":{"type":"worker","worker":"WORKER_NAME","session":"ABSOLUTE_PI_SESSION_PATH","call":"TOOL_CALL_ID"},"origin":"https://tracker.example.com","capability":"CAPABILITY","value":"VALUE"}
+```
+
+The socket input is at most 65536 UTF-8 bytes. The tool checks the capability, dialog, canonical source, origin and its pending state, and parks the value once. It generates a separate handoff ID of 32 random lowercase hexadecimal characters, keeps the handle in memory and replies with one line holding exactly these fields:
+
+```json
+{"version":1,"dialog":"DIALOG_ID","source":{"type":"worker","worker":"WORKER_NAME","session":"ABSOLUTE_PI_SESSION_PATH","call":"TOOL_CALL_ID"},"origin":"https://tracker.example.com","handoff":"HANDOFF_ID"}
+```
+
+The broker waits at most 10 seconds or the dialog's remaining lifetime and reads at most 4096 UTF-8 bytes. Any other reply fails the write, including one with an extra field such as a handle, a closed connection or a missed deadline. Only a matching reply commits the receipt, which `human.mjs get ID` returns as `result`:
+
+```json
+{"status":"stored","origin":"page","at":0,"dialog":"DIALOG_ID","request":"QUESTION_DOOR_ID_IF_PRESENT","target":{"destination":"browser","origin":"https://tracker.example.com"},"handoff":"HANDOFF_ID"}
+```
+
+The receipt's `origin` is where the value was entered, `page` or `terminal`. `target.origin` is the browser origin. `request` is omitted when no delivery was registered. The tool checks `dialog`, and `request` against `view.delivery.id` when present. It completes only when `handoff` and `target.origin` match the handle it parked. A failed handoff leaves the dialog with `isWriting: true` and no result. The broker then refuses any second write, removes the page's staging file and revokes its link. When the tool has no matching receipt within its own deadline, it discards any parked value, runs `human.mjs cancel ID` and returns a failure that requires a new call. Cancellation, expiry, tool exit and completion close the socket. Nothing retries with a second handoff or falls back to the vault.
 
 ## Mastermind rendering and click integration
 
