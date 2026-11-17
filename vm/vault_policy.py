@@ -55,7 +55,6 @@ def default_entries(sandbox):
         raise Refused("sandbox.json maps owners to token names. Fix it and run bin/vm-config.")
     return folder_entries({GITHUB_PATH: list(owners.values())}) + folder_entries(sandbox.get("secrets") or {})
 
-
 def group_entries(sandbox, group):
     groups = sandbox.get("onRequest") or {}
     if not isinstance(group, str) or not GROUP.fullmatch(group):
@@ -68,6 +67,19 @@ def group_entries(sandbox, group):
 def every_entry(sandbox):
     groups = sandbox.get("onRequest") or {}
     return default_entries(sandbox) + [entry for group in groups for entry in group_entries(sandbox, group)]
+
+
+def refused_jira(sandbox):
+    group = sandbox.get("jira")
+    if group is None:
+        return
+    if not isinstance(group, str) or not GROUP.fullmatch(group):
+        raise Refused("sandbox.json jira must name one onRequest group. Fix it and run bin/vm-config.")
+    names = {name for _, name in group_entries(sandbox, group)}
+    groups = sandbox.get("onRequest") or {}
+    duplicated = [entry for scope in [default_entries(sandbox)] + [group_entries(sandbox, other) for other in groups if other != group] for entry in scope if entry[1] in names]
+    if duplicated:
+        raise Refused(f"{duplicated[0][1]} is listed outside onRequest.{group}. Each Jira credential must stay in that one group. Fix it and run bin/vm-config.")
 
 
 def sandbox_entries(request, sandbox, registry):
@@ -120,4 +132,5 @@ def entries_for(request, sandbox, registry):
         raise Refused(f"a {kind} request holds only the fields {', '.join(sorted(REQUEST_FIELDS[kind]))}.")
     if not isinstance(sandbox, dict) or not isinstance(registry, dict):
         raise Refused("sandbox.json and the source catalog must each hold one JSON object.")
+    refused_jira(sandbox)
     return list(dict.fromkeys(REQUESTS[kind](request, sandbox, registry)))

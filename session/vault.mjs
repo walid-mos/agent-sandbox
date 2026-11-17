@@ -46,8 +46,9 @@ function secretPairs({ secrets }) {
 }
 
 export async function readSecret(path, name) {
-  const [[, value]] = secretPairs(await askVault({ kind: 'secret', path, name }));
-  return value;
+  const pairs = secretPairs(await askVault({ kind: 'secret', path, name }));
+  if (pairs.length !== 1 || pairs[0][0] !== name) throw new Error('with-vault: the VM\'s vault broker answered with another secret name.');
+  return pairs[0][1];
 }
 
 async function requireReady() {

@@ -6,6 +6,7 @@ set -eu
 REACH="$POTS_SESSION_REPOSITORY/probes/reach.sh"
 SESSION_ATTACKS="$POTS_SESSION_REPOSITORY/probes/session-attacks.sh"
 VAULT_ATTACKS="$POTS_SESSION_REPOSITORY/probes/vault-attacks.sh"
+JIRA_AUTHENTICATION="$POTS_SESSION_REPOSITORY/probes/jira-authentication.mjs"
 SESSION_NODE="$POTS_SESSION_HOME/.local/node/bin/node"
 HOST_PATHS="$POTS_SESSION_REPOSITORY/vm/check-host-paths"
 DOOR_DELIVERIES="$POTS_SESSION_REPOSITORY/probes/door-deliveries.sh"
@@ -162,4 +163,5 @@ judge unprivileged-vm-user-cannot-read-broker-identity refused sandbox_vm sudo -
 run_trusted probes/clone-trust.sh "$POTS_TRUSTED_SOURCE" "$POTS_TRUSTED_SIGNERS" "$POTS_SESSION_REPOSITORY" || status=1
 in_session bash "$VAULT_ATTACKS" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_HOME" "$POTS_VAULT_IDENTITY" "$POTS_VAULT_SOCKET" "$SESSION_NODE" "$POTS_SESSION_CONFIGURATION" "$POTS_SESSION_USER" || status=1
 in_session_as_root bash "$VAULT_ATTACKS" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_HOME" "$POTS_VAULT_IDENTITY" "$POTS_VAULT_SOCKET" "$SESSION_NODE" "$POTS_SESSION_CONFIGURATION" "$POTS_SESSION_USER" || status=1
+judge jira-local-authentication in_session "$SESSION_NODE" "$JIRA_AUTHENTICATION" "$POTS_SESSION_REPOSITORY" || status=1
 exit "$status"

@@ -21,6 +21,7 @@ Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named a
 | `secrets` | Other vault folders, each with the names injected from it |
 | `onRequest` | Named groups of vault folders and names, read by commands that ask for the group or by `botSecrets` at gateway start |
 | `botSecrets` | Optional. Plain file names under `~/.pots/secrets/`, each mapped to an existing `onRequest` group. The gateway refreshes these files from the vault before starting Pots |
+| `jira` | Optional. The `onRequest` group holding the Atlassian email and API token for [Jira MCP](#jira-authentication) |
 | `role` | Optional. `mastermind` for [the Mastermind](#mastermind). Left out for a pot that owns a domain; any other value stops the session's code |
 | `doors` | Optional. The pots this pot can ask through [their doors](#doors), each with one line on what it owns |
 | `sources` | Names from [the source catalog](session/agent-sources.json) that the session fetches and installs, such as `["pi", "herdr"]`. A catalog source left out is never fetched |
@@ -321,6 +322,8 @@ On every check, the VM's keeper compares both the installed Magpie and the runni
 
 Each sandbox has one bot, named by its `bot` key. It uses `magpie/group/router` for coordination, and the Pots gateway runs it through the session's service supervisor. Pi workers start on `magpie/group/router`, or `magpie/group/max` when the person asks for it, and use the installed Pi harness and separate Git worktrees under the session's `/config/Development`.
 
+A pot with `jira` configured connects its bot and Pi workers through [the vault-backed Jira MCP entry](#jira-authentication). Restart sessions that loaded an older MCP configuration after refreshing it.
+
 A pot's bot follows [the work center's instructions](session/bot), and the Mastermind's bot [its own](session/mastermind). Every bot of a pot also loads [the pot rules](session/pot/AGENTS.md), which bootstrap links at `~/.pots/AGENTS.md`, above the bots' folders and outside the workers' `/config/Development`: questions, doors and reports from a Mac. These instructions are the same in every sandbox. Bootstrap links them into the bot's folder, so the bot reads them and cannot edit them. Change them in this repository. What differs between sandboxes is data. `owners` limits the repositories, and `rules` names an instruction file that bootstrap links at `/config/AGENTS.md`, where Pi loads it for the bot and for every worker.
 
 A sandbox for a client uses `rules` for the client's own instruction file, which can make every push wait for the person's yes. The yes is a rule that the bot and the worker follow, and the sandbox's token can push without it. The bot asks before a start, because the start pushes the branch to open the draft PR. It asks again when a worker stops with unpushed commits, then sends the worker the yes for that one push.
@@ -423,6 +426,22 @@ This read-only probe checks API access and HTTPS Git access for the repositories
 ```
 
 The probe reports repository identity, push permission and a HEAD commit without printing tokens. Access does not authorize a push. The broker injects tokens for the sandbox's listed owners. The session's own machine login can obtain any other token the shared identity permits.
+
+## Jira authentication
+
+Set `jira` to the name of an `onRequest` group holding the Atlassian email and API token, as in [the Accor example](sandboxes.example/accor/sandbox.json). The example declares each credential name once under `onRequest.atlassian` and selects it with `"jira": "atlassian"`. The selected group must contain exactly `ATLASSIAN_EMAIL` and `ATLASSIAN_API_TOKEN`, each once. Neither name may appear in top-level `secrets`, `owners` or another `onRequest` group. `./bin/check` validates the examples, and provisioning validates the pot's configuration. The broker reads their values from the pot's configured vault project and environment.
+
+[Provisioning](session/provision-agents) merges a reserved `jira` server into the session's `~/.pi/agent/mcp-adapter.json` after installing the harness, on every bootstrap and source refresh. That file overrides the shared harness's OAuth server with Atlassian's MCP endpoint, `auth: false` and a header command in [the repository](session/jira.mjs). Existing adapter settings and other servers remain. Removing `jira` from `sandbox.json` and refreshing removes the adapter's `jira` override. Provisioning replaces any earlier home-script reference with the repository command.
+
+Provisioning retries the merge when it detects an adapter-file change, including a new file created during staging, and refuses after bounded contention. It cannot prevent a competing write between its final snapshot check and rename, or a stale writer saving after provisioning returns. Close adapter settings writers before refreshing, then restart sessions that loaded the old configuration.
+
+The adapter runs that command at connection time. It requests only the two listed credentials through the VM's broker and prints the Basic authorization header to the adapter. It writes no credential value to a file or argv, and an empty, multiline or unavailable value stops the command. A reply carrying another secret name or more than one secret also stops it. The header stays in the adapter's connection memory. A rotated vault token takes effect on the next connection.
+
+Run `node probes/jira-authentication.mjs` to check the header command, invalid credentials and broker replies, group restrictions, private adapter files and parent symlink refusal. This [local probe](probes/jira-authentication.mjs) uses a fake broker and invented credentials, makes no Jira request and removes its temporary files. `bin/probe-boundary` also runs it inside the session.
+
+Atlassian administrators must allow API-token authentication for the Rovo MCP server, as described in [Atlassian's API-token guide](https://developer.atlassian.com/cloud/rovo-mcp/guides/configuring-authentication-via-api-token/). This mode connects without browser sign-in. Tools that require OAuth, including code search and Teams, remain unavailable with an API token.
+
+Once this signed change is available on the branch the VM follows, update its repository with `SANDBOX=accor ./bin/vm-up`. After updating the pot's `sandbox.json`, run `SANDBOX=accor ./bin/vm-config` and `SANDBOX=accor ./bin/session-refresh`, then reconnect Jira or restart the Pi sessions that loaded its old configuration. A pot without `jira` receives no token override.
 
 ## Development services and memory
 
