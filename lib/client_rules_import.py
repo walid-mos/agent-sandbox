@@ -43,7 +43,10 @@ def private_checkout(name):
 
 def require_selected(directory, source):
     configuration = read_json(regular_file(directory / "sandbox.json"))
-    if source not in configuration.get("sources", []):
+    if not isinstance(configuration, dict):
+        refuse("sandbox.json must be an object.")
+    sources = configuration.get("sources", [])
+    if not isinstance(sources, list) or source not in sources:
         refuse("source is not selected in this sandbox's sources.")
     rules_target(configuration.get("rules"), SESSION_CONFIGURATION)
 
