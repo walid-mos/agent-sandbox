@@ -6,8 +6,23 @@ SYSBOX_RELEASES=https://github.com/nestybox/sysbox/releases/download
 SYSBOX_SHA256_arm64=04ca894ae0b53f0fa54eaacc173ce40363c9a95ea5450f773716a84ef650a69b
 SYSBOX_SHA256_amd64=9d6d5484f980d0a17f86c492c1262015c2afb66280bdb97215b79fde6a0261c5
 SWAP_FILE=/swapfile
+APT_LOCK_WAIT_SECONDS=300
 GIB_BYTES=1073741824
 here=$(dirname "$(readlink -f "$0")")
+
+# A fresh cloud image runs apt on its own timers right after boot, so apt waits for their lock instead of failing.
+apt_get() {
+	DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout="$APT_LOCK_WAIT_SECONDS" "$@"
+}
+
+# Colima's image ships Docker. A stock cloud image does not, and Sysbox registers its runtime with an installed Docker.
+install_docker() {
+	if command -v dockerd > /dev/null; then
+		return 0
+	fi
+	apt_get update -qq
+	apt_get install -y -qq docker.io
+}
 
 install_sysbox() {
 	if sysbox-runc --version 2>/dev/null | grep -q "$SYSBOX_VERSION"; then
@@ -23,8 +38,8 @@ install_sysbox() {
 	package="$package_dir/sysbox-ce_$SYSBOX_VERSION.linux_$architecture.deb"
 	curl -fsSL -o "$package" "$SYSBOX_RELEASES/v$SYSBOX_VERSION/$(basename "$package")"
 	echo "$checksum  $package" | sha256sum -c --quiet -
-	apt-get update -qq
-	DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq "$package"
+	apt_get update -qq
+	apt_get install -y -qq jq "$package"
 	rm -rf "$package_dir"
 }
 
@@ -75,6 +90,7 @@ case $launcher in
 	docker | sealskin) ;;
 	*) echo "vm/setup.sh: expected the launcher docker or sealskin as second argument, got '$launcher'" >&2; exit 2 ;;
 esac
+install_docker
 install_sysbox
 install_firewall
 configure_swap "$swap_gib"
