@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ownsTerminal, WORKERS } from './workers.mjs';
+import { isLive, ownsTerminal, WORKERS } from './workers.mjs';
 
 export const LIFECYCLE = join(WORKERS, 'lifecycle');
 export const SETTLED_GRACE_MS = 5000;
@@ -73,7 +73,7 @@ export function hasFinalReply(branch) {
 }
 
 function isUncollected(helper, reader) {
-  if (helper.state === 'live') return true;
+  if (isLive(helper)) return true;
   const { labels = {} } = helper;
   const readAt = Number(labels[`agent.read.${reader}`]);
   return ![helper.finished_ms > 0, readAt >= helper.finished_ms].every(Boolean);
@@ -85,11 +85,10 @@ export function hasUncollectedHelpers(terminal, terminals) {
     .some(helper => isUncollected(helper, terminal.address));
 }
 
-export function canFinish(state, terminal, now) {
+export function canFinish(state, terminal, terminals, now) {
   if (!state) return false;
   const { labels = {} } = terminal;
-  const status = terminal.status?.state ?? terminal.status;
   return [state.phase === 'settled', Number.isFinite(state.settledAt), now >= state.settledAt + SETTLED_GRACE_MS,
-    terminal.address === state.terminal, ownsTerminal(state, terminal), terminal.state === 'live', ['done', 'idle'].includes(status),
-    !labels['agent.waiting'], !labels['agent.goal'], !labels['lifecycle.keep']].every(Boolean);
+    terminal.address === state.terminal, ownsTerminal(state, terminal), isLive(terminal), ['done', 'idle'].includes(terminal.status),
+    !labels['agent.waiting'], !labels['agent.goal'], !labels['lifecycle.keep'], !hasUncollectedHelpers(terminal, terminals)].every(Boolean);
 }

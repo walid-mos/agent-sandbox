@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { command } from './run.mjs';
 import { allTerminals } from './workers.mjs';
 import { queued } from './queue.mjs';
-import { canFinish, followUp, hasFinalReply, hasUncollectedHelpers, LIFECYCLE, readLifecycle, receiptPath, resultId, SETTLED_GRACE_MS, statePath, writeLifecycle } from './worker-lifecycle.mjs';
+import { canFinish, followUp, hasFinalReply, LIFECYCLE, readLifecycle, receiptPath, resultId, SETTLED_GRACE_MS, statePath, writeLifecycle } from './worker-lifecycle.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
 const PROTOCOL_VERSION = 1;
@@ -107,7 +107,7 @@ export class WorkerRuntime {
     const terminals = allTerminals();
     const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
     if (!terminal) return false;
-    return [canFinish(this.#state, terminal, Date.now()), !hasUncollectedHelpers(terminal, terminals), hasPublishedWork(context.cwd)].every(Boolean);
+    return [canFinish(this.#state, terminal, terminals, Date.now()), hasPublishedWork(context.cwd)].every(Boolean);
   }
 
   stop() {

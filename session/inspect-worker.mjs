@@ -2,7 +2,7 @@ import { enqueue } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { endTerminal, isStopped, passes, save, terminalOf } from './workers.mjs';
-import { canFinish, hasUncollectedHelpers, lifecycleOf, SETTLED_GRACE_MS } from './worker-lifecycle.mjs';
+import { canFinish, lifecycleOf, SETTLED_GRACE_MS } from './worker-lifecycle.mjs';
 import { keepResult } from './worker-results.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
@@ -19,10 +19,10 @@ function gitFacts(worker) {
   };
 }
 
-function report(worker, terminal, status, wake, state, now) {
+function report(worker, terminal, status, wake, state, isSettled) {
   const facts = gitFacts(worker);
   const title = terminal.labels[TITLE_LABEL];
-  const isFinished = [canFinish(state, terminal, now), facts.uncommitted === 0, facts.unpushed === 0].every(Boolean);
+  const isFinished = [isSettled, facts.uncommitted === 0, facts.unpushed === 0].every(Boolean);
   const result = isFinished ? keepResult(worker, terminal, state) : undefined;
   const note = { worker: worker.name, title, terminal: terminal.address, status, ...facts, cleanPass: passes(worker), pullRequest: worker.pullRequest, result };
   save({ ...worker, status, result, ...facts });
@@ -50,17 +50,16 @@ function recordSession(worker, state) {
 function inspectLive(worker, terminal, state, { now, terminals }) {
   const readyAt = state?.settledAt + SETTLED_GRACE_MS;
   if (now < readyAt) return readyAt;
-  const completion = hasUncollectedHelpers(terminal, terminals) ? undefined : state;
-  reportCurrent(worker, terminal, completion, now);
+  reportCurrent(worker, terminal, state, canFinish(state, terminal, terminals, now));
   return undefined;
 }
 
-function reportCurrent(worker, terminal, state, now) {
+function reportCurrent(worker, terminal, state, isSettled) {
   const { status = 'starting', turn = 0 } = terminal;
   const { generation = 'unmanaged' } = state ?? {};
-  const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${generation}-${canFinish(state, terminal, now)}`;
+  const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${generation}-${isSettled}`;
   if (!REPORTABLE.has(status) || worker.lastReport === wake) return;
-  report(worker, terminal, status, wake, state, now);
+  report(worker, terminal, status, wake, state, isSettled);
 }
 
 function inspectLaunch(worker, view) {
