@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { acceptDiscordClick, closeDiscordQuestion } from './discord-clicks.mjs';
+import { acceptDiscordClick, closeDiscordQuestion, registeredPot } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
 import { ANSWERED, RECEIVED } from './door-requests.mjs';
 import { DIALOG } from './door-messages.mjs';
@@ -39,7 +39,7 @@ async function settle(record) {
   for (const [id, update] of Object.entries(record.updates ?? {})) await updateMessage(record.id, id, update);
 }
 
-const isCompletionOwner = (record, pot) => !record?.registration || record.registration.pot === pot;
+const isCompletionOwner = (record, pot) => !record || registeredPot(record) === pot;
 const isCompletionAcknowledged = (request, record, completion) => request.state === ANSWERED && JSON.stringify(record?.closed) === JSON.stringify(completion);
 
 function currentCompletion(request) {
