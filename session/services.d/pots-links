@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+export HOME=/config
+SOURCES=/opt/agent-sandbox/session/agent-sources.json
+OWNER="$HOME/.local/state/tailnet-link/owner"
+OWNER_POLL_SECONDS=1
+harness="$HOME/$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["pi"]["directory"])' "$SOURCES")"
+server="$harness/skills/tailnet-links/scripts/server.py"
+
+# tailnet-link setup writes the owner file, then waits SERVER_READY_SECONDS (15) for this server, so the poll stays well under it.
+until [ -s "$OWNER" ] && [ -f "$server" ]; do
+	sleep "$OWNER_POLL_SECONDS"
+done
+exec s6-setuidgid abc /usr/bin/python3 -I -B "$server"
