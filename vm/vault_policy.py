@@ -84,7 +84,14 @@ def secret_entries(request, sandbox, registry):
     return [(path, name)]
 
 
-# A source credential reaches a pot only when its sandbox.json lists that source of the clone's catalog by name.
+def selected_sources(sandbox):
+    names = sandbox.get("sources", [])
+    if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+        raise Refused("sandbox.json selects its sources as a list of catalog names. Fix it and run bin/vm-config.")
+    return names
+
+
+# A source token reaches a pot only for a private source of the clone's catalog, one with a credential, that its sandbox.json selects.
 def source_entries(request, sandbox, registry):
     repository = request.get("repository")
     if not isinstance(repository, str) or not REPOSITORY.fullmatch(repository):
@@ -92,11 +99,14 @@ def source_entries(request, sandbox, registry):
     matches = [name for name, source in registry.items() if isinstance(source, dict) and source.get("repository") == repository]
     if not matches:
         raise Refused(f"{repository} is outside the approved agent sources.")
-    listed = sandbox.get("sources") or []
-    allowed = [name for name in matches if name in listed]
-    if not allowed:
-        raise Refused(f"sandbox.json lists none of {', '.join(matches)} under sources, so this pot fetches it with no token. List it there only when the repository is private.")
-    return [listed_entry(GITHUB_PATH, registry[allowed[0]].get("credential"))]
+    names = selected_sources(sandbox)
+    selected = [name for name in matches if name in names]
+    if not selected:
+        raise Refused(f"sandbox.json selects none of {', '.join(matches)} under sources, so this pot does not fetch it.")
+    credential = registry[selected[0]].get("credential")
+    if credential is None:
+        raise Refused(f"{repository} is public in the source catalog, so it is cloned with no token.")
+    return [listed_entry(GITHUB_PATH, credential)]
 
 
 REQUESTS = {"sandbox": sandbox_entries, "secret": secret_entries, "source": source_entries}

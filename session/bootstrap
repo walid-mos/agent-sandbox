@@ -104,6 +104,7 @@ install_pots() {
 
 install_harness() {
 	harness_dir="$HOME/$(node -p "require('$here/agent-sources.json').pi.directory")"
+	[ -f "$harness_dir/package.json" ] || { echo "bootstrap: the Pi harness is missing at $harness_dir. Select pi under sources in sandbox.json, then run bin/vm-config." >&2; exit 1; }
 	pi_version=$(node -p "require('$harness_dir/package.json').devDependencies['@earendil-works/pi-coding-agent']")
 	npm install --global --no-fund --no-audit "@earendil-works/pi-coding-agent@$pi_version"
 }

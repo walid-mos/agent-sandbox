@@ -44,4 +44,5 @@ expect fail broker-serves-unlisted-name ask '{"kind":"secret","path":"/tools/git
 expect fail broker-serves-path-traversal ask '{"kind":"secret","path":"/providers/../tools/github","name":"GITHUB_TOKEN"}'
 expect fail broker-serves-vault-access-name ask '{"kind":"secret","path":"/","name":"INFISICAL_TOKEN"}'
 expect fail broker-serves-unapproved-source ask '{"kind":"source","repository":"walid-mos/agent-sandbox"}'
+expect fail broker-serves-public-source-token ask '{"kind":"source","repository":"walid-mos/agent-pi"}'
 exit "$failures"

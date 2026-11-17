@@ -4,7 +4,7 @@ import { main } from './main.mjs';
 
 function tokenFor(path) {
   const source = sourceFor(path.replace(/\.git$/, ''));
-  if (!source) throw new Error('source-credential: repository is outside the approved agent sources.');
+  if (!source?.selected || !source.credential) throw new Error('source-credential: repository is not a private source this sandbox selects.');
   const token = process.env[source.credential];
   if (!token) throw new Error(`source-credential: ${source.credential} is absent. Fetch through source-fetch.`);
   return token;
