@@ -34,16 +34,24 @@ function validateLaunchText(title, subject) {
   throw new Error('dispatch: give --title, the pull request title, and --subject, the empty bootstrap commit\'s subject, each in the repository\'s own format for that artefact, on one line of visible characters with no leading or trailing space.');
 }
 
-function workspace(repository, branch, base) {
+function repositoryOrigin(repository, checkout) {
+  const origin = command('git', ['remote', 'get-url', 'origin'], { cwd: checkout });
+  const urls = [`https://github.com/${repository}`, `git@github.com:${repository}`, `ssh://git@github.com/${repository}`];
+  if (!urls.some(url => origin === url || origin === `${url}.git`)) throw new Error(`dispatch: checkout origin does not match ${repository}. Restore it before starting a worker.`);
+  return origin;
+}
+
+function workspace(repository, branch, base, publication) {
   const checkout = join(WORKSPACES, repository);
   mkdirSync(join(checkout, '..'), { recursive: true });
   if (!existsSync(join(checkout, '.git'))) command('git', ['clone', '--quiet', `https://github.com/${repository}.git`, checkout]);
+  const originUrl = publication === PUBLICATION.local ? repositoryOrigin(repository, checkout) : undefined;
   const config = JSON.parse(readFileSync(join(homedir(), '.pi/agent/extensions/subagent/config.json'), 'utf8'));
   const worktree = join(checkout, config.worktreeBaseDir, repository.split('/')[1], branch.replaceAll('/', '-'));
   if (existsSync(worktree)) throw new Error('dispatch: worktree exists. Send to its worker or choose a new branch.');
   command('git', ['fetch', '--quiet', 'origin', base], { cwd: checkout });
   command('git', ['worktree', 'add', '-b', branch, worktree, `origin/${base}`], { cwd: checkout });
-  return worktree;
+  return { worktree, originUrl };
 }
 
 function checkServedRequest(requested) {
@@ -67,13 +75,14 @@ function start(arguments_) {
   ensureNewWorker(name);
   const request = readFileSync(briefFile, 'utf8');
   const base = requestedBase ?? command('gh', ['api', `repos/${repository}`, '--jq', '.default_branch']);
-  const worktree = workspace(repository, branch, base);
+  const publication = values.local ? PUBLICATION.local : undefined;
+  const { worktree, originUrl } = workspace(repository, branch, base, publication);
   // draft-pr adds its own empty commit, with the title as subject, only to a branch without one, so this keeps the commit format apart.
   command('git', ['commit', '--quiet', '--allow-empty', '-m', values.subject], { cwd: worktree });
   const pullRequest = values.local ? undefined : command('bash', [DRAFT_PR, worktree, values.title, base], { cwd: worktree });
   const worker = { name, kind: 'repository', owner: botId, repository, branch, worktree, pullRequest, request, base,
     title: values.title, subject: values.subject, servedRequest: values.for, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }),
-    ...(values.local && { publication: PUBLICATION.local, originUrl: command('git', ['remote', 'get-url', 'origin'], { cwd: worktree }) }) };
+    ...(publication && { publication, originUrl }) };
   queueWorker(worker, repositoryBrief(worker));
 }
 

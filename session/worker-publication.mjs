@@ -1,5 +1,6 @@
 import { consumePush } from './human-consume.mjs';
 import { humanStore } from './human-store.mjs';
+import { pushApproved } from './push-approved.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { ownedWorker, PUBLICATION, recordPublication } from './workers.mjs';
@@ -54,12 +55,14 @@ export async function publishWorker([name, dialogId, label], store = humanStore(
   const worker = repositoryWorker(name);
   const request = firstPush(worker);
   await consumePush(dialogId, { scope: request.scope, label }, store);
-  if (firstPush(worker).scope !== request.scope) throw new Error('dispatch: publication changed after consumption. Ask for a new approval.');
   const options = { cwd: worker.worktree };
-  // Pushing the approved commit ID, never the branch name, keeps a commit made after the check out of this push.
-  command('git', ['push', '--quiet', `--force-with-lease=refs/heads/${worker.branch}:`, 'origin', `${request.head}:refs/heads/${worker.branch}`], options);
+  const git = args => command('git', args, options);
+  checkCheckout(worker, git);
+  if (git(['rev-parse', 'HEAD']) !== request.head) throw new Error('dispatch: publication changed after consumption. Ask for a new approval.');
+  pushApproved(worker, request.head);
   recordPublication(worker, { publication: PUBLICATION.awaitingPr, publishedHead: request.head });
-  command('git', ['branch', `--set-upstream-to=origin/${worker.branch}`, worker.branch], options);
+  git(['update-ref', `refs/remotes/origin/${worker.branch}`, request.head]);
+  git(['branch', `--set-upstream-to=origin/${worker.branch}`, worker.branch]);
   return openWorkerPR([name]);
 }
 
@@ -69,10 +72,11 @@ export function openWorkerPR([name]) {
   if (worker.publication !== PUBLICATION.awaitingPr) throw new Error('dispatch: no successful approved first push is recorded.');
   const options = { cwd: worker.worktree };
   if (command('git', ['remote', 'get-url', 'origin'], options) !== worker.originUrl) throw new Error('dispatch: origin changed before draft PR creation.');
-  const remote = command('git', ['ls-remote', '--heads', 'origin', `refs/heads/${worker.branch}`], options).split(/\s+/)[0];
-  if (remote !== worker.publishedHead) throw new Error('dispatch: the remote head changed before draft PR creation. Inspect it.');
-  const existing = command('gh', ['pr', 'list', '--repo', worker.repository, '--head', worker.branch, '--state', 'open', '--json', 'url', '--jq', '.[0].url // empty'], options);
-  const pullRequest = existing || command('gh', ['pr', 'create', '--repo', worker.repository, '--draft', '--base', worker.base, '--head', worker.branch, '--title', worker.title, '--body', ''], options);
+  command('git', ['fetch', '--quiet', '--no-tags', worker.originUrl, `refs/heads/${worker.branch}`], options);
+  command('git', ['merge-base', '--is-ancestor', worker.publishedHead, 'FETCH_HEAD'], options);
+  const candidates = JSON.parse(command('gh', ['pr', 'list', '--repo', worker.repository, '--head', worker.branch, '--state', 'open', '--json', 'url,isCrossRepository,baseRefName,headRefName'], options));
+  const existing = candidates.find(pr => pr.isCrossRepository === false && pr.baseRefName === worker.base && pr.headRefName === worker.branch);
+  const pullRequest = existing?.url || command('gh', ['pr', 'create', '--repo', worker.repository, '--draft', '--base', worker.base, '--head', worker.branch, '--title', worker.title, '--body', ''], options);
   recordPublication(worker, { publication: PUBLICATION.published, pullRequest });
   return pullRequest;
 }
