@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { main } from './main.mjs';
 import { DEFAULT_GROUPS, GROUP_PREFIX } from './models.mjs';
 
+const SCRIPT = 'router-restore';
 const QUESTION = 'Reply only OK.';
 const ANSWER_TOKENS = 16;
 const ANSWER_TIMEOUT_MS = 120 * 1000;
@@ -11,9 +12,10 @@ const ANSWER_TIMEOUT_MS = 120 * 1000;
 const SERVED_HEADER = 'X-Magpie-Model';
 
 const picksInOrder = group => group.routing === 'order' && !group.rules?.length;
-const memberModel = member => member.replace(/#[^/]+$/u, '').replace(/:fast$/u, '')
-  .replace(/:(?:none|minimal|low|medium|high|xhigh|max)(?:\+(?:none|minimal|low|medium|high|xhigh|max))*$/u, '');
-const badSeed = (group, problem) => new Error(`router-restore: ${group}: ${problem}. Check the seeded groups.`);
+const EFFORT = '(?:none|minimal|low|medium|high|xhigh|max)';
+const EFFORTS = new RegExp(`:${EFFORT}(?:\\+${EFFORT})*$`, 'u');
+const memberModel = member => member.replace(/#[^/]+$/u, '').replace(/:fast$/u, '').replace(EFFORTS, '');
+const badSeed = (group, problem) => new Error(`${SCRIPT}: ${group}: ${problem}. Check the seeded groups.`);
 
 function firstMemberChain(groups, groupId) {
   const chain = [];
@@ -37,6 +39,7 @@ function answerPlan(groups, groupId) {
 }
 
 const throughGroup = ({ group, target }) => target === group ? '' : ` through ${target}`;
+const expected = (plan, got) => `${SCRIPT}: ${plan.group}${throughGroup(plan)} expected ${plan.member} and got ${got}`;
 
 async function ask(routerApi, plan) {
   let served = 'no served model';
@@ -50,20 +53,18 @@ async function ask(routerApi, plan) {
     served = response.headers.get(SERVED_HEADER) || served;
     return { status: response.status, served, answer: await response.json() };
   } catch {
-    throw new Error(`router-restore: ${plan.group}${throughGroup(plan)} expected ${plan.member} and got ${served}: request failed or response was unreadable. Check the router.`);
+    throw new Error(`${expected(plan, served)}: request failed or response was unreadable. Check the router.`);
   }
 }
 
-function verdict({ group, target, member }, { status, served, answer }) {
-  const through = throughGroup({ group, target });
+function verdict(plan, { status, served, answer }) {
   if (status !== 200 || !answer?.choices?.length) {
-    throw new Error(`router-restore: ${group}${through} expected ${member} and got no answer (HTTP ${status}, selected ${served ?? 'no served model'}). Check that model on its provider and credential freshness.`);
+    throw new Error(`${expected(plan, 'no answer')} (HTTP ${status}, selected ${served}). Check that model on its provider and credential freshness.`);
   }
-  const expected = memberModel(member);
-  if (served !== expected) {
-    throw new Error(`router-restore: ${group}${through} expected ${member} and got ${served ?? 'no served model'}. Its first member gave no answer: check that model on its provider and the vault credentials.`);
+  if (served !== memberModel(plan.member)) {
+    throw new Error(`${expected(plan, served)}. Its first member gave no answer: check that model on its provider and the vault credentials.`);
   }
-  return `router-restore: ${group} answers${through} with ${served}`;
+  return `${SCRIPT}: ${plan.group} answers${throughGroup(plan)} with ${served}`;
 }
 
 export async function* routerAnswers({ groups }, routerApi) {
@@ -77,7 +78,7 @@ function restoredConfiguration() {
     return JSON.parse(readFileSync(join(directory, 'providers.json'), 'utf8'));
   } catch {
     // providers.json holds keys, so a JSON parse error must never quote its contents.
-    throw new Error('router-restore: cannot read the restored Magpie configuration. Check magpie data and providers.json.');
+    throw new Error(`${SCRIPT}: cannot read the restored Magpie configuration. Check magpie data and providers.json.`);
   }
 }
 
