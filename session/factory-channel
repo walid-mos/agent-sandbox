@@ -4,7 +4,9 @@ from pathlib import Path
 import socket
 import sys
 
-LAUNCH = dict(line.split("=", 1) for line in (Path(__file__).resolve().parent / "launch.env").read_text().splitlines() if line)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from launch import LAUNCH
+
 SOCKETS = {"landing": LAUNCH["POTS_LANDING_SOCKET"], "reports": LAUNCH["POTS_FACTORY_REPORT_SOCKET"]}
 TOKEN_FILE = "token"
 REQUEST_LIMIT = 16384

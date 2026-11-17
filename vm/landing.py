@@ -10,9 +10,9 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
+from launch import LAUNCH
 from signed_commit import Untrusted, require_signed
 
-LAUNCH = dict(line.split("=", 1) for line in (ROOT / "session/launch.env").read_text().splitlines() if line)
 OBJECT_ID = re.compile(r"[0-9a-f]{40}")
 FACTORY_LABEL_KEY = "fr.nextnode.pots"
 FACTORY_LABEL_VALUE = "isolated-factory"

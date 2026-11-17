@@ -5,7 +5,7 @@ set -eu
 
 SIGNERS="$POTS_RUNTIME/trusted-signers.asc"
 FACTORY_SIGNERS="$POTS_RUNTIME/factory-signers.asc"
-LAUNCHER_FILES="lib/trusted_source.py lib/signed_commit.py lib/source_refresh.py session/launch.env"
+LAUNCHER_FILES="lib/trusted_source.py lib/launch.py lib/signed_commit.py lib/source_refresh.py session/launch.env"
 
 install_in_vm() {
 	sandbox_vm sudo install -D -m 0644 -o root -g root /dev/stdin "$1" < "$2"

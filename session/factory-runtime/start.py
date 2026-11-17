@@ -5,11 +5,14 @@ import signal
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
+from launch import LAUNCH
+
 HOME = Path("/config")
 SESSION = Path("/opt/agent-sandbox/session")
 TOOLCHAIN = "/opt/factory-tools/.local"
 ENVIRONMENT = {"PATH": f"{TOOLCHAIN}/bin:/usr/local/bin:/usr/bin:/bin", "HOME": str(HOME), "POTS_TOOLCHAIN": TOOLCHAIN, "POTS_ISOLATED_FACTORY": "1", "MAGPIE_API_KEY": "magpie", "LANG": "C.UTF-8"}
-FACTORY_UID = int(dict(line.split("=", 1) for line in (SESSION / "launch.env").read_text().splitlines() if line)["POTS_FACTORY_UID"])
+FACTORY_UID = int(LAUNCH["POTS_FACTORY_UID"])
 CHILDREN = []
 BOOTSTRAP = Path("/run/pots-factory/bootstrap")
 
