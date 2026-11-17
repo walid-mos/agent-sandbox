@@ -23,9 +23,9 @@ export async function check() {
     await commandOutput(tool, ['--version'], { timeout: COMMAND_MS });
     console.log(`${tool}: available.`);
   }
+  const pots = potTransport();
   for (const pot of config.pots) {
-    const reply = JSON.parse(await commandOutput('hc', ['exec', '--json', '--on', pot, 'node', '--version'], { timeout: COMMAND_MS }));
-    if (reply.code !== 0 || reply.timed_out || reply.truncated) throw new Error(`mac-launch: cannot reach ${pot}.`);
+    await pots.reach(pot);
     console.log(`Herdr reaches ${pot}.`);
   }
 }
