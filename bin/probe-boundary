@@ -41,7 +41,7 @@ in_session_as_root() {
 
 judge_forbidden() {
 	views=$(mktemp -d)
-	sandbox_vm bash "$REACH" $forbidden > "$views/vm"
+	run_trusted probes/reach.sh $forbidden > "$views/vm" || { echo "FAIL vm-view (the trusted launcher did not run probes/reach.sh)"; rm -rf "$views"; return 1; }
 	in_session bash "$REACH" $(awk '{ print $2 }' "$views/vm") > "$views/session"
 	paste -d ' ' "$views/vm" "$views/session" | awk '
 		$1 != "open" { print "FAIL untestable " $2 " (closed from the VM too)"; bad++; next }
@@ -71,19 +71,17 @@ judge() {
 	fi
 }
 
-tailnet_drop_precedes_returns() {
-	sandbox_vm sudo "$1" -S DOCKER-USER | awk -v drop="-A DOCKER-USER -o $TAILNET_LINKS -j DROP" '
+family_closes_tailnet() {
+	printf '%s\n' "$1" | awk -v drop="-A DOCKER-USER -o $TAILNET_LINKS -j DROP" '
 		$0 == drop { dropped = NR }
-		/-j RETURN$/ && !returned { returned = NR }
-		END { exit !(dropped && dropped < returned) }'
+		/^-A DOCKER-USER .*-j RETURN$/ && !returned { returned = NR }
+		END { exit !(dropped && dropped < returned) }' || return 1
+	printf '%s\n' "$1" | grep -q -- "^-A POTS-INPUT .*--dport $DOOR_PORT .*--connlimit-above" || return 1
+	! printf '%s\n' "$1" | grep -q -- '^-N ts-'
 }
 
 firewall_closes_tailnet() {
-	for table in iptables ip6tables; do
-		tailnet_drop_precedes_returns "$table" || return 1
-		sandbox_vm sudo "$table" -S POTS-INPUT | grep -q -- "--dport $DOOR_PORT .*--connlimit-above" || return 1
-		! sandbox_vm sudo "$table" -S | grep -q -- '^-N ts-' || return 1
-	done
+	family_closes_tailnet "$(sandbox_vm sudo iptables -S)" && family_closes_tailnet "$(sandbox_vm sudo ip6tables -S)"
 }
 
 door_account_has_no_docker() {
@@ -137,7 +135,7 @@ else
 fi
 judge docker-requires-firewall requires_firewall docker.service || status=1
 judge door-requires-firewall requires_firewall pots-door.service || status=1
-judge vm-sees-no-host-path sandbox_vm sh "$HOST_PATHS" || status=1
+judge vm-sees-no-host-path run_trusted vm/check-host-paths || status=1
 judge session-sees-no-host-path in_session sh "$HOST_PATHS" || status=1
 judge firewall-closes-tailnet firewall_closes_tailnet || status=1
 judge door-listens-on-tailnet-only door_listens_on_tailnet_only || status=1
