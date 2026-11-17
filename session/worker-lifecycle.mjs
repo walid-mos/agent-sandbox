@@ -52,8 +52,9 @@ export function reportFacts(worker) {
   return { branch: command('git', ['branch', '--show-current'], options), commit: command('git', ['rev-parse', '--short', 'HEAD'], options), ...facts };
 }
 
+// A repository worker started with its draft PR has no phase: it was published when it started.
 export const isPublished = facts => facts.kind === 'task' ? facts.resultReady
-  : facts.uncommitted === 0 && facts.unpushed === 0 && ![PUBLICATION.local, PUBLICATION.awaitingPr].includes(facts.publication);
+  : facts.uncommitted === 0 && facts.unpushed === 0 && [undefined, PUBLICATION.published].includes(facts.publication);
 
 export const readyAt = state => state?.settledAt + SETTLED_GRACE_MS;
 
