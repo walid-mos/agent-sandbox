@@ -4,7 +4,7 @@ import { humanStore } from '../session/human-store.mjs';
 import { launchRequest, launchNotice, noticeOf, noticeText } from '../session/launch-contract.mjs';
 import { launchSettings, openLaunch, retireLaunch, shownLaunch, recordStatus, expireLaunches } from '../session/launch-requests.mjs';
 import { launchStatus } from '../session/launch-contract.mjs';
-import { ownedFolder, now } from './fixtures/mac-launch.mjs';
+import { ownedFolder, now, settings as gateSettings } from './fixtures/mac-launch.mjs';
 import { piArguments } from '../mac/launch-pi.mjs';
 
 const input = { launch: 'a'.repeat(32), pot: 'alpha', target: 'mac-studio', title: 'Ready', prompt: 'Reply ready.', createdAt: now };
@@ -50,12 +50,11 @@ test('an offline Mac does not prevent the pot reporting expiry, with retries', a
 });
 
 test('the last process before Pi rechecks sleep, identity, expiry and exact bytes', () => {
-  const approved = { ...request(), at: new Date(now).toISOString(), userId: '111111111111111111' };
-  const settings = { name: 'mac-studio', pots: ['alpha'], refusedActs: ['sign-tip', 'launch-gate'], label: 'Mac Studio', piArguments: [], humanDiscord: { userId: approved.userId, macLaunchEnabled: true } };
+  const approved = { ...request(), at: new Date(now).toISOString(), userId: gateSettings.humanDiscord.userId };
   const offer = { request: request(), prompt: input.prompt };
-  assert.equal(piArguments(offer, settings, approved, 'session.jsonl', now).at(-1), 'Reply ready.');
-  assert.throws(() => piArguments(offer, settings, approved, 'session.jsonl', now + 30_001));
-  assert.throws(() => piArguments({ ...offer, prompt: 'Other bytes' }, settings, approved, 'session.jsonl', now));
-  assert.throws(() => piArguments(offer, settings, { ...approved, userId: '777777777777777777' }, 'session.jsonl', now));
-  assert.throws(() => piArguments(offer, { ...settings, humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: false } }, approved, 'session.jsonl', now));
+  assert.equal(piArguments(offer, gateSettings, approved, 'session.jsonl', now).at(-1), 'Reply ready.');
+  assert.throws(() => piArguments(offer, gateSettings, approved, 'session.jsonl', now + 30_001));
+  assert.throws(() => piArguments({ ...offer, prompt: 'Other bytes' }, gateSettings, approved, 'session.jsonl', now));
+  assert.throws(() => piArguments(offer, gateSettings, { ...approved, userId: '777777777777777777' }, 'session.jsonl', now));
+  assert.throws(() => piArguments(offer, { ...gateSettings, humanDiscord: { ...gateSettings.humanDiscord, macLaunchEnabled: false } }, approved, 'session.jsonl', now));
 });

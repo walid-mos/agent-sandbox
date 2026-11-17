@@ -2,16 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buttonId, verifyOffer, verifyPress } from '../mac/launch-approval.mjs';
 import { launchNotice, launchRequest, shownRequest } from '../session/launch-contract.mjs';
+import { application, now, settings, snowflake } from './fixtures/mac-launch.mjs';
 
-const now = 1794945000000;
-const operator = '111111111111111111';
-const guild = '222222222222222222';
-const channel = '333333333333333333';
+const { guildId: guild, channelId: channel, humanDiscord: { userId: operator } } = settings;
 const message = '444444444444444444';
-const application = '555555555555555555';
-const snowflake = at => ((BigInt(at) - 1420070400000n) << 22n).toString();
-const settings = { name: 'mac-studio', pots: ['alpha'], refusedActs: ['sign-tip', 'launch-gate'], guildId: guild, channelId: channel,
-  humanDiscord: { userId: operator, macLaunchEnabled: true } };
 const request = launchRequest({ launch: 'a'.repeat(32), target: 'mac-studio', pot: 'alpha', title: 'Reply', prompt: 'Reply ready.', createdAt: now });
 const offer = { request, prompt: 'Reply ready.', content: 'Approve this prompt', messageId: message, applicationId: application, attachment: { id: '666666666666666666', filename: 'prompt.txt', size: 12 } };
 const click = () => ({ id: snowflake(now), type: 3, application_id: application, guild_id: guild, channel_id: channel,
