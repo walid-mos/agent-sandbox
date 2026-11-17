@@ -60,6 +60,7 @@ The VM's keeper launches the session within a minute of `vm-up`. To have it at o
 5. It creates the sandbox's bot when it has none, then links [its instructions](#the-bot-and-its-pi-workers), [the pot rules](session/pot/AGENTS.md) and the sandbox's `rules` into the session.
 6. It restarts the gateway, the worker watcher and the source watcher.
 7. It creates the Factory bot when the pot owns repositories.
+8. It serves the pot's files under its tailnet name, as [Pot cloud](#pot-cloud) describes.
 
 Bootstrap needs access to the private harness repository and the configured vault paths, and the Mac's Magpie as the source of the seed.
 
@@ -347,6 +348,12 @@ pots requests [--all]
 [The session's `pots`](session/pots) runs these three and the door's exact `wake`, through [`doors.mjs`](session/doors.mjs), and hands every other command, `wake --from mac-thread` included, to the installed `pi-durable-bot`. `ask` signs its request ID with this pot's tailnet name, saves the request, then knocks on the neighbour's door. A request whose door refused it stays `undelivered`, with the door's reason.
 
 Each request is a JSON file under `~/.config/agent-sandbox/requests`. A delivery wakes the bot with a JSON note only once it is saved, and a delivery whose wake fails is removed again. The session refuses a request in another pot's name, a reply to a request this pot never asked, a second different reply, a 21st open request from the same pot, and a message over 16 KiB, empty, holding a NUL byte or not UTF-8. A reply only closes a request, so it can never open one. [`probes/door-deliveries.sh`](probes/door-deliveries.sh), which `./bin/probe-boundary` runs in the session, sends those forged deliveries through the command the door runs and checks each is refused and leaves the requests unchanged.
+
+## Pot cloud
+
+Bootstrap's last step runs [`cloud.mjs`](session/cloud.mjs), which runs `tailnet-link setup` in the session: the pot serves its own `~/Public/deliverables` and its dev servers under its own tailnet name, and rerunning it is safe. The step comes last because it needs the pot's tailnet node. `tailnet-link` never receives `TS_AUTHKEY`, so it cannot join a node of its own.
+
+On the Mastermind, the step also writes `~/Public/deliverables/pots/index.html`, which links and frames the root page of every pot that `doors` names, the Mastermind's first. Each root page lists that pot's files and servers live, so the index holds no copy. The step prints the index's address, and `tailnet-link ~/Public/deliverables/pots/` prints it again.
 
 ## Clean pass
 
