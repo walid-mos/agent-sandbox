@@ -31,7 +31,7 @@ Mastermind delegates through the supported local bot channel:
 pots chat --bot discord-admin --message 'Inspect the server and carry out this administration request: REQUEST'
 ```
 
-The reply is the bot's terminal answer. Mastermind relays the outcome or renders the exact returned approval packet. The bot has no Discord channel and creates no parallel chat transport. Both bots use the existing router group. The original request's French words ask for channels, threads and users. The selected operations and relay design implement the coordinator's accepted interpretation. The North Star drafts provide proposed guidance only.
+The reply is the bot's terminal answer. Mastermind posts it as [the hand-off](#reply-hand-off-and-message-identity) says, or renders the exact returned approval message. The bot has no Discord channel and creates no parallel chat transport. Both bots use the existing router group. The original request's French words ask for channels, threads and users. The selected operations and relay design implement the coordinator's accepted interpretation. The North Star drafts provide proposed guidance only.
 
 The bot uses `node /opt/agent-sandbox/session/discord-admin.mjs actions` for the authoritative action and payload vocabulary. Modes taking JSON read it on stdin:
 
@@ -45,6 +45,22 @@ The bot uses `node /opt/agent-sandbox/session/discord-admin.mjs actions` for the
 Every mutation includes an audit reason. Normal operations require no operator allowlist. Local checks cover selected permission and hierarchy conditions, including non-Administrator channel overwrites. They do not predict every Discord refusal, including equal-position role ordering, ban target hierarchy and implicit permission dependencies. Discord remains the final authority. The `actions` output and implementation are the single source for protected operations and approval rules. This command provides no webhook operations.
 
 Discord archives threads, not ordinary channels or categories. A request to archive an ordinary channel must specify the intended permission change, which uses the channel-edit operation. Thread creation supports text and announcement channels, with announcement threads tied to a parent message. Creating forum posts is outside that endpoint. Inspection lists active threads, not all archived history.
+
+## Reply hand-off and message identity
+
+Discord Admin posts nothing itself. Its answer to Mastermind names each text and where it goes:
+
+```text
+Reply: OUTCOME FOR THE REQUESTER
+Server log: CHANGE. Reason: AUDIT REASON
+```
+
+- `Reply` goes to the thread of the request Mastermind is serving.
+- Each `Server log` line reports one completed change with the audit reason sent to Discord, and goes to the server log channel. An answer that changed nothing has no such line.
+
+Mastermind posts both as text that pings nobody, under its voice identity `discord-admin`. Mastermind's own posting helper holds that identity's webhook, avatar and display name and the server log channel ID. They live in Mastermind's runtime and never in this repository. The voice shows as `Server Admin`, because Discord refuses a webhook name containing "discord". `Discord Admin` stays the Pots bot title.
+
+Approval questions keep the shared application's name and avatar. Registration and click acceptance require the message author to be the application's own bot user, so a voice copy of the canonical message stays unregistered and its clicks claim nothing. `session/discord-admin-approvals.test.mjs` probes that with a webhook-authored copy. Post an `approval_required` message, like every dialog, only through the shared application account as the next section describes, never through the voice helper.
 
 ## Render an irreversible operation question
 

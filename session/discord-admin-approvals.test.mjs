@@ -23,7 +23,7 @@ async function setup(t, input = request('channel.delete', { channelId })) {
   const id = prepared.approval;
   const buttons = [APPROVE, DECLINE].map((label, index) => ({ type: 2, style: index === 0 ? 1 : 2, label, custom_id: `human:${id}:0:${index}` }));
   const registration = { dialog: id, messages: [{ channelId, messageId, components: [{ type: 1, components: buttons }] }] };
-  const display = { id: messageId, channel_id: channelId, author: { id: botId }, content: `Discord Admin approval\n\`\`\`json\n${prepared.question.scope}\n\`\`\`\n${prepared.question.questions[0].prompt}`,
+  const display = { id: messageId, channel_id: channelId, author: { id: botId }, content: `Server administration approval\n\`\`\`json\n${prepared.question.scope}\n\`\`\`\n${prepared.question.questions[0].prompt}`,
     components: [{ type: 1, components: buttons.map(button => ({ ...button, disabled: true })) }], embeds: [], attachments: [] };
   const api = dependencies.api;
   dependencies.api = (method, path, ...arguments_) => method === 'GET' && path === `/channels/${channelId}/messages/${messageId}` ? display : api(method, path, ...arguments_);
@@ -56,6 +56,15 @@ test('registration refuses a non-bot author and changed controls', async t => {
   proof.display.author.id = botId;
   proof.display.components[0].components[0].label = 'Do something else';
   await assert.rejects(proof.approvals.register(proof.registration), /display/);
+  assert.equal(proof.dependencies.mutations.length, 0);
+});
+
+test('a webhook voice copy of the canonical message cannot serve as the approval display', async t => {
+  const proof = await setup(t);
+  const webhookId = '100000000000000030';
+  Object.assign(proof.display, { author: { id: webhookId, bot: true }, webhook_id: webhookId });
+  await assert.rejects(proof.approvals.register(proof.registration), /display/);
+  assert.equal((await proof.click()).status, 'unhandled');
   assert.equal(proof.dependencies.mutations.length, 0);
 });
 

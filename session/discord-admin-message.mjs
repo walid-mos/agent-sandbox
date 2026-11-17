@@ -9,7 +9,7 @@ const displayError = () => new Error('discord-admin: approval display does not m
 
 export function approvalMessage(question, state) {
   const scope = question.scope.replace(/`/g, '\\u0060').replace(/[\u202a-\u202e\u2066-\u2069]/g, character => `\\u${character.charCodeAt(0).toString(16)}`);
-  return { content: `Discord Admin approval\n\`\`\`json\n${scope}\n\`\`\`\n${question.questions[0].prompt}`, allowed_mentions: { parse: [] },
+  return { content: `Server administration approval\n\`\`\`json\n${scope}\n\`\`\`\n${question.questions[0].prompt}`, allowed_mentions: { parse: [] },
     components: [{ type: 1, components: question.questions[0].options.map((option, index) => ({ type: 2, style: index === 0 ? 1 : 2,
       label: option.label, custom_id: `human:${question.dialog}:0:${index}`, disabled: state === 'disabled' })) }] };
 }
