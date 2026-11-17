@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from landing import ENVIRONMENT, FACTORY_LABEL_KEY, FACTORY_LABEL_VALUE, GIT_OPTIONS, LAUNCH, ROOT, Refused, execute, fingerprint, private_directory
+
+STATE = Path(LAUNCH["POTS_FACTORY_STATE"])
+DOCKER_ENVIRONMENT = {**ENVIRONMENT, "DOCKER_CONFIG": str(STATE / "docker")}
+RECORD = STATE / "runtime.json"
+
+
+def docker(*arguments):
+    return execute(["/usr/bin/docker", *arguments], environment=DOCKER_ENVIRONMENT).decode().strip()
+
+
+def inspect(kind, name):
+    result = subprocess.run(["/usr/bin/docker", kind, "inspect", name], env=DOCKER_ENVIRONMENT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    return json.loads(result.stdout)[0] if result.returncode == 0 else {}
+
+
+def labels_of(description):
+    return description.get("Labels") or (description.get("Config") or {}).get("Labels") or {}
+
+
+def require_owned(description):
+    if labels_of(description).get(FACTORY_LABEL_KEY) != FACTORY_LABEL_VALUE:
+        raise Refused("factory: an existing Docker resource is not owned by the isolated factory. Nothing was replaced.")
+
+
+def ensure_network():
+    name = LAUNCH["POTS_FACTORY_NETWORK"]
+    existing = inspect("network", name)
+    if existing:
+        require_owned(existing)
+        return
+    docker("network", "create", "--driver", "bridge", "--label", f"{FACTORY_LABEL_KEY}={FACTORY_LABEL_VALUE}", name)
+
+
+def ensure_volumes():
+    for name in (LAUNCH["POTS_FACTORY_HOME_VOLUME"], LAUNCH["POTS_FACTORY_DOCKER_VOLUME"]):
+        existing = inspect("volume", name)
+        if existing:
+            require_owned(existing)
+        else:
+            docker("volume", "create", "--label", f"{FACTORY_LABEL_KEY}={FACTORY_LABEL_VALUE}", name)
+
+
+# The image carries one revision of the clone: its tools, its session code and its lib, never a worker write.
+def build_image(revision):
+    tag = f"agent-sandbox-isolated-factory:{revision}"
+    if inspect("image", tag):
+        require_owned(inspect("image", tag))
+        return tag
+    with tempfile.TemporaryDirectory(prefix="build-", dir=STATE) as staging:
+        context = Path(staging) / "source"
+        context.mkdir(mode=0o700)
+        archive = execute(["/usr/bin/git", *GIT_OPTIONS, "-C", str(ROOT), "archive", revision])
+        execute(["/usr/bin/tar", "--extract", "--file", "-", "--directory", str(context)], input=archive)
+        versions = dict(line.split("=", 1) for line in (context / "session/runtime-versions.env").read_text().splitlines() if line)
+        docker("build", "--quiet", "--label", f"{FACTORY_LABEL_KEY}={FACTORY_LABEL_VALUE}",
+               "--build-arg", f"BASE_IMAGE=node:{versions['NODE_VERSION'].removeprefix('v')}-bookworm-slim",
+               "--file", str(context / "session/factory-runtime/Dockerfile"), "--tag", tag, str(context))
+    return tag
+
+
+# No session path reaches this container: its own volumes, the configuration read-only, and the three root sockets by their directories.
+def arguments(image):
+    configuration = LAUNCH["POTS_SESSION_CONFIGURATION"]
+    return ["create", "--name", LAUNCH["POTS_FACTORY_CONTAINER"], "--init", "--runtime", LAUNCH["POTS_SESSION_RUNTIME"],
+            "--label", f"{FACTORY_LABEL_KEY}={FACTORY_LABEL_VALUE}", "--network", LAUNCH["POTS_FACTORY_NETWORK"],
+            "--mount", f"type=volume,src={LAUNCH['POTS_FACTORY_HOME_VOLUME']},dst=/config",
+            "--mount", f"type=volume,src={LAUNCH['POTS_FACTORY_DOCKER_VOLUME']},dst=/var/lib/docker",
+            "--mount", f"type=bind,src={configuration},dst={configuration},readonly",
+            "--mount", f"type=bind,src={str(Path(LAUNCH['POTS_VAULT_SOCKET']).parent)},dst={str(Path(LAUNCH['POTS_VAULT_SOCKET']).parent)},readonly",
+            "--mount", f"type=bind,src={str(Path(LAUNCH['POTS_LANDING_SOCKET']).parent)},dst={str(Path(LAUNCH['POTS_LANDING_SOCKET']).parent)},readonly",
+            "--mount", f"type=bind,src={str(Path(LAUNCH['POTS_FACTORY_REPORT_SOCKET']).parent)},dst={str(Path(LAUNCH['POTS_FACTORY_REPORT_SOCKET']).parent)},readonly",
+            "--mount", f"type=bind,src={STATE / 'bootstrap'},dst=/run/pots-factory/bootstrap,readonly", image]
+
+
+def stop_owned(name):
+    existing = inspect("container", name)
+    if not existing:
+        return
+    require_owned(existing)
+    docker("stop", "--time", "30", name)
+    docker("rm", name)
+
+
+def recover():
+    if not RECORD.exists():
+        if inspect("container", LAUNCH["POTS_FACTORY_CONTAINER"]):
+            raise Refused("factory: an unrecorded container already uses the configured name.")
+        return
+    stop_owned(json.loads(RECORD.read_text())["container"])
+    RECORD.unlink()
+
+
+def ready():
+    key_home = Path(LAUNCH["POTS_LANDING_KEY_HOME"])
+    if not key_home.is_dir() or not (STATE / "bootstrap").is_dir():
+        print("factory: waiting for the operator's factory-bootstrap, landing-key and vm-up steps.", flush=True)
+        return False
+    try:
+        identity = fingerprint(key_home)
+    except Refused:
+        print("factory: the operator has not created the factory key yet.", flush=True)
+        return False
+    listing = execute(["/usr/bin/gpg", "--no-options", "--batch", "--with-colons", "--show-keys", LAUNCH["POTS_TRUSTED_SIGNERS"]]).decode()
+    if f"fpr:::::::::{identity}:" not in listing:
+        print("factory: the operator must install the factory public trust with vm-up before publication starts.", flush=True)
+        return False
+    return True
+
+
+def main():
+    if os.geteuid() != 0:
+        raise Refused("factory-runtime runs as VM root.")
+    private_directory(STATE)
+    if not ready():
+        return
+    private_directory(STATE / "docker")
+    recover()
+    revision = execute(["/usr/bin/git", *GIT_OPTIONS, "-C", str(ROOT), "rev-parse", "HEAD"]).decode().strip()
+    image = build_image(revision)
+    ensure_network()
+    ensure_volumes()
+    container = docker(*arguments(image))
+    RECORD.write_text(json.dumps({"container": container, "revision": revision}))
+    signal.signal(signal.SIGTERM, lambda *arguments: sys.exit(0))
+    signal.signal(signal.SIGINT, lambda *arguments: sys.exit(0))
+    try:
+        result = subprocess.run(["/usr/bin/docker", "start", "--attach", container], env=DOCKER_ENVIRONMENT)
+        if result.returncode:
+            raise Refused("factory: the isolated runtime stopped. Inspect its journal before retrying.")
+    finally:
+        stop_owned(container)
+        RECORD.unlink(missing_ok=True)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (Refused, OSError, ValueError) as error:
+        raise SystemExit(str(error)) from None

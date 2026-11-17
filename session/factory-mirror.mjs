@@ -8,7 +8,7 @@ const MIRRORS = join(FACTORY_HOME, 'mirrors');
 
 export const remoteUrl = repository => `https://github.com/${repository}.git`;
 const mirrorPath = repository => join(MIRRORS, `${repository}.git`);
-const inMirror = (repository, arguments_) => command('git', ['-C', mirrorPath(repository), ...arguments_]);
+const inMirror = (repository, arguments_, options) => command('git', ['-C', mirrorPath(repository), ...arguments_], options);
 
 export function refreshMirror(repository) {
   const mirror = mirrorPath(repository);
@@ -26,6 +26,15 @@ export function mergeBase(repository, baseBranch, head) {
 
 export function branchTip(repository, branch) {
   return inMirror(repository, ['rev-parse', '--verify', `refs/heads/${branch}^{commit}`]);
+}
+
+export function publishLanding(repository, release) {
+  refreshMirror(repository);
+  const commit = inMirror(repository, ['hash-object', '-w', '-t', 'commit', '--stdin'], { input: Buffer.from(release.object, 'base64') });
+  if (commit !== release.commit) throw new Error('factory: the signed object does not match the signer receipt. Nothing was pushed.');
+  inMirror(repository, ['push', '--quiet', remoteUrl(repository), `${commit}:refs/heads/main`]);
+  refreshMirror(repository);
+  if (branchTip(repository, 'main') !== commit) throw new Error('factory: signed publication is not the remote main tip. Installation is unconfirmed.');
 }
 
 export function changeText(repository, base, head) {

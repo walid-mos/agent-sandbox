@@ -9,6 +9,7 @@ import { main } from './main.mjs';
 import { ROUTER_MODEL } from './models.mjs';
 import { command } from './run.mjs';
 import { owners, potsBotHome } from './sandbox.mjs';
+import { isIsolatedFactory, ownsSigningFactory } from './factory-authority.mjs';
 
 const VERSIONED = join(dirname(fileURLToPath(import.meta.url)), 'factory');
 const BOT_HOME = potsBotHome(FACTORY_BOT.id);
@@ -45,6 +46,10 @@ function holdCheckIn() {
 }
 
 main(import.meta, () => {
+  if (ownsSigningFactory && !isIsolatedFactory) {
+    process.stdout.write('factory: this factory runs in its own VM-started container. No session routine is installed.\n');
+    return;
+  }
   if (owners.length === 0) {
     process.stdout.write('factory: this pot owns no repositories, so it runs no Factory bot\n');
     return;

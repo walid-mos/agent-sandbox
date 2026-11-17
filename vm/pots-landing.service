@@ -1,0 +1,18 @@
+[Unit]
+Description=Sign exact factory-approved landing commits
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+ExecStart=/usr/bin/python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py run vm/landing-signer
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+# GnuPG writes its options file, its locks and its agent socket in the key home, and the launcher reads /etc read-only.
+ReadWritePaths=/etc/pots-landing /var/lib/pots-landing /run/pots-landing
+
+[Install]
+WantedBy=multi-user.target

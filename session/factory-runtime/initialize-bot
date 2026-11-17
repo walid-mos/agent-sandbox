@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+. /opt/agent-sandbox/session/lib.sh
+if [ ! -d "$HOME/.pots/bots/factory" ]; then
+    pots init --yes --name Factory --model magpie/group/router --judge off --no-chat --no-service
+fi

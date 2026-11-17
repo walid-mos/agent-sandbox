@@ -1,9 +1,11 @@
 import { probe, runChecks } from './factory-checks.mjs';
 import { draftPulls, FACTORY_TOPIC, readyPulls, watchedRepositories } from './factory-github.mjs';
-import { mergeBase, refreshMirror } from './factory-mirror.mjs';
+import { branchTip, mergeBase, refreshMirror } from './factory-mirror.mjs';
 import { logDirectory, pullUrl, readRecord, recordedHeads, writeRecord } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
-import { handToFactory, reportToPrincipal } from './factory-reports.mjs';
+import { flushReports, handToFactory, reportToPrincipal } from './factory-reports.mjs';
+import { isLandingPull, requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
+import { finishPublication } from './factory-publication.mjs';
 
 // GitHub computes mergeability in the background, so a pull request it has not computed yet waits for the next scan.
 const isDecidable = pull => pull.mergeable === 'MERGEABLE' || pull.mergeable === 'CONFLICTING';
@@ -52,11 +54,16 @@ function failedCheckText(pull, failed) {
 }
 
 function check(subject) {
+  requireLandingAuthority(subject.repository);
   const base = mergeBase(subject.repository, subject.base, subject.head);
+  const releaseBase = isLandingPull(subject) ? branchTip(subject.repository, 'main') : undefined;
+  if (releaseBase && releaseBase !== base) {
+    return reportToPrincipal({ ...subject, stage: 'stale-base' }, `PR factory requires a new head of ${pullUrl(subject)} containing current main ${releaseBase} before checking a signed release.`);
+  }
   const checks = runChecks(subject, base, logDirectory(subject));
   const failed = checks.find(result => !result.isPassed);
   if (failed) return reportToPrincipal({ ...subject, stage: 'checks-failed', mergeBase: base, checks }, failedCheckText(subject, failed));
-  return handToFactory({ ...subject, stage: 'checked', mergeBase: base, checks });
+  return handToFactory({ ...subject, stage: 'checked', mergeBase: base, releaseBase, checks });
 }
 
 function reportMissingChecks({ mergeable, ...subject }) {
@@ -79,6 +86,12 @@ function handleLogged(pull, step) {
 }
 
 export function scan() {
+  if (ownsSigningFactory && !isIsolatedFactory) {
+    process.stdout.write('factory: this pot runs its factory outside the worker session, so this scan does nothing.\n');
+    return;
+  }
+  flushReports();
+  for (const record of recordedHeads().filter(record => record.stage === 'signed')) handleLogged(record, finishPublication);
   const repositories = watchedRepositories();
   holdUnwatched(repositories);
   const { checked = [], unchecked = [] } = Object.groupBy(repositories, repository => (hasChecks(repository) ? 'checked' : 'unchecked'));

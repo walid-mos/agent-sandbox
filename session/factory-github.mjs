@@ -3,11 +3,12 @@ import { pullUrl } from './factory-records.mjs';
 import { checkSteps } from './factory-repositories.mjs';
 import { command } from './run.mjs';
 import { owners } from './sandbox.mjs';
+import { requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
 
 export const FACTORY_TOPIC = 'factory';
 const REPOSITORY_LIMIT = '1000';
 const LIST_FIELDS = 'number,headRefOid,headRefName,baseRefName,isDraft,mergeable';
-const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeCommit';
+const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,baseRefOid,isDraft,isCrossRepository,mergeCommit';
 
 const gh = (arguments_, options) => command('gh', arguments_, options);
 const hasFactoryTopic = topicNames => topicNames.includes(FACTORY_TOPIC);
@@ -44,6 +45,8 @@ function requireTopic(repository) {
 }
 
 export function requireActionable(pull) {
+  requireFactoryRuntime();
+  requireLandingAuthority(pull.repository);
   const facts = pullFacts(pull);
   if (facts.state !== 'OPEN' || facts.isDraft || facts.headRefOid !== pull.head) {
     throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);

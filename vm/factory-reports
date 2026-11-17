@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import re
+import socketserver
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from landing import ENVIRONMENT, LAUNCH, Refused, execute, publish_token, require_caller
+
+LIMIT = 16384
+
+
+def report(request):
+    if not isinstance(request, dict) or set(request) != {"id", "text"}:
+        raise Refused("factory-reports: expected a report ID and plain text only.")
+    if not isinstance(request["id"], str) or not re.fullmatch(r"[a-zA-Z0-9_.-]{1,240}", request["id"]):
+        raise Refused("factory-reports: malformed report ID.")
+    if not isinstance(request["text"], str) or not request["text"] or len(request["text"].encode()) > LIMIT // 2:
+        raise Refused("factory-reports: expected bounded report text.")
+    configuration = json.loads((Path(LAUNCH["POTS_SESSION_CONFIGURATION"]) / "sandbox.json").read_text())
+    bot = configuration["bot"].lower()
+    if not re.fullmatch(r"[a-z0-9-]+", bot):
+        raise Refused("factory-reports: invalid configured Principal.")
+    containers = execute(["/usr/bin/docker", "ps", "--filter", f"label={LAUNCH['POTS_SESSION_LABEL']}", "--format", "{{.ID}}"], environment=ENVIRONMENT).decode().split()
+    if len(containers) != 1:
+        raise Refused("factory-reports: expected one running worker session.")
+    execute(["/usr/bin/docker", "exec", "--user", LAUNCH["POTS_SESSION_USER"], "--env", f"HOME={LAUNCH['POTS_SESSION_HOME']}", containers[0], f"{LAUNCH['POTS_SESSION_REPOSITORY']}/session/with-vault", "pots", "wake", "--bot", bot, "--from", "pr-factory", "--id", request["id"], "--note", request["text"]])
+
+
+class Handler(socketserver.StreamRequestHandler):
+    timeout = 30
+
+    def handle(self):
+        try:
+            require_caller(self.rfile, LAUNCH["POTS_FACTORY_REPORT_SOCKET"])
+            line = self.rfile.readline(LIMIT + 1)
+            if len(line) > LIMIT or not line.endswith(b"\n"):
+                raise Refused("factory-reports: send one bounded JSON line.")
+            report(json.loads(line))
+            reply = {"ok": True}
+        except Refused as error:
+            reply = {"ok": False, "error": str(error)}
+        except (ValueError, OSError, KeyError):
+            reply = {"ok": False, "error": "factory-reports: report could not be delivered."}
+        self.wfile.write((json.dumps(reply) + "\n").encode())
+
+
+if __name__ == "__main__":
+    if os.geteuid() != 0:
+        raise SystemExit("factory-reports runs as VM root.")
+    address = Path(LAUNCH["POTS_FACTORY_REPORT_SOCKET"])
+    address.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    address.unlink(missing_ok=True)
+    with socketserver.UnixStreamServer(str(address), Handler) as server:
+        address.chmod(0o666)
+        publish_token(address)
+        server.serve_forever()

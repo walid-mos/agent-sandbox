@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+import fcntl
+import os
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from landing import LAUNCH, Refused, execute, fingerprint, private_directory
+
+
+def main():
+    if os.geteuid() != 0 or sys.argv[1:] not in (["create"], ["export"]):
+        raise Refused("usage: VM root runs landing-key create|export from the operator's Mac.")
+    home = Path(LAUNCH["POTS_LANDING_KEY_HOME"])
+    private_directory(home)
+    with (home / "operator.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if sys.argv[1] == "create":
+            existing = execute(["/usr/bin/gpg", "--no-options", "--batch", "--homedir", str(home), "--with-colons", "--list-secret-keys"])
+            if b"sec:" in existing:
+                raise Refused("landing-key: a key already exists. Export it instead of replacing it.")
+            execute(["/usr/bin/gpg", "--no-options", "--batch", "--homedir", str(home), "--pinentry-mode", "loopback", "--passphrase", "", "--quick-generate-key", "PR factory <factory@agent-sandbox.invalid>", "ed25519", "sign", "0"])
+            print(fingerprint(home))
+            return
+        sys.stdout.buffer.write(execute(["/usr/bin/gpg", "--no-options", "--batch", "--homedir", str(home), "--armor", "--export", fingerprint(home)]))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (Refused, OSError) as error:
+        raise SystemExit(str(error)) from None

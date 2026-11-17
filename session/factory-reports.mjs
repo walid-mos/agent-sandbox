@@ -1,6 +1,9 @@
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pullKey, pullUrl, writeRecord } from './factory-records.mjs';
+import { FACTORY_HOME, pullKey, pullUrl, writeRecord } from './factory-records.mjs';
+import { isIsolatedFactory } from './factory-authority.mjs';
+import { askFactory } from './factory-channel.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 import { botId } from './sandbox.mjs';
 
@@ -33,7 +36,31 @@ export function handToFactory(record) {
   return writeRecord(record);
 }
 
+const OUTBOX = join(FACTORY_HOME, 'report-outbox');
+
+export function flushReports() {
+  if (!isIsolatedFactory || !existsSync(OUTBOX)) return;
+  for (const name of readdirSync(OUTBOX).filter(name => name.endsWith('.json'))) {
+    const file = join(OUTBOX, name);
+    try {
+      askFactory('reports', JSON.parse(readFileSync(file, 'utf8')));
+      unlinkSync(file);
+    } catch {
+      process.stderr.write('factory: a Principal report remains queued in the isolated outbox.\n');
+      return;
+    }
+  }
+}
+
 export function reportToPrincipal(record, text) {
-  command('pots', ['wake', '--bot', botId, '--from', 'pr-factory', '--id', `pr-factory-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`, '--note', text]);
+  const id = `pr-factory-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`;
+  if (isIsolatedFactory) {
+    mkdirSync(OUTBOX, { recursive: true, mode: 0o700 });
+    writeFileSync(join(OUTBOX, `${id}.json`), JSON.stringify({ id, text }) + '\n', { mode: 0o600 });
+    writeRecord(record);
+    flushReports();
+    return record;
+  }
+  command('pots', ['wake', '--bot', botId, '--from', 'pr-factory', '--id', id, '--note', text]);
   return writeRecord(record);
 }

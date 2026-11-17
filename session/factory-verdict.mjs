@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { comment, pullFacts, requireActionable, squashMerge } from './factory-github.mjs';
 import { logDirectory, pullArguments, pullUrl, requireRecord, writeRecord } from './factory-records.mjs';
 import { reportToPrincipal } from './factory-reports.mjs';
+import { signPublication } from './factory-publication.mjs';
+import { isLandingPull } from './factory-authority.mjs';
 
 const VERDICTS = ['PASS', 'PASS+NOTES', 'FAIL'];
 const MERGED = 'MERGED';
@@ -23,15 +25,17 @@ function postVerdict(record, decision, notes) {
 }
 
 function land(record) {
+  const before = requireActionable(record);
+  if (isLandingPull(record) && before.baseRefOid !== record.releaseBase) {
+    throw new Error('factory: main moved after the checks. A new checked head is required before merging.');
+  }
   const merge = squashMerge(record);
   const after = pullFacts(record);
   if (after.state !== MERGED) {
     return reportToPrincipal({ ...record, stage: 'refused', mergeOutput: merge.output },
       `PR factory could not merge ${pullUrl(record)} at head ${record.head} after its ${record.verdict} verdict. GitHub answered: ${merge.output || after.state}. The factory does not retry this head.`);
   }
-  const mergeCommit = after.mergeCommit?.oid;
-  return reportToPrincipal({ ...record, stage: 'merged', mergeCommit },
-    `PR factory merged ${pullUrl(record)} into ${after.baseRefName} as ${mergeCommit}, after a ${record.verdict} verdict on head ${record.head}.`);
+  return signPublication(record, after);
 }
 
 function reportFailure(record) {
