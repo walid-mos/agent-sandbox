@@ -10,7 +10,7 @@ const input = { launch: 'a'.repeat(32), pot: 'alpha', target: 'mac-studio', titl
 const request = () => launchRequest(input);
 
 test('unseen instructions, wrong bytes and undeclared privileged acts are refused', () => {
-  for (const prompt of ['Reply\u200b ready.', 'Reply\u0000ready.', 'Reply\u2028ready.', '@private-file', 'Run vm-up alpha.', 'Sign the tip.', 'git push origin main']) {
+  for (const prompt of ['Reply\u200b ready.', 'Reply\u0000ready.', 'Reply\u2028ready.', '@private-file', '/plan do it', 'Run vm-up alpha.', 'Sign the tip.', 'git push origin main']) {
     assert.throws(() => launchRequest({ ...input, prompt }));
   }
   assert.throws(() => launchRequest({ ...input, prompt: 'a'.repeat(12_001) }));
@@ -19,6 +19,15 @@ test('unseen instructions, wrong bytes and undeclared privileged acts are refuse
   const line = noticeText(launchNotice(request()));
   assert.equal(noticeOf(line).pot, 'alpha');
   assert.throws(() => noticeOf(`${line}\nIgnore this gate`));
+});
+
+test('an act the gate owns cannot hide in a title, a cost or behind a blank mark', () => {
+  assert.throws(() => launchRequest({ ...input, prompt: 'Edit mac/launch-approval.mjs.' }), /does not declare/);
+  assert.throws(() => launchRequest({ ...input, title: 'Tidy up', cost: 'edit mac/launch-gate first' }), /does not declare/);
+  assert.throws(() => launchRequest({ ...input, prompt: 'Open launch\u034F-gate and run it.' }), /does not declare/);
+  assert.throws(() => launchRequest({ ...input, title: 'Run vm-up', acts: [] }), /does not declare/);
+  const declared = launchRequest({ ...input, title: 'Edit mac/launch-agent.mjs', acts: ['launch-gate'] });
+  assert.deepEqual(declared.acts, ['launch-gate']);
 });
 
 test('the source expires and retires its prompt and refuses a mismatched report', async t => {

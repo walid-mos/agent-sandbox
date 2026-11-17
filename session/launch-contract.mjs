@@ -19,7 +19,7 @@ const UNSEEN = /[^\P{C}\n\t]|[\u2028\u2029\u115F\u1160\u3164\uFFA0\u2800]/u;
 
 export const ACTS = {
   'sign-tip': { label: 'sign a commit or a tip that pots then run', marks: /\bvm-trust\b|\bgpg\b|\bcommit\b[^\n]*\s-S\b|\bsign(?:s|ed|ing)?\b[^\n]{0,60}\b(?:tip|main|commit)\b/i },
-  'launch-gate': { label: 'change this gate, its settings, its token or its service', marks: /launch-gate|mac-launch|macLaunch/i },
+  'launch-gate': { label: 'change this gate, its settings, its token or its service', marks: /launch-gate|mac-launch|macLaunch|(?:mac|session)\/launch-/i },
   'vm-up': { label: 'run vm-up or vm-config, which change a pot VM\'s root side', marks: /\bvm-(?:up|config)\b/ },
   'restart-pot': { label: 'restart or stop a pot, its session or its services', marks: /\bsession-bootstrap\b|\bpots-session\b|\bcolima\s+(?:stop|restart|delete)\b|\b(?:restart|reboot|stop)(?:s|ed|ing)?\b[^\n]{0,60}\b(?:pots?|session|gateway|VM)\b/i },
   spend: { label: 'create or resume paid machines or services', marks: /\bboat\s+(?:create|resume|fork)\b|--cloud\b/ },
@@ -35,7 +35,9 @@ const NOTICE_BLOCK = /\n\n```mac-launch\n([^\n]+)\n```$/;
 
 const isAct = act => Object.hasOwn(ACTS, act);
 const promptDigest = prompt => createHash('sha256').update(prompt, 'utf8').digest('hex');
-const namedActs = prompt => Object.keys(ACTS).filter(act => ACTS[act].marks.test(prompt));
+// A combining or ignorable character renders as nothing, so the scan reads the text without them and an act name cannot hide behind one.
+const BLANK = /[\p{Default_Ignorable_Code_Point}\p{Mn}\p{Me}]/gu;
+const namedActs = parts => Object.keys(ACTS).filter(act => ACTS[act].marks.test(parts.join('\n').replace(BLANK, '')));
 const isLine = value => typeof value === 'string' && value.length <= LINE_CHARACTERS && value === value.trim() && !UNSEEN.test(value) && !/[\n\t]/.test(value);
 
 function exactFields(candidate, type, fields) {
@@ -45,7 +47,7 @@ function exactFields(candidate, type, fields) {
 
 function checkPrompt(prompt) {
   if (!text(prompt)) throw new Error('mac-launch: the prompt is empty. Write what the Mac agent must do.');
-  if (prompt.startsWith('@')) throw new Error('mac-launch: Pi expands a leading @ as a file. Start the prompt with a sentence instead.');
+  if (/^[@/]/.test(prompt)) throw new Error('mac-launch: Pi reads a leading @ as a file and a leading / as one of its own commands, so the run would not be the prompt shown. Start the prompt with a sentence.');
   const size = Buffer.byteLength(prompt);
   if (size > PROMPT_BYTES) throw new Error(`mac-launch: the prompt is ${size} bytes and a launch takes ${PROMPT_BYTES}. Shorten it.`);
   const unseen = UNSEEN.exec(prompt);
@@ -54,10 +56,10 @@ function checkPrompt(prompt) {
   throw new Error(`mac-launch: the prompt holds U+${code} at character ${unseen.index}, which a reader cannot see. Remove it.`);
 }
 
-function checkActs(acts, prompt) {
+function checkActs({ acts, title, cost }, prompt) {
   if (!Array.isArray(acts) || !acts.every(isAct) || new Set(acts).size !== acts.length) throw new Error(`mac-launch: acts must be distinct names among ${Object.keys(ACTS).join(', ')}.`);
-  const undeclared = namedActs(prompt).filter(act => !acts.includes(act));
-  if (undeclared.length) throw new Error(`mac-launch: the prompt names ${undeclared.join(', ')} and the request does not declare it. Declare each privileged act the prompt asks for.`);
+  const undeclared = namedActs([title, cost, prompt]).filter(act => !acts.includes(act));
+  if (undeclared.length) throw new Error(`mac-launch: the request names ${undeclared.join(', ')} and does not declare it. Declare each privileged act it asks for.`);
 }
 
 function checkRequest(request, prompt) {
@@ -67,7 +69,7 @@ function checkRequest(request, prompt) {
   if (!Number.isSafeInteger(createdAt) || expiresAt !== createdAt + LAUNCH_TTL_MS) throw new Error('mac-launch: a request lives exactly its fixed time from its creation.');
   checkPrompt(prompt);
   if (!DIGEST.test(digest) || digest !== promptDigest(prompt)) throw new Error('mac-launch: the digest is not the SHA-256 of the prompt bytes.');
-  checkActs(request.acts, prompt);
+  checkActs(request, prompt);
 }
 
 export function launchRequest({ launch, pot, target, title, acts = [], cost = '', createdAt, prompt }) {

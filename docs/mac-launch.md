@@ -54,8 +54,8 @@ The token stays in memory after its Keychain read. Subprocess environments, argu
 | Replay | Reuse an approval | Exclusive `used` marker per launch, 30-second press age, no gateway resume. |
 | Swap after approval | Change the prompt between display and launch | The gate launches its stored bytes, whose digest it recomputes at the press. The pot's copy is read again at the press and can only stop the launch. |
 | Swap before approval | Make the operator see other text than what runs | The prompt is shown as the gate's own attachment on the gate's own message. A press on an edited message, or one whose attachment or text differs from the gate's record, is refused. |
-| Invisible text | Hide an instruction in the prompt | A prompt holding a control, format, private-use or line-separator character is refused, at the pot and again on the Mac. |
-| Undeclared privileged act | Ask for `vm-up` under a harmless title | The gate scans the prompt for each privileged act's markers and refuses a request that names one it does not declare. The declared acts are on the button message. |
+| Invisible text | Hide an instruction, or an act name, from a reader | A prompt holding a control, format, private-use or line-separator character is refused, at the pot and again on the Mac. The act scan removes combining and ignorable characters before matching, so an act name cannot hide behind one. |
+| Undeclared privileged act | Ask for `vm-up` under a harmless title | The gate scans the prompt, the title and the stated cost for each privileged act's markers and refuses a request that names one it does not declare. The declared acts are on the button message. |
 | Stale prompt | Launch a superseded, cancelled or expired prompt | The gate asks the requesting pot for the launch's state at the press and launches only an open, unexpired one with the same digest. A dead offer loses its buttons and its attachment. |
 | Late launch | Fire after the Mac slept | Press age checked against Discord's own timestamp, twice: when the press arrives and just before the Pi starts. |
 | Data from the pot | Break out of a field | The gate parses the pot's answer as JSON under a size cap. Values reach `hc` and `pi` as separate arguments, never through a shell, and reach Discord inside code spans with mentions disabled. |
@@ -176,7 +176,7 @@ node "$launch" announce REQUEST_ID
 
 `request` stores the prompt, sends the notice to Mastermind through the door and prints the launch. `--replaces` supersedes an earlier launch in the same step. `announce` runs on Mastermind only: it posts a received notice in the launch channel and replies to the door request with a posting confirmation. The gate itself calls two more, `show LAUNCH_ID` and `status`.
 
-A prompt must not begin with `@`, which Pi interprets as a file argument. It is at most 12 000 bytes of UTF-8 text with no control, format, private-use or line-separator character but line feed and tab. A title and a cost are one line of at most 100 characters.
+A prompt must not begin with `@` or `/`, which Pi reads as a file argument or as one of its own commands. It is at most 12 000 bytes of UTF-8 text with no control, format, private-use or line-separator character but line feed and tab. A title and a cost are one line of at most 100 characters.
 
 ### Launch notice
 
