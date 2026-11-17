@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { REFUSED_EXIT } from './door-messages.mjs';
 import { REFUSED, UNDELIVERED, UNKNOWN } from './door-requests.mjs';
@@ -17,17 +17,34 @@ const NOT_KEPT = {
 };
 const MAY_BE_KEPT = 'the door gave no clear answer, so the neighbour may hold the message already';
 const REFUSED_BY_SESSION = 'the neighbour\'s session refused the message, kept nothing and would refuse it again';
+const TIMEOUT = `no answer in ${DOOR_SECONDS} s`;
 
 // Nothing a door or a neighbour prints comes back: the exit code alone decides, in words this pot chose.
-export function knock(pot, wire) {
-  const { status, signal, error } = spawnSync('ssh', ['-F', DOOR_CONFIG, '--', `${pot}-host`], {
-    input: wire, timeout: DOOR_SECONDS * 1000, stdio: ['pipe', 'ignore', 'ignore'],
-  });
-  if (status === DELIVERED) return undefined;
-  const ending = error?.code === 'ETIMEDOUT' ? `no answer in ${DOOR_SECONDS} s` : `exit ${status ?? signal ?? error?.code}`;
+function outcome(pot, ending, status) {
   if (status === REFUSED_EXIT) return { state: REFUSED, failure: `door of ${pot}, ${ending}: ${REFUSED_BY_SESSION}` };
   const reason = NOT_KEPT[status];
   return reason
     ? { state: UNDELIVERED, failure: `door of ${pot}, ${ending}: ${reason}` }
     : { state: UNKNOWN, failure: `door of ${pot}, ${ending}: ${MAY_BE_KEPT}` };
+}
+
+const DOOR = pot => ['-F', DOOR_CONFIG, '--', `${pot}-host`];
+
+export function knock(pot, wire) {
+  const { status, signal, error } = spawnSync('ssh', DOOR(pot), { input: wire, timeout: DOOR_SECONDS * 1000, stdio: ['pipe', 'ignore', 'ignore'] });
+  if (status === DELIVERED) return undefined;
+  return outcome(pot, error?.code === 'ETIMEDOUT' ? TIMEOUT : `exit ${status ?? signal ?? error?.code}`, status);
+}
+
+// The service that relays an answer keeps handling clicks meanwhile, so a slow door here must not hold its event loop.
+export function knockAsync(pot, wire) {
+  return new Promise(resolve => {
+    const child = execFile('ssh', DOOR(pot), { timeout: DOOR_SECONDS * 1000, stdio: ['pipe', 'ignore', 'ignore'] }, error => {
+      if (!error) return resolve(undefined);
+      const expired = error.killed === true && `${error.signal}` === 'SIGTERM';
+      resolve(outcome(pot, expired ? TIMEOUT : `exit ${error.code ?? error.signal ?? error.code}`, error.code));
+    });
+    child.stdin.on('error', () => {});
+    child.stdin.end(wire);
+  });
 }

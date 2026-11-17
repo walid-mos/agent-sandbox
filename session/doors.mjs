@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import { DOOR_COMMAND } from './door-command.mjs';
-import { knock } from './door-knock.mjs';
+import { knock, knockAsync } from './door-knock.mjs';
 import { DIALOG, dialogMessage, HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, Refusal, replyMessage, requestMessage } from './door-messages.mjs';
 import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, RESENDABLE, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { receiveMessage } from './door-deliveries.mjs';
@@ -105,6 +105,13 @@ export function transmit(request) {
   const current = find(request.id);
   if (!RESENDABLE.includes(current.state)) return current;
   return knockAndSettle(current, wireOf(current));
+}
+
+export async function transmitAsync(request) {
+  const current = find(request.id);
+  if (!RESENDABLE.includes(current.state)) return current;
+  const outcome = await knockAsync(current.pot, wireOf(current));
+  return underLock(() => settle(request.id, outcome));
 }
 
 function ask(arguments_) {

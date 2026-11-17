@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { acceptDiscordClick, closeDiscordQuestion, registeredPot } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
-import { ANSWERED, RECEIVED } from './door-requests.mjs';
+import { ANSWERED, RECEIVED, REFUSED } from './door-requests.mjs';
 import { DIALOG } from './door-messages.mjs';
 import { storedPacket } from './human-door-packets.mjs';
 import { reconcileRegistrations, registerQuestion, REGISTRATION_EXIT } from './discord-registration.mjs';
@@ -63,13 +63,20 @@ async function completions(onError) {
   for (const request of dialogDoors.all().filter(item => item.kind === DIALOG && item.direction === RECEIVED)) await completeRequest(request, onError);
 }
 
-async function deliverAnswer(record) {
-  const isWaiting = !record.outbox || record.replySent || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS;
+// A refusal is final for this answer, so it is reported once and kept instead of resending the same answer every pass.
+async function deliverAnswer(record, onError) {
+  const isWaiting = !record.outbox || record.replySent || record.answerFailure || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS;
   if (isWaiting) return;
   await store.patch(record.id, { attemptedAt: Date.now() });
   const { request } = record.registration;
-  await dialogDoors.reply(request, JSON.stringify(record.outbox));
-  await store.patch(record.id, { replySent: dialogDoors.find(request).state === ANSWERED });
+  try {
+    await dialogDoors.reply(request, JSON.stringify(record.outbox));
+    await store.patch(record.id, { replySent: dialogDoors.find(request).state === ANSWERED });
+  } catch (error) {
+    if (dialogDoors.find(request)?.state !== REFUSED) throw error;
+    onError(error.message);
+    await store.patch(record.id, { answerFailure: error.message });
+  }
 }
 
 function startDiscordHuman({ onError = () => {} } = {}) {
@@ -107,7 +114,7 @@ function startDiscordHuman({ onError = () => {} } = {}) {
       for (const record of store.all()) {
         try {
           await settle(record);
-          await deliverAnswer(record);
+          await deliverAnswer(record, onError);
         } catch { onError('A Discord update or door delivery remains pending.'); }
       }
     } catch { onError('A Discord update or door delivery remains pending.'); }
@@ -124,7 +131,7 @@ main(import.meta, async () => {
     try { registration = JSON.parse(readFileSync(0, 'utf8')); } catch { throw new Error('discord-human: unreadable registration.'); }
     const result = await registerQuestion(registration, { store, identity: sandbox.humanDiscord });
     process.stdout.write(`${JSON.stringify(result)}\n`);
-    process.exitCode = REGISTRATION_EXIT[result.state];
+    process.exitCode = REGISTRATION_EXIT[result.state] ?? 1;
     return;
   }
   startDiscordHuman({ onError: message => process.stderr.write(`discord-human: ${message}\n`) });

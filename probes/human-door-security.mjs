@@ -37,10 +37,12 @@ async function fixture() {
   let posted;
   let state = 'open';
   let reply;
+  const deliver = request => ({ ...request, state, reply });
   const doors = {
     find: id => id === original.id ? original : posted,
     prepare: ({ need, pot }) => posted ??= { id: 'mastermind.87654321', kind: 'dialog', direction: 'asked', pot, need, state: 'unknown' },
-    transmit: request => ({ ...request, state, reply }),
+    transmit: deliver,
+    transmitAsync: async request => deliver(request),
   };
   return { discord, registration, doors, set: (next, answer) => { state = next; reply = answer; if (posted) Object.assign(posted, { state, reply }); } };
 }

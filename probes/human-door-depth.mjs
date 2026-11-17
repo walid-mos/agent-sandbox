@@ -6,16 +6,12 @@ import { sandboxFixture } from './fixtures/sandbox.mjs';
 const { home } = sandboxFixture('human-door-depth-');
 const sent = [];
 let currentPot = 'nextnode';
-mock.module('../session/door-knock.mjs', { exports: { knock: (pot, wire) => { sent.push({ pot, wire }); } } });
+let nextOutcome;
+const deliver = (pot, wire) => { sent.push({ pot, wire }); return nextOutcome; };
+mock.module('../session/door-knock.mjs', { exports: { knock: deliver, knockAsync: async (pot, wire) => deliver(pot, wire) } });
 mock.module('../session/run.mjs', { exports: {
   command: () => JSON.stringify({ BackendState: 'Running', Self: { DNSName: `${currentPot}.example.ts.net` } }),
-  commandOutput: async (_, arguments_) => {
-    const [, operation, id, , reply] = arguments_;
-    assert.equal(operation, 'reply');
-    save({ ...find(id), state: 'answered', reply });
-    sent.push({ wire: `reply ${id}\n${reply}` });
-    return '';
-  },
+  commandOutput: async () => { throw new Error('Unexpected external call'); },
   commandWithInput: async () => { throw new Error('Unexpected external write'); },
   failureReason: () => '',
 } });
@@ -28,8 +24,9 @@ const { humanStore } = await import('../session/human-store.mjs');
 const { openDialog, answerQuestion, questionPacket } = await import('../session/human-dialogs.mjs');
 const { reconcileHuman } = await import('../session/human-relay.mjs');
 const { registerDiscordQuestion } = await import('../session/discord-clicks.mjs');
+const { dialogDoors } = await import('../session/human-doors.mjs');
 let sequence = 0;
-const clear = () => { all().forEach(request => remove(request.id)); currentPot = 'nextnode'; sandbox.role = undefined; sent.length = 0; };
+const clear = () => { all().forEach(request => remove(request.id)); currentPot = 'nextnode'; sandbox.role = undefined; sent.length = 0; nextOutcome = undefined; };
 function pots() {
   const records = new Map();
   return name => {
@@ -133,4 +130,25 @@ test('saving Discord context cannot publish a registration before owner acknowle
   assert.equal(saved.registration, undefined);
   assert.equal(saved.registrationState, 'saved');
   assert.equal(saved.registered, false);
+});
+
+test('a refused dialog answer is reported and never knocked again for the same request', async () => {
+  clear();
+  const store = localStore();
+  const dialog = await open(store);
+  await reconcileHuman({ store });
+  const questionWire = sent.at(-1).wire;
+  const enter = pots();
+  enter('mastermind');
+  receiveMessage('nextnode', Buffer.from(questionWire));
+  const received = all().find(request => request.kind === 'dialog' && request.direction === 'received');
+  assert.equal(received.state, 'open');
+  nextOutcome = { state: 'refused', failure: "door of nextnode, exit 76: the neighbour's session refused the message" };
+  const pending = dialogDoors.reply(received.id, '{"type":"human.answer"}');
+  assert.equal(typeof pending.then, 'function');
+  await assert.rejects(pending, /refused/);
+  assert.equal(find(received.id).state, 'refused');
+  const knocked = sent.length;
+  await assert.rejects(dialogDoors.reply(received.id, '{"type":"human.answer"}'), /refused/);
+  assert.equal(sent.length, knocked);
 });

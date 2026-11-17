@@ -1,6 +1,6 @@
 import { registerDiscordQuestion } from './discord-clicks.mjs';
 import { DIALOG } from './door-messages.mjs';
-import { ANSWERED, OPEN, RECEIVED, RESENDABLE, UNKNOWN } from './door-requests.mjs';
+import { ANSWERED, OPEN, RECEIVED, REFUSED, RESENDABLE, UNKNOWN } from './door-requests.mjs';
 import { discordMessageUrl, packet } from './human-contract.mjs';
 import { checkHumanReply, humanPacket } from './human-door-packets.mjs';
 import { dialogDoors, DOOR_RETRY_MS } from './human-doors.mjs';
@@ -21,14 +21,16 @@ function postedNeed(record) {
 
 async function settleRegistration(record, store, doors) {
   if (record.registered === true || record.closed) return record;
+  if (!record.savedRegistration) throw new Error('discord-human: this dialog has no saved registration left to post. Register it again from its question.');
   let door = record.postedRequest && doors.find(record.postedRequest);
   if (!door) {
     door = doors.prepare({ pot: record.savedRegistration.pot, need: postedNeed(record), key: `human-posted:${record.id}` });
     await store.patch(record.id, { postedRequest: door.id });
   }
-  if (RESENDABLE.includes(door.state) && Date.now() - (record.postedAttemptedAt ?? 0) < DOOR_RETRY_MS) return record;
+  if (door.state !== ANSWERED && Date.now() - (record.postedAttemptedAt ?? 0) < DOOR_RETRY_MS) return record;
   await store.patch(record.id, { postedAttemptedAt: Date.now() });
-  const delivered = doors.transmit(door);
+  const delivered = await doors.transmitAsync(door);
+  if (delivered.state === REFUSED) throw new Error(`discord-human: the owning pot refused the posted context: ${delivered.failure}`);
   return store.locked(({ get, save }) => {
     const current = get(record.id);
     if (current.closed || current.registered === true) return current;
