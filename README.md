@@ -364,6 +364,8 @@ A thread outside the pots reports to the Mastermind through its Herdr machine, f
 hc exec --on mastermind pots wake --from mac-thread --note "$thread_title: $report"
 ```
 
+The optional [pull request board](docs/pull-request-board.md) collects each pot's own pull requests and factory reports through a separate typed door route. Mastermind renders the board in Discord without a model wake. Publication and rendering stay disabled until their private switches are enabled.
+
 ## Mastermind
 
 The Mastermind is the pot whose `sandbox.json` sets `role` to `mastermind`, as [its example](sandboxes.example/mastermind/sandbox.json) does. It is the person's single point of entry: its bot hands each request through a door to the pot that owns the domain, follows it and reports. It owns no domain. Its `owners` is empty, so the dispatcher refuses every repository and bootstrap creates no Factory bot. Its example lists the router's model credentials and the Discord bot token. The person can still talk to any pot in its own tab.

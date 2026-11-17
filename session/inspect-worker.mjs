@@ -23,9 +23,9 @@ function report(worker, terminal, status, wake, state, facts, isSettled) {
   const isFinished = isSettled && isPublished(facts);
   const result = isFinished ? keepResult(worker, terminal, state) : undefined;
   const note = { worker: worker.name, title, terminal: terminal.address, status, ...facts, cleanPass: passes(worker), pullRequest: worker.pullRequest, result };
-  save({ ...worker, status, result, ...facts });
+  save({ ...worker, title: title || worker.title, status, result, ...facts });
   command('pots', ['wake', '--bot', botId, '--id', wake, '--note', JSON.stringify(note)]);
-  save({ ...worker, status, lastReport: wake, result, ...facts });
+  save({ ...worker, title: title || worker.title, status, lastReport: wake, result, ...facts });
 }
 
 // A launch whose terminal never opened failed to start, which the bot hears about and answers with a send, so only a crash resumes.

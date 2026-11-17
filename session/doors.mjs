@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import { DOOR_COMMAND } from './door-command.mjs';
 import { knock, knockAsync } from './door-knock.mjs';
-import { DIALOG, dialogMessage, HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, Refusal, replyMessage, requestMessage } from './door-messages.mjs';
+import { BOARD, boardMessage, DIALOG, dialogMessage, HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, Refusal, replyMessage, requestMessage } from './door-messages.mjs';
 import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, RESENDABLE, save, SETTLED, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { receiveMessage } from './door-deliveries.mjs';
 import { checkDialogDirection, checkHumanReply, humanPacket } from './human-door-packets.mjs';
@@ -9,6 +9,7 @@ import { main, runOperation } from './main.mjs';
 import { command } from './run.mjs';
 import { sandbox } from './sandbox.mjs';
 import { MASTERMIND_POT } from './human-contract.mjs';
+import { boardPacket, checkBoardReply } from './pr-board-contract.mjs';
 
 const CONNECTED = 'Running';
 const DELIVERED_STATE = { [ASKED]: OPEN, [RECEIVED]: ANSWERED };
@@ -23,7 +24,7 @@ function neighbour(pot) {
 }
 
 // A door takes a request only under the name its key is bound to, which is the name of this pot's tailnet node.
-function ownName() {
+export function ownName() {
   try {
     const status = JSON.parse(command('tailscale', ['status', '--json', '--peers=false']));
     const [name] = `${status.Self?.DNSName ?? ''}`.split('.');
@@ -36,7 +37,7 @@ function ownName() {
 
 // Whatever this pot asks may serve any request it has not answered, so it goes one hop past the deepest of them, --for or not.
 function chainHop() {
-  const open = all().filter(request => request.direction === RECEIVED && request.state === OPEN && request.kind !== DIALOG);
+  const open = all().filter(request => request.direction === RECEIVED && request.state === OPEN && ![DIALOG, BOARD].includes(request.kind));
   const hop = Math.max(-1, ...open.map(request => request.hop)) + 1;
   if (hop <= HOP_LIMIT) return hop;
   const deepest = open.filter(request => request.hop + 1 === hop).map(request => `${request.id} from ${request.pot}`).join(', ');
@@ -87,14 +88,23 @@ export function prepareHumanAsk(options) {
   return prepare(options, DIALOG);
 }
 
-const askWire = request => request.kind === DIALOG ? dialogMessage(request.id, request.need) : requestMessage(request.id, request.hop, request.need);
+export function prepareBoardAsk(options) {
+  if (sandbox.pullRequestBoard?.enabled !== true || options.pot !== MASTERMIND_POT) throw new Refusal('pots: board publisher is disabled or has the wrong destination.');
+  boardPacket(options.need);
+  return prepare(options, BOARD);
+}
+
+const askWire = request => {
+  if (request.kind === BOARD) return boardMessage(request.id, request.need);
+  return request.kind === DIALOG ? dialogMessage(request.id, request.need) : requestMessage(request.id, request.hop, request.need);
+};
 const wireOf = request => request.direction === RECEIVED ? replyMessage(request.id, request.reply) : askWire(request);
 
 function prepare({ pot, need, served, key }, kind) {
   return underLock(() => {
     const existing = key && all().find(request => request.direction === ASKED && request.key === key && request.kind === kind);
     if (existing) return existing;
-    const hop = kind === DIALOG ? undefined : chainHop();
+    const hop = [DIALOG, BOARD].includes(kind) ? undefined : chainHop();
     const target = neighbour(pot);
     const parent = served === undefined ? undefined : servedRequest(served);
     const id = newRequestId(ownName());
@@ -127,6 +137,7 @@ function recordReply(id, text) {
   if (received?.direction !== RECEIVED) throw new Error(`pots: no request ${id} came through this pot's door. ${DOOR_COMMAND} requests lists the ones that did.`);
   const pending = RESENDABLE.includes(received.state) ? ` It has not reached ${received.pot} yet: ${DOOR_COMMAND} resend ${id} sends it again.` : '';
   if (received.state !== OPEN) throw new Error(`pots: ${id} already has its reply, and a request takes one.${pending}`);
+  if (received.kind === BOARD) checkBoardReply(text);
   if (received.kind === DIALOG) checkHumanReply(received, text);
   const replying = { ...received, state: UNKNOWN, reply: text, answeredAt: Date.now() };
   save(replying);
