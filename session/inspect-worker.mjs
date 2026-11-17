@@ -7,7 +7,6 @@ import { keepResult } from './worker-results.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
 const TITLE_LABEL = 'agent.title';
-const resumed = new Set();
 
 function gitFacts(worker) {
   const options = { cwd: worker.worktree };
@@ -30,15 +29,14 @@ function report(worker, terminal, status, wake, state, isSettled) {
 }
 
 // A launch whose terminal never opened failed to start, which the bot hears about and answers with a send, so only a crash resumes.
-// A resume gets a new launch ID, so the guard holds the worker's name: a launch that crashes as it starts is resumed once, not in a loop.
 function recover(worker, state, pending) {
   if (state?.phase === 'closing') {
     if (!worker.isClosed) save({ ...worker, isClosed: true });
     return;
   }
-  if ([!worker.terminal, worker.isClosed, pending.has(worker.name), resumed.has(worker.name)].some(Boolean)) return;
+  if ([!worker.terminal, worker.isClosed, pending.has(worker.name), worker.recoveryAttempted].some(Boolean)) return;
+  save({ ...worker, recoveryAttempted: true });
   enqueue({ worker: worker.name });
-  resumed.add(worker.name);
 }
 
 // Pi records the follow-ups it accepted per launch, and a resume starts a new launch, so the ended launch's are dropped before they are sent again.
@@ -68,7 +66,6 @@ function inspectLive(worker, terminal, state, { now, terminals }) {
 
 function reportCurrent(worker, terminal, state, isSettled) {
   const { status = 'starting', turn = 0 } = terminal;
-  // Every input and turn writes a new generation, so only a settled result's generation names a wake: one per result, not per keystroke.
   const result = isSettled ? state.generation : 'open';
   const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${result}`;
   if (!REPORTABLE.has(status) || worker.lastReport === wake) return;
@@ -77,8 +74,6 @@ function reportCurrent(worker, terminal, state, isSettled) {
 
 function inspectLaunch(worker, view) {
   const state = lifecycleOf(worker);
-  // A launch that settled ran, so a later crash of the worker may be resumed again.
-  if (state?.phase === 'settled') resumed.delete(worker.name);
   const current = recordSession(worker, state);
   const terminal = terminalOf(current, view.terminals);
   if (!terminal || terminal.state === 'finished') {
@@ -86,7 +81,9 @@ function inspectLaunch(worker, view) {
     recover(current, state, view.pending);
     return undefined;
   }
-  return inspectLive(current, terminal, state, view);
+  const observed = state?.phase === 'settled' && current.recoveryAttempted ? { ...current, recoveryAttempted: false } : current;
+  if (observed !== current) save(observed);
+  return inspectLive(observed, terminal, state, view);
 }
 
 export function inspectWorker(worker, view) {
