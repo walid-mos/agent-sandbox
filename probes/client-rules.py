@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from client_rules import RulesRefused, SNAPSHOT_FILE, STATE_FILE, apply_recipe, digest, read_json
 from client_rules_import import approve_rules, import_rules
 from config_bundle import bundle
+from agent_sources import source_catalog
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -134,20 +135,40 @@ class ImportTests(unittest.TestCase):
         with self.assertRaises(RulesRefused):
             bundle(self.host, self.root)
 
-    def test_cli_refuses_public_source_before_import_without_logging_text(self):
+    def cli_import(self, privacy):
         executables = self.root / "bin"
         executables.mkdir()
         gh = executables / "gh"
-        gh.write_text('#!/bin/sh\nprintf "false\\n"\n')
+        gh.write_text(f'#!/bin/sh\nprintf "{privacy}\\n"\n')
         gh.chmod(0o700)
         environment = {"HOME": str(self.root), "PATH": f"{executables}:/usr/bin:/bin", "SANDBOX": "synthetic",
                        "POTS_RUNTIME": str(self.root), "PYTHONDONTWRITEBYTECODE": "1"}
-        result = subprocess.run([sys.executable, str(ROOT / "bin/client-rules"), "import", str(self.original),
+        return subprocess.run([sys.executable, str(ROOT / "bin/client-rules"), "import", str(self.original),
                                  "--source", "accor", "--file", "rules/AGENTS.md", "--recipe", "rules/import.json",
                                  "--recipe-sha256", self.recipe_hash], env=environment, text=True, capture_output=True, check=False)
+
+    def test_cli_refuses_public_source_before_import_without_logging_text(self):
+        result = self.cli_import("false")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("privacy could not be confirmed", result.stderr)
         self.assertNotIn("Keep approval", result.stderr + result.stdout)
+        self.assertEqual(self.original.read_bytes(), ORIGINAL)
+
+    def test_catalog_privacy_does_not_allow_a_different_checkout_origin(self):
+        checkout = self.root / source_catalog()["accor"]["directory"]
+        checkout.mkdir(parents=True)
+        for arguments in [["init", "--quiet"], ["remote", "add", "origin", "https://github.com/example/public-fixture.git"]]:
+            result = subprocess.run(["git", "-C", str(checkout), *arguments], capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0)
+        host = self.root / "sandboxes/synthetic"
+        host.mkdir(parents=True)
+        (host / "sandbox.json").write_text(json.dumps({**self.configuration, "sources": ["accor"]}))
+        (checkout / "rules").mkdir()
+        (checkout / "rules/import.json").write_bytes(self.plan.read_bytes())
+        result = self.cli_import("true")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("checkout origin differs", result.stderr)
+        self.assertFalse((checkout / "rules/AGENTS.md").exists())
         self.assertEqual(self.original.read_bytes(), ORIGINAL)
 
     def test_refuses_symlink_escape_without_touching_original(self):

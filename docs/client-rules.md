@@ -26,7 +26,7 @@ SANDBOX=CLIENT ./bin/client-rules import "$HOME/Development/clients/CLIENT/AGENT
   --recipe-sha256 REVIEWED_RECIPE_SHA256
 ```
 
-Use the source catalog name for `SOURCE`. The target directory must already exist in that private checkout, and the target file must not exist. The command confirms repository privacy through the explicit GitHub API repository path before writing any client text. It accepts only a source selected by this sandbox and a `rules` path directly under `/etc/agent-sandbox`.
+Use the source catalog name for `SOURCE`. The target directory must already exist in that private checkout, and the target file must not exist. The command confirms repository privacy through the explicit GitHub API repository path and checks that the local clone's origin matches that catalog repository before writing any client text. It accepts only a source selected by this sandbox and a `rules` path directly under `/etc/agent-sandbox`.
 
 The command validates the original hash and every replacement before writing. It creates the canonical file in the private source checkout. It writes an approved snapshot and its hash record beside the Mac's `sandbox.json`, then replaces the original Mac file with a symlink to that snapshot. The canonical file is the only editable home. The snapshot and VM file are installations, pinned to the approval record. Editing the source cannot change the old Mac instruction path.
 
@@ -69,7 +69,7 @@ On the Mac, hash the canonical source file and the original instruction path wit
 | --- | --- |
 | Operator invocation, approved local snapshot, existing operator transport, signed root launcher and root configuration directory | Private source files, recipes and unsigned source updates |
 
-The operator's GitHub authentication is used only by the installed `gh` executable for the privacy lookup. No source script, installer, Git command, hook or source configuration runs during import or approval. Source values travel as parsed JSON and UTF-8 bytes. They never become shell code. Output contains hashes and fixed diagnostics, never rule text. The existing operator transport and signed launcher retain responsibility for root execution and credentials. This feature adds no session endpoint or privilege.
+The operator's GitHub authentication is used only by the installed `gh` executable for the privacy lookup. No source script, installer or hook runs during import or approval. The existing source Git adapter reads only local configuration to verify the origin. It disables hooks, filesystem monitors, inherited Git settings and global configuration, and refuses unsupported local keys. Source values travel as parsed JSON and UTF-8 bytes. They never become shell code. Output contains hashes and fixed diagnostics, never rule text. The existing operator transport and signed launcher retain responsibility for root execution and credentials. This feature adds no session endpoint or privilege.
 
 Source files cannot read the operator's environment or process descriptors through this operation because none of their code runs. Regular-file and path checks refuse symlinks. Exclusive creation and private temporary files prevent an existing destination from being followed or overwritten during import. A sandbox-directory lock serializes these commands. An attacker already running as the Mac operator can alter its files and approval record. This path preserves the existing operator boundary and does not claim isolation between processes sharing that account.
 

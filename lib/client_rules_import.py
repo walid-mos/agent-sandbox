@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 
 from agent_sources import source_catalog
+from source_refresh import SAFE_CONFIG, git
 from client_rules import (PRIVATE_FILE, SNAPSHOT_FILE, SNAPSHOT_MODE, STATE_FILE, apply_recipe,
                           approved_state, digest, parse_json, read_json, refuse, regular_file,
                           replace_file, require_hash, rules_target, rules_text, source_file, state_bytes)
@@ -36,9 +37,22 @@ def private_checkout(name):
     if result.returncode or result.stdout.strip() != "true":
         refuse("source privacy could not be confirmed. No client text was written.")
     checkout = Path.home() / source["directory"]
-    if not (checkout / ".git").exists():
-        refuse("selected private source checkout is missing. Provision it first.")
+    if checkout.resolve() != checkout or not (checkout / ".git").is_dir() or (checkout / ".git").is_symlink():
+        refuse("selected private source clone is missing or symlinked. Provision it first.")
+    require_origin(checkout, source["repository"])
     return checkout
+
+
+def require_origin(checkout, repository):
+    try:
+        keys = git(checkout, "config", "--local", "--name-only", "--list").splitlines()
+        origin = git(checkout, "config", "--local", "--get", "remote.origin.url")
+    except RuntimeError:
+        refuse("source origin could not be verified. No client text was written.")
+    if any(not SAFE_CONFIG.fullmatch(key) for key in keys):
+        refuse("source clone has unsupported Git configuration.")
+    if origin.removesuffix(".git") != f"https://github.com/{repository}":
+        refuse("checkout origin differs from the catalog's private repository.")
 
 
 def require_selected(directory, source):
