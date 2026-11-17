@@ -118,6 +118,6 @@ else
 	require_own_guest "$matches"
 fi
 apply_resources
-[ "$(qm status "$vmid")" = 'status: running' ] || qm start "$vmid"
+[ "$(qm status "$vmid")" = 'status: running' ] || qm start "$vmid" 9>&-
 exec 9>&-
 wait_for_boot
