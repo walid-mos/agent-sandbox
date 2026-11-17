@@ -50,9 +50,8 @@ function discordFailure(response, result) {
 }
 
 async function discordResult(response) {
-  const result = await responseBody(response);
-  if (response.ok) return result;
-  throw discordFailure(response, result);
+  if (response.ok) return responseBody(response);
+  throw discordFailure(response, await response.json().catch(() => undefined));
 }
 
 export function discordAdminApi(reference, transport = fetch) {
