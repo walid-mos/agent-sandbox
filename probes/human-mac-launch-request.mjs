@@ -58,13 +58,16 @@ test('a cancellation is only asked until the Mac reports the launch closed', asy
   assert.equal(listed(store, opened.launch).state, 'cancelled');
 });
 
-test('a start the Mac committed first is reported as too late for the cancellation', async t => {
+test('a start the Mac committed first is reported as too late for the cancellation or the expiry', async t => {
   const store = humanStore(ownedFolder(t));
   const settings = { targets: { 'mac-studio': 'Mac Studio' } };
   const cancelled = await openLaunch(input, { settings, store, pot: 'alpha', now });
   await askClosure(cancelled.launch, 'cancelled', store, now);
   assert.equal((await recordStatus(launchStatus({ ...cancelled, status: 'started' }), store)).tooLate, 'cancelled');
   assert.equal(listed(store, cancelled.launch).state, 'started');
+  const expired = await openLaunch(input, { settings, store, pot: 'alpha', now });
+  await expireLaunches(store, async () => {}, now + 1_860_000);
+  assert.equal((await recordStatus(launchStatus({ ...expired, status: 'started' }), store)).tooLate, 'expired');
   const plain = await openLaunch(input, { settings, store, pot: 'alpha', now });
   assert.equal((await recordStatus(launchStatus({ ...plain, status: 'started' }), store)).tooLate, undefined);
 });
@@ -73,11 +76,14 @@ test('an offline Mac does not prevent the pot reporting expiry, with retries', a
   const store = humanStore(ownedFolder(t));
   const opened = await openLaunch(input, { settings: { targets: { 'mac-studio': 'Mac Studio' } }, store, pot: 'alpha', now });
   const deadline = now + 1_800_000;
-  await assert.rejects(expireLaunches(store, async () => { throw new Error('wake unavailable'); }, deadline));
+  const told = [];
+  await expireLaunches(store, async report => told.push(report), deadline + 59_999);
+  assert.deepEqual(told, [], 'the Mac may still report a start it committed at the last moment');
   assert.equal(shownLaunch(opened.launch, store, deadline).state, 'expired');
+  await assert.rejects(expireLaunches(store, async () => { throw new Error('wake unavailable'); }, deadline + 60_000));
   const notices = [];
-  await expireLaunches(store, async request => notices.push(request.launch), deadline);
-  await expireLaunches(store, async request => notices.push(request.launch), deadline);
+  await expireLaunches(store, async request => notices.push(request.launch), deadline + 60_000);
+  await expireLaunches(store, async request => notices.push(request.launch), deadline + 60_000);
   assert.deepEqual(notices, [opened.launch]);
 });
 

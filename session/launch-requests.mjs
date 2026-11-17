@@ -8,6 +8,9 @@ const LAUNCH_ID_BYTES = 16;
 const EXPIRED = 'expired';
 const STARTED = 'started';
 const LIVE = [OPEN, OFFERED];
+// A Mac may claim a launch until its last moment and report the start a little later, so the pot waits this long before it tells its bot the launch expired.
+const EXPIRY_GRACE_MS = 60_000;
+const EXPIRED_UNHEARD = 'No Mac reported a start before this request expired. A Mac refuses a press after the expiry by its own clock. A start it committed just before still reports, and that report stands.';
 
 export const launchStore = () => humanStore(join(HUMAN_HOME, 'launch'));
 
@@ -24,7 +27,7 @@ function known(get, id) {
 }
 
 // A start the Mac committed before it heard this pot's closure stands, and the report names the closure that came too late.
-const overtaken = (status, record) => (status.status === STARTED ? record.asked : undefined);
+const overtaken = (status, record) => (status.status === STARTED ? record.asked ?? (record.state === EXPIRED ? EXPIRED : undefined) : undefined);
 const statusReport = (status, record) => ({ ...status, title: record.request.title, tooLate: overtaken(status, record) });
 // The wake carries an ID, so the same status sent twice, by the gate or by expiry, wakes the bot once.
 export const wakeBot = (report, bot) => command('pots', ['wake', '--bot', bot, '--from', 'mac-launch', '--id', `mac-launch-${report.launch}-${report.status}`, '--note', JSON.stringify(report)]);
@@ -74,11 +77,11 @@ export async function expireLaunches(store, notify, now = Date.now()) {
     const id = record.id;
     const expired = await store.locked(({ get, save }) => {
       const current = get(id);
-      if (stateAt(current, now) !== EXPIRED || current.expiryNotified) return undefined;
+      if (stateAt(current, now - EXPIRY_GRACE_MS) !== EXPIRED || current.expiryNotified) return undefined;
       return save({ ...current, state: EXPIRED });
     }, id);
     if (!expired) continue;
-    await notify(statusReport(launchStatus({ ...expired.request, status: EXPIRED }), expired));
+    await notify(statusReport(launchStatus({ ...expired.request, status: EXPIRED, detail: EXPIRED_UNHEARD }), expired));
     await store.patch(id, { expiryNotified: true });
   }
 }

@@ -43,6 +43,8 @@ The gate asks the pot once more at the press. A closed answer becomes the Mac's 
 
 So a launch is dead from the moment the Mac writes its closure. From then on no press, no notice and no answer from the pot starts it, a pot that shows it open again included. A launch a pot asked to close, and that the Mac has not closed yet, is still live and its button still works. A pot that hides its own cancellation from the Mac gets no confirmation: the operator still decides on the Mac's own message.
 
+Expiry is the one closure each side reaches alone. The Mac refuses a press at or after the request's expiry by its own clock and writes `expired`. A pot that heard nothing tells its bot `expired` one minute after the expiry, with a detail saying that no Mac reported a start. A start the Mac claimed just before, and reports later, still lands with `tooLate` set to `expired`.
+
 ### Credentials
 
 | Credential | Held by | Lifetime | What it opens |
@@ -170,7 +172,7 @@ stateDiagram-v2
 
 Every state but `Offered` is final for the approval. A launch that failed, expired or was refused needs a new request and a new press.
 
-A request lives 30 minutes from its creation in the pot. The enabled pot service wakes its bot on expiry even if the Mac is offline. The MacBook Pro shows an offer only while it is awake. A notice it slept through is read when it reconnects, and offered only if the request is still open.
+A request lives 30 minutes from its creation in the pot. The enabled pot service wakes its bot one minute after the expiry even if the Mac is offline. The MacBook Pro shows an offer only while it is awake. A notice it slept through is read when it reconnects, and offered only if the request is still open.
 
 Buttons are the only entry. The gate has no slash command: a second entry would be a second gate to prove, and the operator can ask any pot for a prompt.
 
@@ -259,7 +261,7 @@ The gate reports to the requesting pot with `hc exec --on POT -i node /opt/agent
 {"type":"mac.launch-status","version":1,"launch":"LAUNCH_ID","target":"mac-studio","digest":"SHA256_OF_PROMPT_BYTES","status":"finished","detail":"","messageUrl":"https://discord.com/channels/GUILD/CHANNEL/OFFER_MESSAGE","report":"FINAL_REPLY"}
 ```
 
-`status` is `offered`, `started`, `finished`, `refused`, `expired`, `superseded`, `cancelled` or `failed`. The pot checks the launch and its digest against its own record, stores the status and wakes its bot with `from` set to `mac-launch` and that packet as the note. When `started` arrives for a launch the pot had asked to close, the note also holds `tooLate` with that closure. A status the pot did not get is sent again until it lands. `report` is the Pi's final reply, cut at 8000 characters.
+`status` is `offered`, `started`, `finished`, `refused`, `expired`, `superseded`, `cancelled` or `failed`. The pot checks the launch and its digest against its own record, stores the status and wakes its bot with `from` set to `mac-launch` and that packet as the note. When `started` arrives for a launch the pot had asked to close, or had already called expired, the note also holds `tooLate` with that closure. A status the pot did not get is sent again until it lands. `report` is the Pi's final reply, cut at 8000 characters.
 
 A report is all that flows back. The gate has no way to send a pot's words into a running Pi: a new instruction is a new request with its own press.
 
