@@ -67,24 +67,6 @@ export function followUp(text) {
   return { id, text: `${prefix}${message}${suffix}` };
 }
 
-function hasOpenGoal(branch) {
-  const goal = branch.findLast(entry => entry.type === 'custom' && entry.customType === 'pi-goal-state-v1');
-  if (!goal) return false;
-  const { blocked, items, paused = [] } = goal.data;
-  return [Boolean(blocked), items.some(item => !item.done), paused.length > 0].some(Boolean);
-}
-
-function isFinalMessage({ message = {} }) {
-  const content = Array.isArray(message.content) ? message.content : [];
-  return [message.role === 'assistant', message.stopReason === 'stop', content.some(part => part.type === 'text' && part.text.trim())].every(Boolean);
-}
-
-export function hasFinalReply(branch) {
-  if (hasOpenGoal(branch)) return false;
-  const entry = branch.findLast(candidate => candidate.type === 'message');
-  return Boolean(entry && isFinalMessage(entry));
-}
-
 function isUncollected(helper, reader) {
   if (isLive(helper)) return true;
   const { labels = {} } = helper;

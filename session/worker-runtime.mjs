@@ -3,10 +3,28 @@ import { rmSync, watch } from 'node:fs';
 import { join } from 'node:path';
 import { allTerminals } from './workers.mjs';
 import { hasQueued } from './queue.mjs';
-import { canFinish, followUp, hasFinalReply, isPublished, LIFECYCLE, publication, readLifecycle, readyAt, receiptPath, resultId, statePath, writeLifecycle } from './worker-lifecycle.mjs';
+import { canFinish, followUp, isPublished, LIFECYCLE, publication, readLifecycle, readyAt, receiptPath, resultId, statePath, writeLifecycle } from './worker-lifecycle.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
 const PROTOCOL_VERSION = 1;
+
+function hasOpenGoal(branch) {
+  const goal = branch.findLast(entry => entry.type === 'custom' && entry.customType === 'pi-goal-state-v1');
+  if (!goal) return false;
+  const { blocked, items, paused = [] } = goal.data;
+  return [Boolean(blocked), items.some(item => !item.done), paused.length > 0].some(Boolean);
+}
+
+function isFinalMessage({ message = {} }) {
+  const content = Array.isArray(message.content) ? message.content : [];
+  return [message.role === 'assistant', message.stopReason === 'stop', content.some(part => part.type === 'text' && part.text.trim())].every(Boolean);
+}
+
+export function hasFinalReply(branch) {
+  if (hasOpenGoal(branch)) return false;
+  const entry = branch.findLast(candidate => candidate.type === 'message');
+  return Boolean(entry && isFinalMessage(entry));
+}
 
 function hasNoPendingWork(pi) {
   return Object.entries(WORK_CONTRACTS).every(([event, fields]) => {
@@ -61,7 +79,7 @@ export class WorkerRuntime {
 
   settle(context) {
     this.invalidate(context);
-    if (hasFinalReply(context.sessionManager.getBranch()) && hasNoPendingWork(this.#pi)) this.#publish(context, 'settled');
+    if (this.#isDone(context)) this.#publish(context, 'settled');
   }
 
   finish(context) {
@@ -89,9 +107,13 @@ export class WorkerRuntime {
     context.shutdown();
   }
 
+  #isDone(context) {
+    return hasFinalReply(context.sessionManager.getBranch()) && hasNoPendingWork(this.#pi);
+  }
+
   #hasFinishedSession(context) {
     return [context.isIdle(), !context.hasPendingMessages(), !context.ui.getEditorText().trim(),
-      context.sessionManager.getLeafId() === this.#state.leaf, hasFinalReply(context.sessionManager.getBranch()), hasNoPendingWork(this.#pi)].every(Boolean);
+      context.sessionManager.getLeafId() === this.#state.leaf, this.#isDone(context)].every(Boolean);
   }
 
   #canClose(context) {

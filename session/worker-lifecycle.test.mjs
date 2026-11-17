@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { canFinish, followUp, hasFinalReply, hasUncollectedHelpers, SETTLED_GRACE_MS, wrappedFollowUp } from './worker-lifecycle.mjs';
+import { canFinish, followUp, hasUncollectedHelpers, SETTLED_GRACE_MS, wrappedFollowUp } from './worker-lifecycle.mjs';
+import { hasFinalReply } from './worker-runtime.mjs';
 import { terminalOf } from './workers.mjs';
 
 const finishedAt = 1000;
