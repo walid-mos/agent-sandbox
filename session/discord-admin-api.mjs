@@ -13,7 +13,8 @@ function privateTokenPath(reference) {
   const path = reference.startsWith('~/') ? join(homedir(), reference.slice(2)) : resolve(reference);
   const secretDirectory = join(homedir(), '.pots/secrets');
   const file = lstatSync(path);
-  const checks = [path.startsWith(`${secretDirectory}${sep}`), realpathSync(path) === path, file.isFile(), file.uid === process.getuid(), (file.mode & 0o077) === 0];
+  const inside = realpathSync(path).startsWith(`${realpathSync(secretDirectory)}${sep}`);
+  const checks = [inside, file.isFile(), file.uid === process.getuid(), (file.mode & 0o077) === 0];
   if (!checks.every(Boolean)) throw new Error();
   return path;
 }
@@ -56,8 +57,10 @@ async function discordResult(response) {
 }
 
 export function discordAdminApi(reference, transport = fetch) {
+  let token;
   return async (method, path, payload, reason) => {
-    const options = requestOptions(method, payload, reason, tokenAt(reference));
+    token ??= tokenAt(reference);
+    const options = requestOptions(method, payload, reason, token);
     let response;
     try { response = await transport(`${ORIGIN}${path}`, options); }
     catch { throw new Error('discord-admin: Discord request failed or timed out. Mutation outcome may be unknown. Inspect before any new attempt.'); }

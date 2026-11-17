@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, mock, test } from 'node:test';
@@ -40,6 +40,19 @@ test('API errors reveal only status and numeric code, with no mutation retry', a
     return true;
   });
   assert.equal(attempts, 1);
+});
+
+test('one adapter run reads its token reference once', async () => {
+  const original = readFileSync(reference, 'utf8');
+  const seen = [];
+  try {
+    const api = discordAdminApi(reference, async (url, options) => { seen.push(options.headers.Authorization); return { ok: true, status: 204 }; });
+    await api('GET', '/users/@me');
+    writeFileSync(reference, `DISCORD_BOT_TOKEN=${randomBytes(24).toString('hex')}\n`, { mode: 0o600 });
+    await api('GET', '/users/@me');
+  } finally { writeFileSync(reference, original, { mode: 0o600 }); }
+  assert.equal(seen.length, 2);
+  assert.equal(seen[1], seen[0]);
 });
 
 test('transport errors do not copy provider exceptions into output', async () => {
