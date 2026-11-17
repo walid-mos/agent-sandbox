@@ -6,6 +6,8 @@ LOCK=/run/pots-session.lock
 LOCK_WAIT_SECONDS=300
 LOCK_BUSY_STATUS=75
 DOCKER_STOP_SECONDS=30
+DOCKER_REMOVE_SECONDS=30
+DOCKER_REMOVE_POLL_SECONDS=1
 NEWLINE='
 '
 
@@ -67,6 +69,19 @@ stop_docker() {
 	[ -z "$1" ] || sandbox_docker stop --time "$DOCKER_STOP_SECONDS" "$1" > /dev/null
 }
 
+wait_for_docker_removal() {
+	remove_deadline=$(($(date +%s) + DOCKER_REMOVE_SECONDS))
+	while :; do
+		remaining=$(sandbox_docker ps --all --filter "name=^/$1$" --format '{{.Names}}') || return $?
+		[ -n "$remaining" ] || return 0
+		if [ "$(date +%s)" -ge "$remove_deadline" ]; then
+			echo "pots-session: container $1 still exists after $DOCKER_REMOVE_SECONDS seconds. Inspect it with 'docker inspect $1', then run 'docker rm $1' in the sandbox VM before retrying." >&2
+			return 1
+		fi
+		sleep "$DOCKER_REMOVE_POLL_SECONDS"
+	done
+}
+
 launch() {
 	"launch_$POTS_LAUNCHER"
 }
@@ -76,6 +91,7 @@ stop() {
 	"stop_$POTS_LAUNCHER" "$stopping" || return $?
 	if [ -n "$stopping" ]; then
 		sandbox_docker wait "$stopping" > /dev/null 2>&1 || true
+		[ "$POTS_LAUNCHER" != docker ] || wait_for_docker_removal "$stopping"
 	fi
 }
 
