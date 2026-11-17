@@ -7,7 +7,8 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from factory_root import FACTORY_SEED, FACTORY_STATE, private_directory
+from factory_root import private_directory
+from factory_state import FACTORY_SEED, FACTORY_STATE
 from factory_socket import Refused
 
 SEED_LIMIT = 16 * 1024 * 1024

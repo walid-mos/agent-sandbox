@@ -9,7 +9,8 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from factory_root import ENVIRONMENT, FACTORY_SEED, FACTORY_STATE, GIT_OPTIONS, execute, fingerprints, gpg, private_directory
+from factory_root import ENVIRONMENT, GIT_OPTIONS, execute, fingerprints, gpg, private_directory
+from factory_state import FACTORY_SEED, FACTORY_STATE
 from factory_socket import Refused
 from landing import created_key
 from launch import LAUNCH, assignments
