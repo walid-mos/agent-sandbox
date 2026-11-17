@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isApplicationRole } from './discord-admin-policy.mjs';
 import { isSnowflake } from './human-contract.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 
@@ -64,7 +65,7 @@ export async function discoverProtection({ api, config, primaryHome, stateDirect
   const names = [...new Set([config.bot.toLowerCase(), ...Object.keys(config.doors ?? {})])];
   const potChannels = Object.fromEntries(names.map(name => [name, potChannelId(name, channels, cache)]));
   const protection = { guildId, channelIds: [...new Set([...Object.values(potChannels), ...routeIds])],
-    threadIds: resourceIds(northStars), botRoleIds: roles.filter(role => role.managed && role.tags?.bot_id === bot.id).map(role => role.id) };
+    threadIds: resourceIds(northStars), botRoleIds: roles.filter(role => isApplicationRole(role, bot.id)).map(role => role.id) };
   if (!protection.botRoleIds.length) throw new Error('discord-admin: application managed role is missing.');
   writePrivateJson(cachePath, { guildId, potChannels });
   return protection;

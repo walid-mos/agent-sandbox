@@ -1,5 +1,5 @@
 import { isThread, operationOf } from './discord-admin-operations.mjs';
-import { guardChannels, guardRoles, requirePermission, requireProtection, requiresApproval } from './discord-admin-policy.mjs';
+import { guardChannels, guardRoles, isApplicationRole, protectedIds, requirePermission, requireProtection, requiresApproval } from './discord-admin-policy.mjs';
 
 async function guildChannel(id, guildId, api) {
   const channel = await api('GET', `/channels/${id}`);
@@ -8,7 +8,7 @@ async function guildChannel(id, guildId, api) {
 }
 
 async function protectedChannels(channels, protection, api) {
-  const ids = [...new Set([...protection.channelIds, ...protection.threadIds])];
+  const ids = [...new Set(protectedIds(protection))];
   const missing = ids.filter(id => !channels.some(channel => channel.id === id));
   const tracked = [...channels, ...await Promise.all(missing.map(id => guildChannel(id, protection.guildId, api)))];
   const parents = tracked.filter(channel => ids.includes(channel.id) && isThread(channel)).map(channel => channel.parent_id);
@@ -30,12 +30,8 @@ async function snapshotOf(request, operation, { api, protection }) {
   return { bot, guild, roles, botMember, channel, parent, threadParent, targetMember, ...owned };
 }
 
-function isApplicationRole(role, bot, protection) {
-  return [role.managed, role.tags?.bot_id === bot.id, protection.botRoleIds.includes(role.id)].every(Boolean);
-}
-
 function requireApplicationRole(request, { guild, roles, bot, protection }) {
-  if (guild.id !== request.guildId || !roles.some(role => isApplicationRole(role, bot, protection))) throw new Error('discord-admin: protection metadata does not identify this application managed role.');
+  if (guild.id !== request.guildId || !roles.some(role => isApplicationRole(role, bot.id) && protection.botRoleIds.includes(role.id))) throw new Error('discord-admin: protection metadata does not identify this application managed role.');
 }
 
 function optionalChannel(id, guildId, api) {

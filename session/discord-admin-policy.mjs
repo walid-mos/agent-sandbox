@@ -4,10 +4,11 @@ const includesId = (ids, id) => ids.includes(id);
 const isRename = payload => Object.keys(payload).length === 1 && typeof payload.name === 'string';
 const rejectProtected = () => { throw new Error('discord-admin: protected pot resource cannot be changed by this operation.'); };
 const validIds = ids => Array.isArray(ids) && ids.every(snowflake);
+export const protectedIds = protection => [...protection.channelIds, ...protection.threadIds];
+export const isApplicationRole = (role, botId) => Boolean(role.managed) && role.tags?.bot_id === botId;
 
 export function requireProtection(protection, guildId) {
-  if (protection?.guildId !== guildId) throw new Error('discord-admin: protection metadata is missing or invalid. Restore owning runtime metadata before administering this guild.');
-  if (!validProtectionLists(protection)) throw new Error('discord-admin: protection metadata is missing or invalid. Restore owning runtime metadata before administering this guild.');
+  if (protection?.guildId !== guildId || !validProtectionLists(protection)) throw new Error('discord-admin: protection metadata is missing or invalid. Restore owning runtime metadata before administering this guild.');
 }
 
 function validProtectionLists(protection) {
@@ -15,7 +16,7 @@ function validProtectionLists(protection) {
 }
 
 function isProtectedChannel(request, { channels, protection, channel }) {
-  const ids = [...protection.channelIds, ...protection.threadIds];
+  const ids = protectedIds(protection);
   const hasProtectedChild = channels.some(item => item.parent_id === request.channelId && includesId(ids, item.id));
   return [includesId(ids, request.channelId), hasProtectedChild, includesId(ids, channel?.parent_id)].some(Boolean);
 }
@@ -29,7 +30,7 @@ function guardProtectedEdit(request, snapshot) {
 function guardDestination(request, snapshot) {
   const parentId = request.payload.parent_id;
   if (!parentId) return;
-  if ([...snapshot.protection.channelIds, ...snapshot.protection.threadIds].includes(parentId)) rejectProtected();
+  if (protectedIds(snapshot.protection).includes(parentId)) rejectProtected();
   if (snapshot.parent.type !== CHANNEL.category) throw new Error('discord-admin: parent_id must name a category in this guild.');
 }
 
