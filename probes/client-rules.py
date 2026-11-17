@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from client_rules import RulesRefused, SNAPSHOT_FILE, STATE_FILE, apply_recipe, digest, read_json
-from client_rules_import import approve_rules, import_rules
+from client_rules_import import acknowledge_rules, approve_rules, import_rules
 from config_bundle import bundle
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,6 +119,7 @@ class ImportTests(unittest.TestCase):
 
     def test_unapproved_source_update_cannot_change_loaded_rules(self):
         self.import_original()
+        acknowledge_rules(self.host, digest(EXPECTED))
         candidate = b"# Synthetic reviewed update\n"
         (self.source / "AGENTS.md").write_bytes(candidate)
         self.assertEqual(self.original.read_bytes(), EXPECTED)

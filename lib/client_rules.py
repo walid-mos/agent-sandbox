@@ -137,7 +137,9 @@ def approved_state(directory):
     if not state_path.exists() and not state_path.is_symlink():
         return None
     state = read_json(regular_file(state_path))
-    object_keys(state, ("source", "file", "sha256", "previousSha256", "original"))
+    object_keys(state, ("source", "file", "sha256", "previousSha256", "original", "isPending"))
+    if not isinstance(state["isPending"], bool):
+        refuse("approval status must be a boolean.")
     snapshot = regular_file(directory / SNAPSHOT_FILE).read_bytes()
     if digest(snapshot) != require_hash(state["sha256"]):
         refuse("approved snapshot hash differs. Run client-rules approve after review.")

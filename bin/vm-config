@@ -6,3 +6,7 @@ set -eu
 # Build before sending because sh has no pipefail to report a refused bundle.
 bundle=$(python3 -B "$POTS_REPO/lib/config_bundle.py" "$POTS_SANDBOX_DIR" "$POTS_RUNTIME")
 printf '%s\n' "$bundle" | run_trusted vm/store-config "$POTS_SESSION_CONFIGURATION"
+rules_hash=$(printf '%s\n' "$bundle" | jq -r '."client-rules".sha256 // empty')
+if [ -n "$rules_hash" ]; then
+	python3 -B "$POTS_REPO/lib/config_bundle.py" acknowledge "$POTS_SANDBOX_DIR" "$rules_hash"
+fi

@@ -80,7 +80,7 @@ def import_rules(directory, checkout_for, source, original, relative, recipe, re
         if target.suffix != ".md" or not target.parent.is_dir():
             refuse("canonical target must be Markdown inside an existing source directory.")
         state = {"source": source, "file": relative, "sha256": digest(after),
-                 "previousSha256": digest(before), "original": str(original)}
+                 "previousSha256": digest(before), "original": str(original), "isPending": True}
         install_import(directory, original, target, before, after, state)
         return state
 
@@ -123,6 +123,8 @@ def approve_rules(directory, checkout_for, expected):
             refuse("no imported rules in this sandbox. Run client-rules import first.")
         state, text = approved
         require_selected(directory, state["source"])
+        if state["isPending"] and expected != state["sha256"]:
+            refuse("current approval has not reached the VM. Retry bin/vm-config before another approval.")
         checkout = checkout_for(state["source"])
         candidate = regular_file(source_file(checkout, state["file"])).read_bytes()
         rules_text(candidate)
@@ -130,7 +132,7 @@ def approve_rules(directory, checkout_for, expected):
             refuse("source hash differs from the explicitly approved hash.")
         if expected == state["sha256"]:
             return state
-        updated = {**state, "previousSha256": state["sha256"], "sha256": expected}
+        updated = {**state, "previousSha256": state["sha256"], "sha256": expected, "isPending": True}
         snapshot = directory / SNAPSHOT_FILE
         replace_file(snapshot, candidate, SNAPSHOT_MODE)
         try:
@@ -139,3 +141,14 @@ def approve_rules(directory, checkout_for, expected):
             replace_file(snapshot, text.encode("utf-8"), SNAPSHOT_MODE)
             raise
         return updated
+
+
+def acknowledge_rules(directory, expected):
+    directory = Path(directory).absolute()
+    with locked(directory):
+        approved = approved_state(directory)
+        if approved is None:
+            refuse("no imported rules to acknowledge.")
+        state, _ = approved
+        if state["sha256"] == require_hash(expected) and state["isPending"]:
+            replace_file(directory / STATE_FILE, state_bytes({**state, "isPending": False}))

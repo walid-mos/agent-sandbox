@@ -14,7 +14,7 @@ flowchart LR
 
 ## First import
 
-Run from the operator's checkout after its reviewed, trusted signed tip is installed. Provision the selected private source first. Its owner prepares a recipe through the normal private pull request workflow. Keep the recipe, the full original, the diff and the imported file private. Public fixtures use invented text.
+Run from the operator's checkout after the reviewed, trusted signed tip is installed on both the Mac and VM. Provision the selected private source first. Its owner prepares a recipe through the normal private pull request workflow. Keep the recipe, the full original, the diff and the imported file private. Public fixtures use invented text.
 
 The recipe is UTF-8 JSON with exactly `inputSha256` and `replacements`. Each replacement has exactly `before` and `after`, both complete lines including their final newline. `inputSha256` identifies the full authoritative original. Anchors must each occur once in the original and must not overlap. They never match text produced by an earlier replacement. Unmatched bytes pass through unchanged, including unseen sections and whitespace. An incomplete unified diff is not a recipe.
 
@@ -40,7 +40,7 @@ Edit the canonical file through its private owner workflow. Review the complete 
 SANDBOX=CLIENT ./bin/client-rules approve --sha256 REVIEWED_RULES_SHA256
 ```
 
-A changed source, including a factory-merged change, leaves loaded rules unchanged until this operation. The approval record identifies the previous and desired hash. `vm-config` sends the approved snapshot, not the current source candidate. The VM refuses an existing rules file whose hash matches neither the expected previous bytes nor the approved bytes. Repeating a successful transfer is safe.
+A changed source, including a factory-merged change, leaves loaded rules unchanged until this operation. The approval record identifies the previous and desired hash. `vm-config` sends the approved snapshot, not the current source candidate. The VM refuses an existing rules file whose hash matches neither the expected previous bytes nor the approved bytes. Repeating a successful transfer is safe. `vm-config` records successful delivery against the exact hash it sent. A pending delivery blocks another approval, and a stale acknowledgement cannot clear a newer approval.
 
 This keeps the operator activation step. Removing that step needs an explicit trust decision. Possible designs are operator-signed rule artifacts verified against the existing trusted keys, or a separate human-controlled approval service and identity. An unsigned source watched by the session is insufficient while workers and the factory share the writer account. A merge or an account name does not prove human approval.
 
@@ -51,7 +51,7 @@ This keeps the operator activation step. Removing that step needs an explicit tr
 | Public source, privacy lookup failure, wrong hash, malformed recipe, missing or repeated anchor, symlink escape, existing import destination | Validation refuses before changing the original or destinations. |
 | Ordinary local write failure during import | Created destination files are removed and the original remains. |
 | Interrupted import | Inspect the private paths before retrying. Existing destinations cause refusal rather than overwrite. |
-| VM transfer failure | Local approval remains stored, and the command reports VM installation pending. Retry `SANDBOX=CLIENT ./bin/vm-config` before approving another hash. |
+| VM transfer or local acknowledgement failure | Local approval remains stored and pending. Another hash is refused. Retry `SANDBOX=CLIENT ./bin/vm-config` to transfer and acknowledge the same approved bytes. |
 | VM file differs from both expected hashes | The bundle is refused before any configuration write. Investigate the writer through the operator route. |
 | Interrupted approval between snapshot and record replacement | The next bundle refuses a hash mismatch. Restore the last reviewed private snapshot and record through the operator route before retrying. |
 
@@ -73,4 +73,4 @@ The operator's GitHub authentication is used only by the installed `gh` executab
 
 Source files cannot read the operator's environment or process descriptors through this operation because none of their code runs. Regular-file and path checks refuse symlinks. Exclusive creation and private temporary files prevent an existing destination from being followed or overwritten during import. A sandbox-directory lock serializes these commands. An attacker already running as the Mac operator can alter its files and approval record. This path preserves the existing operator boundary and does not claim isolation between processes sharing that account.
 
-`probes/client-rules.py`, run by `bin/check`, exercises preservation, bad anchors, conflicting hashes, public-source refusal, unapproved updates, path escapes and installed-file refusal using synthetic content only. It proves data handling locally. It does not prove Mac-to-VM delivery or a live agent reload.
+The client-rules probes run by `bin/check` exercise preservation, bad anchors, conflicting hashes, public-source refusal, unapproved updates, path escapes, installed-file refusal and acknowledgement ordering using synthetic content only. The shell transfer proof uses an invented transport that returns success or failure without reaching a VM. It proves data handling locally. It does not prove Mac-to-VM delivery or a live agent reload.

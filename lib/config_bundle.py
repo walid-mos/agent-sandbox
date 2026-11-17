@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 from client_rules import RulesRefused, approved_rules, read_json
+from client_rules_import import acknowledge_rules
 
 REQUIRED = ("sandbox.json", "vault.json")
 SANDBOX_OPTIONAL = ("git-identity.json",)
@@ -23,11 +24,19 @@ def bundle(directory, runtime):
 
 
 def main():
+    is_acknowledgement = len(sys.argv) > 1 and sys.argv[1] == "acknowledge"
     try:
-        directory, runtime = map(Path, sys.argv[1:])
-        print(json.dumps(bundle(directory, runtime)))
+        if is_acknowledgement:
+            directory, expected = sys.argv[2:]
+            acknowledge_rules(Path(directory), expected)
+        else:
+            directory, runtime = map(Path, sys.argv[1:])
+            print(json.dumps(bundle(directory, runtime)))
     except (RulesRefused, OSError, ValueError, TypeError, KeyError):
-        print("vm-config: invalid configuration or unapproved client rules. Bundle text is withheld. Nothing was sent.", file=sys.stderr)
+        message = ("vm-config: VM transfer completed but its local receipt was not stored. Retry bin/vm-config."
+                   if is_acknowledgement else
+                   "vm-config: invalid configuration or unapproved client rules. Bundle text is withheld. Nothing was sent.")
+        print(message, file=sys.stderr)
         return 1
     return 0
 
