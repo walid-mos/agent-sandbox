@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
-import json
 from pathlib import Path
 import shutil
 import subprocess
