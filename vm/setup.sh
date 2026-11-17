@@ -54,6 +54,13 @@ install_firewall() {
 	systemctl start pots-firewall.service
 }
 
+# The units run this VM's clone in place, so a fast-forward reaches them with no reinstall. Only a changed unit file waits for the next vm-up.
+install_timers() {
+	install -m 0644 "$here/pots-update.service" "$here/pots-update.timer" /etc/systemd/system/
+	systemctl daemon-reload
+	systemctl enable --now pots-update.timer
+}
+
 swap_file_gib() {
 	[ -f "$SWAP_FILE" ] || { echo 0; return; }
 	bytes=$(stat -c %s "$SWAP_FILE")
@@ -94,3 +101,4 @@ install_docker
 install_sysbox
 install_firewall
 configure_swap "$swap_gib"
+install_timers

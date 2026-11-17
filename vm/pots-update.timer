@@ -1,0 +1,9 @@
+[Unit]
+Description=Fast-forward the agent-sandbox clone of this VM every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target
