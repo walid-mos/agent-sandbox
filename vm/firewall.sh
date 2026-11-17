@@ -1,9 +1,11 @@
 #!/bin/sh
 set -eu
 
-EGRESS=eth0
 CONTAINER_LINKS="docker0 br-+"
-PRIVATE_V4="100.64.0.0/10 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16"
+DOOR_CONNECTIONS_PER_SOURCE=2
+TAILNET_V4=100.64.0.0/10
+TAILNET_V6=fd7a:115c:a1e0::/48
+PRIVATE_V4="$TAILNET_V4 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16"
 PRIVATE_V6="fc00::/7 fe80::/10"
 EGRESS_CHAIN=DOCKER-USER
 INPUT_CHAIN=POTS-INPUT
@@ -12,13 +14,25 @@ LAUNCHER_ENV=/etc/pots-firewall/launcher.env
 
 . "$NETWORK_ENV"
 . "$LAUNCHER_ENV"
-[ -e "/sys/class/net/$EGRESS" ] || { echo "pots-firewall: the VM has no interface $EGRESS, so the rules keeping sessions off private ranges would match nothing" >&2; exit 1; }
 
+# Nothing a container sends leaves through a tailnet interface, so no session speaks as the VM's node. Forwarded traffic towards a container goes on to Docker's own chains. Anything else a container sends to a private range is dropped whatever the uplink is named.
 private_egress_rules() {
+	echo "-A $EGRESS_CHAIN -o $TAILNET_LINKS -j DROP"
+	for link in $CONTAINER_LINKS; do
+		echo "-A $EGRESS_CHAIN -o $link -j RETURN"
+	done
 	for range in $1; do
-		echo "-A $EGRESS_CHAIN -o $EGRESS -d $range -j DROP"
+		echo "-A $EGRESS_CHAIN -d $range -j DROP"
 	done
 	echo "-A $EGRESS_CHAIN -j RETURN"
+}
+
+# The door answers only on the tailnet interface and to a few connections per node at once, and a tailnet source address arriving on any other interface than loopback is forged.
+tailnet_input_rules() {
+	echo "-A $INPUT_CHAIN -i lo -j RETURN"
+	echo "-A $INPUT_CHAIN -p tcp --dport $DOOR_PORT ! -i $TAILNET_INTERFACE -j DROP"
+	echo "-A $INPUT_CHAIN -p tcp --dport $DOOR_PORT --syn -m connlimit --connlimit-above $DOOR_CONNECTIONS_PER_SOURCE --connlimit-mask $2 -j REJECT --reject-with tcp-reset"
+	echo "-A $INPUT_CHAIN -s $1 ! -i $TAILNET_INTERFACE -j DROP"
 }
 
 vm_service_rules() {
@@ -38,6 +52,7 @@ rules_v4() {
 		echo "-A $EGRESS_CHAIN -d $SEALSKIN_SUBNET ! -s $SEALSKIN_SERVER_ADDRESS -m conntrack --ctstate NEW -j DROP"
 	fi
 	private_egress_rules "$PRIVATE_V4"
+	tailnet_input_rules "$TAILNET_V4" 32
 	vm_service_rules
 	echo COMMIT
 }
@@ -47,6 +62,7 @@ rules_v6() {
 	echo ":$EGRESS_CHAIN - [0:0]"
 	echo ":$INPUT_CHAIN - [0:0]"
 	private_egress_rules "$PRIVATE_V6"
+	tailnet_input_rules "$TAILNET_V6" 128
 	vm_service_rules
 	echo COMMIT
 }
