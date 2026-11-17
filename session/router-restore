@@ -3,16 +3,8 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lib.sh"
 
-ANSWER_SECONDS=120
 ROUTER_READY_ATTEMPTS=30
 seed=$1
-
-router_answers() {
-	question=$(jq --null-input --compact-output --arg model "$1" '{model:$model,messages:[{role:"user",content:"Reply only OK."}],max_tokens:16,stream:false}')
-	answer=$(curl --silent --fail --max-time "$ANSWER_SECONDS" --header 'Content-Type: application/json' \
-		--data "$question" "$POTS_ROUTER_API/chat/completions") || return 1
-	printf '%s' "$answer" | jq --exit-status --arg model "$1" '.model == $model and ((.choices // []) | length > 0)' > /dev/null
-}
 
 if ! curl --silent --fail --output /dev/null --retry "$ROUTER_READY_ATTEMPTS" --retry-delay 1 --retry-connrefused "$POTS_ROUTER_API/models"; then
 	echo "router-restore: no router answers on $POTS_ROUTER_ADDRESS. Run session-bootstrap." >&2
@@ -23,10 +15,4 @@ rm -f "$seed"
 magpie update auto off > /dev/null
 magpie group auto off > /dev/null
 node "$here/router.mjs" sync
-for model in claude/claude-haiku-5-5 codex/gpt-6.1-sol; do
-	if ! router_answers "$model"; then
-		echo "router-restore: $model gave no verified answer with the vault credentials. Check credential freshness." >&2
-		exit 1
-	fi
-	echo "router-restore: $model answers through the router"
-done
+node "$here/router-answers.mjs" "$POTS_ROUTER_API"

@@ -308,7 +308,9 @@ Bootstrap seeds the router. Seed it alone from the Mac checkout while the Mac's 
 ./bin/router-seed
 ```
 
-The seed remains the source of provider definitions, groups and rules. It copies no key or sign-in. Rerun it when those definitions change on the Mac. [The restore step](session/router-restore) applies the seed, runs the same credential sync as the launcher, and verifies exact Claude and Sol answers.
+The Mac's Magpie groups own the concrete model choices. `router-seed` carries their members, order, efforts and rules to each pot, without keys or sign-ins. Rerun it when those definitions change on the Mac. [The sandbox defaults](session/models.mjs) name groups only. The deliberate direct-provider fallback and advisor choices live in [agent-pi](https://github.com/walid-mos/agent-pi), so they can work while Magpie is down.
+
+[The restore step](session/router-restore) applies the seed, syncs credentials and makes two tiny answer requests for the default groups. To avoid a classifier call for the ping, it follows each default's first-member chain to the first rule-free `order` group whose remaining chain also has no rules. It derives the expected model from the restored configuration and compares it with Magpie's `X-Magpie-Model` response header. A fallback is a failure, even if it answers OK. Success names the default group, the group asked when different, and the serving model. Missing, empty, cyclic or unpredictable chains fail before either request.
 
 Credential production stays outside Magpie. The human stores the Claude setup token in Infisical, and the external Codex publisher stores its access-only publication there. [One table](session/router-credentials.mjs) names each provider, its vault location and its Magpie input. The sync asks the VM's vault broker for the entries of that table the sandbox lists under `secrets` or `onRequest`, the Codex publication included, and the Magpie commands it runs receive no GitHub token and no vault access.
 
