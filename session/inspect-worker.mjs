@@ -12,7 +12,7 @@ function report(worker, terminal, status, wake, state, facts, isSettled) {
   const title = workerTitle(worker, terminal);
   const isFinished = isSettled && isPublished(facts);
   const result = isFinished ? keepResult(worker, terminal, state) : undefined;
-  const note = { worker: worker.name, kind: worker.kind, title, terminal: terminal.address, status, ...facts, cleanPass: passes(worker), pullRequest: worker.pullRequest, result };
+  const note = { worker: worker.name, kind: worker.kind, taskId: worker.taskId, title, terminal: terminal.address, status, ...facts, cleanPass: passes(worker), pullRequest: worker.pullRequest, result };
   save({ ...worker, status, result, ...facts });
   command('pots', ['wake', '--bot', botId, '--id', wake, '--note', JSON.stringify(note)]);
   save({ ...worker, status, lastReport: wake, result, ...facts });
@@ -82,7 +82,20 @@ function inspectLaunch(worker, view) {
   return inspectLive(observed, terminal, state, view);
 }
 
+function inspectAdopted(worker, view) {
+  const terminal = terminalOf(worker, view.terminals);
+  const status = terminal?.status ?? 'attention-needed';
+  const wake = `${worker.name}-${terminal?.turn ?? 0}-${status}-${worker.result?.id ?? 'open'}`;
+  if (worker.lastReport === wake) return;
+  const facts = terminal ? gitFacts(worker) : {};
+  const note = { worker: worker.name, taskId: worker.taskId, terminal: worker.terminal, status, ...facts, result: worker.result };
+  save({ ...worker, status, ...facts });
+  command('pots', ['wake', '--bot', botId, '--id', wake, '--note', JSON.stringify(note)]);
+  save({ ...worker, status, ...facts, lastReport: wake });
+}
+
 export function inspectWorker(worker, view) {
+  if (worker.adoption && worker.owner === botId) return inspectAdopted(worker, view);
   if (worker.owner !== botId || !worker.launchId) return undefined;
   // The watcher's sweep has already removed a stopped worker's ended terminal, so only a live one is ended here.
   if (isStopped(worker)) {

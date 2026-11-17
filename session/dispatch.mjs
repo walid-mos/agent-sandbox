@@ -5,6 +5,8 @@ import { parseArgs } from 'node:util';
 import { accorPublicationPolicy } from './accor-publication-policy.mjs';
 import { repositoryOrigin } from './repository-origin.mjs';
 import { find } from './door-requests.mjs';
+import { acceptedTask, associatedWorker } from './tasks.mjs';
+import { taskLock } from './task-store.mjs';
 import { main, runOperation } from './main.mjs';
 import { MAX_MODEL } from './models.mjs';
 import { enqueue } from './queue.mjs';
@@ -17,7 +19,7 @@ import { clearStop, PUBLICATION, save, terminalName, WORKER_PREFIX, workers, wri
 
 const WORKSPACES = join(homedir(), 'Development');
 const DRAFT_PR = join(homedir(), '.pi/agent/skills/worktree/scripts/draft-pr');
-const START_OPTIONS = { max: { type: 'boolean' }, for: { type: 'string' }, title: { type: 'string' }, subject: { type: 'string' }, local: { type: 'boolean' } };
+const START_OPTIONS = { task: { type: 'string' }, max: { type: 'boolean' }, for: { type: 'string' }, title: { type: 'string' }, subject: { type: 'string' }, local: { type: 'boolean' } };
 const TASK_OPTIONS = { max: START_OPTIONS.max, for: START_OPTIONS.for, title: START_OPTIONS.title, scope: { type: 'string' } };
 // Invisible and line-breaking characters are refused so the commit and title are exactly what the person read and approved.
 const ONE_VISIBLE_LINE = /^(?! )[\p{L}\p{M}\p{N}\p{P}\p{S} ]+(?<! )$/u;
@@ -62,7 +64,16 @@ function ensureNewWorker(name) {
 
 function start(arguments_) {
   const { values, positionals } = parseArgs({ args: arguments_, options: START_OPTIONS, allowPositionals: true });
-  const [repository, branch, briefFile, requestedBase] = positionals;
+  if (values.task) return taskLock(() => startWorker(values, positionals));
+  return startWorker(values, positionals);
+}
+
+function startWorker(values, [repository, branch, briefFile, requestedBase]) {
+  if (values.task) {
+    acceptedTask(values.task);
+    const known = associatedWorker(values.task);
+    if (known) return repeatStart(known, repository, branch, briefFile);
+  }
   validate(repository, branch);
   const publicationPolicy = accorPublicationPolicy(sandbox);
   validateLaunchText(values, publicationPolicy);
@@ -76,9 +87,17 @@ function start(arguments_) {
   if (!publicationPolicy) command('git', ['commit', '--quiet', '--allow-empty', '-m', values.subject], { cwd: worktree });
   const pullRequest = publication ? undefined : command('bash', [DRAFT_PR, worktree, values.title, base], { cwd: worktree });
   const worker = { name, kind: 'repository', owner: botId, repository, branch, worktree, pullRequest, request, base,
-    title: values.title, subject: values.subject, servedRequest: values.for, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }),
+    title: values.title, subject: values.subject, servedRequest: values.for, createdAt: Date.now(), ...(values.task && { taskId: values.task }),
+    ...(values.max && { model: MAX_MODEL }),
     ...(publication && { publication, originUrl }), ...(publicationPolicy && { publicationPolicy }) };
   queueWorker(worker, repositoryBrief(worker));
+}
+
+function repeatStart(worker, repository, branch, briefFile) {
+  if (worker.repository !== repository || worker.branch !== branch || worker.request !== readFileSync(briefFile, 'utf8')) {
+    throw new Error('dispatch: task already has a different worker or brief. Follow up with its existing worker.');
+  }
+  process.stdout.write(`${JSON.stringify({ ...worker, admission: 'memory' })}\n`);
 }
 
 function queueWorker(worker, text) {
@@ -127,6 +146,6 @@ function send([name, messageFile]) {
 const OPERATIONS = { start, task, send, scope: args => process.stdout.write(`${JSON.stringify(workerScope(args))}\n`),
   publish: async args => process.stdout.write(`${await publishWorker(args)}\n`),
   'open-pr': args => process.stdout.write(`${openWorkerPR(args)}\n`), push: args => process.stdout.write(`${pushWorker(args)}\n`), finish: acknowledgeResult };
-const USAGE = 'usage: dispatch start [--local] [--max] [--for REQUEST_ID] --title PR_TITLE [--subject COMMIT_SUBJECT] owner/repo type/branch brief-file [base] | task [--max] [--for REQUEST_ID] --title TITLE --scope SCOPE task-name workdir brief-file result-file | scope worker | publish worker dialog-id affirmative-label | open-pr worker | push worker | send worker message-file | finish worker result-id';
+const USAGE = 'usage: dispatch start [--local] [--max] [--for REQUEST_ID] [--task TASK_ID] --title PR_TITLE [--subject COMMIT_SUBJECT] owner/repo type/branch brief-file [base] | task [--max] [--for REQUEST_ID] --title TITLE --scope SCOPE task-name workdir brief-file result-file | scope worker | publish worker dialog-id affirmative-label | open-pr worker | push worker | send worker message-file | finish worker result-id';
 
 main(import.meta, () => runOperation(OPERATIONS, USAGE));

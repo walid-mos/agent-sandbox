@@ -338,6 +338,8 @@ Both the work center and its workers follow the [push policy](docs/human-dialogs
 
 The bot delegates every new background task through the visible terminal launcher. Repository tasks use `start`, with `--local` when publication must wait. Bounded read, planning and report tasks use `task`, without Git, a worktree or a PR. Read [visible delegated work](docs/worker-delegation.md) before using deferred publication or non-repository tasks. Existing gateway children finish through their existing path. To launch a repository worker by hand, create a brief or a message file inside the session, then run this from the Mac. The dispatcher identifies the repository explicitly when looking up its default branch.
 
+[Pot task handover](docs/task-handover.md) defines explicit Herdr intake, coordinator acknowledgment, existing execution adoption and the shared snapshot/reporting contract. It uses the same worker lifecycle below.
+
 ```sh
 ./bin/sandbox-exec /opt/agent-sandbox/session/with-vault node /opt/agent-sandbox/session/dispatch.mjs start --title 'docs: name the task' --subject 'docs: name the task' NextNodeSolutions/REPOSITORY docs/task-name /config/task.md
 ./bin/sandbox-exec /opt/agent-sandbox/session/with-vault node /opt/agent-sandbox/session/dispatch.mjs send WORKER /config/message.md

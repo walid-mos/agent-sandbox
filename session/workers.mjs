@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { matchesAdoption } from './adopted-execution.mjs';
+import { underFileLock } from './file-lock.mjs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -28,13 +30,29 @@ export function workers() {
   if (!existsSync(WORKERS)) return [];
   return readdirSync(WORKERS).filter(path => path.endsWith('.json'))
     .map(path => JSON.parse(readFileSync(join(WORKERS, path), 'utf8')))
-    .map(withPublication);
+    .map(withPublication)
+    .map(worker => ({ ...worker, taskId: taskOf(worker.name) }));
 }
 
 export const ownedWorker = (name, owner) => workers().find(worker => worker.name === name && worker.owner === owner);
 
+const taskAssociation = name => join(WORKERS, `${name}.task`);
+const taskOf = name => existsSync(taskAssociation(name)) ? readFileSync(taskAssociation(name), 'utf8') : undefined;
+
 export function save(worker) {
-  writePrivateJson(join(WORKERS, `${worker.name}.json`), worker);
+  underFileLock(join(WORKERS, '.lock'), () => {
+    const { taskId, ...record } = worker;
+    const known = taskOf(worker.name);
+    if (known && taskId && known !== taskId) throw new Error('task: worker already belongs to another task.');
+    const path = join(WORKERS, `${worker.name}.json`);
+    const previous = readJson(path);
+    if (previous?.adoption && previous.result) {
+      if (record.result && record.result.id !== previous.result.id) throw new Error('task: adopted result is final. Follow up through its coordinator.');
+      record.result = previous.result;
+    }
+    writePrivateJson(path, record);
+    if (taskId && !known) writeFileSync(taskAssociation(worker.name), taskId, { mode: 0o600, flag: 'wx' });
+  });
 }
 
 export const PUBLICATION = Object.freeze({ local: 'local', awaitingPr: 'awaiting-pr', published: 'published' });
@@ -104,12 +122,13 @@ export function liveTerminals() {
 }
 
 export function ownsTerminal(worker, terminal) {
+  if (worker.adoption) return matchesAdoption(worker, terminal);
   const { labels = {} } = terminal;
   return [Boolean(worker.owner), Boolean(worker.launchId), labels['pots.launch'] === worker.launchId, labels['pots.owner'] === worker.owner].every(Boolean);
 }
 
 export function terminalOf(worker, terminals) {
-  return terminals.filter(terminal => terminal.name === worker.name)
+  return terminals.filter(terminal => worker.adoption || terminal.name === worker.name)
     .filter(terminal => !worker.terminal || terminal.address === worker.terminal)
     .find(terminal => ownsTerminal(worker, terminal));
 }
@@ -151,6 +170,7 @@ export const launchedWorker = environment => Object.fromEntries(Object.entries(L
 const launchEnvironment = worker => Object.entries(LAUNCH_VARIABLES).map(([field, variable]) => `${variable}=${worker[field]}`);
 
 export function launch(worker, conversation) {
+  if (worker.adoption) throw new Error('dispatch: adopted executions never relaunch automatically. Restore the exact original execution explicitly.');
   const launchId = randomUUID();
   if (!worker.owner) throw new Error('dispatch: worker has no recorded Pots owner. Inspect it before relaunching.');
   const { sessionId = randomUUID(), sessionDir = join(WORKERS, 'sessions', worker.name), model = ROUTER_MODEL } = worker;

@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { associateTask, decideTask, resolveTaskDelivery, submitTask } from './tasks.mjs';
+import { taskViews } from './task-view.mjs';
+import { adoptTask, recordAdoptedResult } from './task-adoption.mjs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 import { botModel, runCommand } from './commands.mjs';
@@ -78,7 +81,7 @@ async function snapshot() {
   const [status, children, routines, trace] = await sections;
   return {
     bot: { model: botModel(), activity: activityIn(status) },
-    status, messages: recentMessages(), workers: rows, children, routines, trace,
+    status, messages: recentMessages(), workers: rows, tasks: taskViews(workers(), terminals), children, routines, trace,
   };
 }
 
@@ -180,7 +183,15 @@ function command(request) {
   return runCommand({ name, worker: worker && workerNamed(worker), argument });
 }
 
+const taskOperation = operation => request => JSON.stringify(operation(JSON.parse(request === '-' ? readFileSync(STANDARD_INPUT, 'utf8') : request)));
+
 const OPERATIONS = {
+  'task-submit': { usage: 'json|-', run: taskOperation(submitTask) },
+  'task-adopt': { usage: 'json|-', run: taskOperation(adoptTask) },
+  'task-delivery': { usage: 'json|-', run: taskOperation(resolveTaskDelivery) },
+  'task-result': { usage: 'json|-', run: taskOperation(recordAdoptedResult) },
+  'task-decide': { usage: 'json|-', run: taskOperation(decideTask) },
+  'task-associate': { usage: 'json|-', run: taskOperation(associateTask) },
   snapshot: { usage: '', run: async () => JSON.stringify(await snapshot()) },
   send: { usage: 'json', run: send },
   attach: { usage: 'name <file', run: attach },

@@ -21,6 +21,10 @@ You and your workers run on `magpie/group/router`. The launcher selects it by de
 
 `magpie/group/max` skips the router and gives the whole task to the strongest model. Add `--max` only when the person explicitly asks for it for that task. A worker keeps its starting model when `send` brings it back.
 
+## Herdr tasks
+
+On a `task-intake` or `task-report` wake, read `/opt/agent-sandbox/docs/task-handover.md`. Decide intake explicitly before choosing its worker, preserve its task ID in every report through the existing person/Discord conversation route, and treat author/provenance as claims under the existing approval rules. A delivered wake is not acceptance.
+
 ## Workers
 
 Delegate every new background task through this launcher into a labelled Pi terminal visible in Herdr. Repository workers own a branch and worktree, with a PR after publication. Read-only, planning and report workers have a bounded scope, workdir, brief and result file, with no Git prerequisite. Use `start` for repository work and `task` for other work, never the gateway's `task` children. Existing gateway children finish through their current path and do not become terminals. Read `/opt/agent-sandbox/docs/worker-delegation.md` before starting a non-repository task or deferring publication.

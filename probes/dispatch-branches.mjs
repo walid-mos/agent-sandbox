@@ -27,7 +27,7 @@ function prepare() {
   copyFileSync(join(repository, 'session/dispatch.mjs'), join(session, 'dispatch.mjs'));
   copyFileSync(join(repository, 'docs/human-dialogs.md'), policyGuide);
   writeFileSync(clientRules, clientRuleText);
-  writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "accor-hotels": "UNUSED_PROBE_TOKEN" }, bot: "Probe", rules: process.env.PROBE_CLIENT_RULES, sources: ["pi", "accor"], publicationPolicy: process.env.PROBE_PUBLICATION_POLICY, humanDiscord: { pushApprovalsEnabled: false } }; export const owners = Object.keys(sandbox.owners); export const botId = sandbox.bot.toLowerCase();\n');
+  writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "accor-hotels": "UNUSED_PROBE_TOKEN" }, bot: "Probe", rules: process.env.PROBE_CLIENT_RULES, sources: ["pi", "accor"], publicationPolicy: process.env.PROBE_PUBLICATION_POLICY, humanDiscord: { pushApprovalsEnabled: false } }; export const owners = Object.keys(sandbox.owners); export const botId = sandbox.bot.toLowerCase(); export const botHome = process.env.HOME + "/bot";\n');
   writeFileSync(join(fixture, 'copy-imports.mjs'), `
 import { appendFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';

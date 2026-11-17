@@ -3,6 +3,8 @@ import { mkdirSync, watch } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { stopIdleStacks } from './idle-stacks.mjs';
 import { inspectWorker } from './inspect-worker.mjs';
+import { reportTasks } from './task-view.mjs';
+import { TASKS } from './task-store.mjs';
 import { main } from './main.mjs';
 import { isRequest, QUEUE, queued } from './queue.mjs';
 import { serveQueue } from './serve-queue.mjs';
@@ -25,7 +27,7 @@ function writeFailure(subject, error) {
 // A worker's terminal that ended on its own, as in a crash, keeps its screen beside the record and leaves hc's list.
 function sweep(terminals, records, logged) {
   terminals.filter(terminal => !isLive(terminal) && records.has(terminal.name) &&
-    records.get(terminal.name).owner === botId && terminalOf(records.get(terminal.name), [terminal]))
+    !records.get(terminal.name).adoption && records.get(terminal.name).owner === botId && terminalOf(records.get(terminal.name), [terminal]))
     .forEach(terminal => logged(terminal.name, () => closeTerminal(records.get(terminal.name), terminal)));
 }
 
@@ -59,6 +61,7 @@ export function createWatcher({ readText, now, logFailure = writeFailure } = {})
       // Inspection can end terminals, so the queue is served from a fresh list.
       const live = liveTerminals();
       const retryAfter = serveQueue(live, logFailure, admission);
+      logged('task reports', () => reportTasks(live));
       const admissionDue = retryAfter === undefined ? undefined : Date.now() + retryAfter;
       const idleStackDue = logged('idle stacks', () => stopIdleStacks(records.filter(worker => worker.kind !== 'task').map(worker => worker.worktree), live, logFailure));
       lookAgainAt([...times, idleStackDue, admissionDue]);
@@ -111,6 +114,8 @@ function followQueue() {
 
 main(import.meta, () => {
   followQueue();
+  mkdirSync(TASKS, { recursive: true, mode: 0o700 });
+  watch(TASKS, passSoon);
   mkdirSync(LIFECYCLE, { recursive: true });
   watch(LIFECYCLE, passSoon);
   watch(WORKERS, (_event, file) => {
