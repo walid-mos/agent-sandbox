@@ -84,7 +84,11 @@ export async function answerBotQuestion(message, text, replyId, store = humanSto
   if (dialog?.kind !== 'question') throw new Error('pots: that message has no question. Refresh the conversation.');
   const answered = await answerQuestion(dialog.id, { answers: botAnswers(dialog, text) }, { store, messageId: replyId });
   await deliverBotResult(dialog.id, store);
-  return botResultMessageId(answered);
+  if (answered.result.messageId === replyId) return botResultMessageId(answered);
+  return store.locked(() => {
+    if (!conversation().some(record => record.id === replyId)) say({ id: replyId, text });
+    return replyId;
+  }, dialog.id);
 }
 
 /** Stores the secrets a bot message asks for, and resolves to the text the bot receives. */
