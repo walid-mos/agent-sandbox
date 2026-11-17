@@ -28,13 +28,12 @@ export function branchTip(repository, branch) {
   return inMirror(repository, ['rev-parse', '--verify', `refs/heads/${branch}^{commit}`]);
 }
 
-export function publishLanding(repository, release) {
-  refreshMirror(repository);
-  const commit = inMirror(repository, ['hash-object', '-w', '-t', 'commit', '--stdin'], { input: Buffer.from(release.object, 'base64') });
-  if (commit !== release.commit) throw new Error('factory: the signed object does not match the signer receipt. Nothing was pushed.');
-  inMirror(repository, ['push', '--quiet', remoteUrl(repository), `${commit}:refs/heads/main`]);
-  refreshMirror(repository);
-  if (branchTip(repository, 'main') !== commit) throw new Error('factory: signed publication is not the remote main tip. Installation is unconfirmed.');
+export function writeCommit(repository, object) {
+  return inMirror(repository, ['hash-object', '-w', '-t', 'commit', '--stdin'], { input: object });
+}
+
+export function pushCommit(repository, commit, branch) {
+  inMirror(repository, ['push', '--quiet', remoteUrl(repository), `${commit}:refs/heads/${branch}`]);
 }
 
 export function changeText(repository, base, head) {
