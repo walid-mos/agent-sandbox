@@ -13,6 +13,7 @@ SOCKETS="/run/tailscale/tailscaled.sock /var/run/tailscale/tailscaled.sock"
 NONCE=probe0000000000
 RATE_PROBE_KNOCKS=64
 RATE_REFUSAL=75
+SESSION_REFUSAL=76
 SSH_REFUSAL=255
 failures=0
 
@@ -65,6 +66,12 @@ probe" && return 0
 	return 1
 }
 
+# Exit 76 comes only from the peer's session, which refuses a reply to an ID it never asked before keeping or waking anything: the door still delivers once the refusal budget is spent.
+door_still_delivers() {
+	knock "$SESSION_REFUSAL" "$peer_host" <<< "reply ${peer_host%-host}.$NONCE
+probe"
+}
+
 doors_outside_known_hosts() {
 	"$tailscale" status --json | jq -r --arg own "$own_pot-host" '.Peer[]? | .DNSName | split(".")[0] | select(endswith("-host") and . != $own)' |
 		grep -vxF -f <(awk '{ print $1 }' "$door_known_hosts") || true
@@ -92,6 +99,7 @@ probe"
 	expect succeed door-refuses-an-oversize-message knock 65 "$peer_host" < <(printf '%s\n' "$request"; head -c 20000 /dev/zero | tr '\0' a)
 	expect fail door-forwards-to-the-peer-sshd knock 0 -W 127.0.0.1:22 "$peer_host" < /dev/null
 	expect succeed door-limits-the-rate door_limits_the_rate
+	expect succeed door-still-delivers-after-the-rate-limit door_still_delivers
 	expect succeed doors-outside-doors-refuse-the-key every_other_door_refuses_the_key
 }
 
