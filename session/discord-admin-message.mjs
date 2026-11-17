@@ -3,6 +3,7 @@ const canonical = value => {
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
   return value;
 };
+export const DISCORD_MESSAGE_LIMIT = 2000;
 export const canonicalJson = value => JSON.stringify(canonical(value));
 const displayError = () => new Error('discord-admin: approval display does not match the complete canonical scope, bot author and controls.');
 
