@@ -1,6 +1,4 @@
 # Inside the sandbox VM itself, as in the forced command of vm/session-keys, the VM's shell and Docker are reached directly.
-POTS_VM_REPO=$POTS_REPO
-POTS_VM_ENTRY_ENVIRONMENT=POTS_TRANSPORT=local
 
 sandbox_vm() {
 	"$@"
@@ -21,10 +19,6 @@ refuse_inside_vm() {
 
 vm_start() {
 	refuse_inside_vm vm-up
-}
-
-vm_scripts() {
-	echo "$POTS_VM_REPO/vm"
 }
 
 vm_forbidden_endpoints() {

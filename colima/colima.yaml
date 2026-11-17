@@ -43,11 +43,8 @@ cpuType: ""
 provision: null
 sshConfig: false
 sshPort: 0
-mounts:
-  - location: DEVELOPMENT_DIRECTORY
-    writable: false
-  - location: SANDBOX_DIRECTORY
-    writable: false
+# Colima mounts the Mac home, writable, for an empty list. Only a null list mounts nothing.
+mounts: null
 diskImage: ""
 forceDiskImage: false
 rootDisk: 20

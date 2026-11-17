@@ -2,9 +2,19 @@
 set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
 
+# The VM's first clone follows the branch of this checkout. An existing clone keeps the branch it is on.
+clone_source() {
+	if sandbox_vm test -d "$POTS_SESSION_REPOSITORY/.git"; then
+		sandbox_vm sudo "$POTS_SESSION_REPOSITORY/vm/update"
+		return
+	fi
+	branch=$(git -C "$POTS_REPO" symbolic-ref --quiet --short HEAD) || { echo "vm-up: this checkout is on no branch, so the VM's clone has none to follow. Check out a branch that origin holds." >&2; exit 1; }
+	sandbox_vm sudo python3 -I - "$POTS_SOURCE_URL" "$POTS_SESSION_REPOSITORY" --branch "$branch" < "$POTS_REPO/lib/source_refresh.py"
+}
+
 swap_gib=$(vm_setting swapGiB)
 vm_start
-scripts=$(vm_scripts)
-sandbox_vm sudo "$scripts/setup.sh" "$swap_gib" "$POTS_LAUNCHER"
-# Left unquoted: the provider's VARIABLE=VALUE words, none on Colima.
-sandbox_vm "$scripts/session-keys" "$SANDBOX" "$POTS_VM_REPO/bin/sandbox-exec" $POTS_VM_ENTRY_ENVIRONMENT < "$HOME/.ssh/authorized_keys"
+clone_source
+"$POTS_REPO/bin/vm-config"
+sandbox_vm sudo "$POTS_SESSION_REPOSITORY/vm/setup.sh" "$swap_gib" "$POTS_LAUNCHER"
+sandbox_vm "$POTS_SESSION_REPOSITORY/vm/session-keys" "$SANDBOX" "$POTS_SESSION_REPOSITORY/bin/sandbox-exec" POTS_TRANSPORT=local < "$HOME/.ssh/authorized_keys"

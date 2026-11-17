@@ -1,23 +1,26 @@
 POTS_REPO=$(cd "$(dirname "$0")/.." && pwd)
 export POTS_REPO
-POTS_RUNTIME=${POTS_RUNTIME:-$HOME/.config/agent-sandbox}
-export POTS_RUNTIME
-POTS_SANDBOX_ROOT="$POTS_RUNTIME/sandboxes"
 MAC_ROUTER_PORT=3425
 . "$POTS_REPO/session/launch.env"
-# POTS_TRANSPORT=local marks a command running inside the sandbox VM, which holds its one configuration at the session's path.
+# POTS_TRANSPORT=local marks a command running inside the sandbox VM, which holds its one sandbox's configuration at the session's path, so it needs neither SANDBOX nor HOME, which a systemd unit lacks.
 case "${POTS_TRANSPORT:=provider}" in
-	provider) POTS_SANDBOX_DIR="$POTS_SANDBOX_ROOT/${SANDBOX:-}" ;;
+	provider)
+		POTS_RUNTIME=${POTS_RUNTIME:-$HOME/.config/agent-sandbox}
+		export POTS_RUNTIME
+		POTS_SANDBOX_ROOT="$POTS_RUNTIME/sandboxes"
+		POTS_SANDBOX_DIR="$POTS_SANDBOX_ROOT/${SANDBOX:-}"
+		;;
 	local) POTS_SANDBOX_DIR=$POTS_SESSION_CONFIGURATION ;;
 	*) echo "$(basename "$0"): POTS_TRANSPORT must be local or unset, got '$POTS_TRANSPORT'" >&2; exit 2 ;;
 esac
+export POTS_TRANSPORT
 POTS_CONFIG="$POTS_SANDBOX_DIR/sandbox.json"
-if [ -z "${SANDBOX:-}" ] || [ ! -f "$POTS_CONFIG" ]; then
-	if [ "$POTS_TRANSPORT" = local ]; then
-		echo "$(basename "$0"): set SANDBOX and install the sandbox's configuration at $POTS_SANDBOX_DIR" >&2
-	else
-		echo "$(basename "$0"): set SANDBOX to one of: $(ls "$POTS_SANDBOX_ROOT" | tr '\n' ' ')" >&2
-	fi
+if [ "$POTS_TRANSPORT" = local ] && [ ! -f "$POTS_CONFIG" ]; then
+	echo "$(basename "$0"): $POTS_CONFIG is missing. Run bin/vm-up for this sandbox from the operator's checkout." >&2
+	exit 2
+fi
+if [ "$POTS_TRANSPORT" = provider ] && { [ -z "${SANDBOX:-}" ] || [ ! -f "$POTS_CONFIG" ]; }; then
+	echo "$(basename "$0"): set SANDBOX to one of: $(ls "$POTS_SANDBOX_ROOT" | tr '\n' ' ')" >&2
 	exit 2
 fi
 
@@ -47,7 +50,7 @@ POTS_SESSION_USER=abc
 POTS_SESSION_HOME=/config
 
 require_sealskin() {
-	[ "$POTS_LAUNCHER" = sealskin ] || { echo "$(basename "$0"): sandbox $SANDBOX uses the docker launcher, which has no SealSkin server" >&2; exit 2; }
+	[ "$POTS_LAUNCHER" = sealskin ] || { echo "$(basename "$0"): sandbox ${SANDBOX:-of this VM} uses the docker launcher, which has no SealSkin server" >&2; exit 2; }
 	[ -n "$POTS_SERVER_PORT" ] || { echo "$(basename "$0"): serverPort is missing in $POTS_CONFIG" >&2; exit 2; }
 }
 
@@ -59,7 +62,7 @@ vm_setting() {
 	echo "$value"
 }
 
-# A provider defines POTS_VM_REPO, POTS_VM_ENTRY_ENVIRONMENT, sandbox_vm, sandbox_docker, vm_is_running, vm_start, vm_scripts and vm_forbidden_endpoints for its kind of VM.
+# A provider defines sandbox_vm, sandbox_docker, vm_is_running, vm_start and vm_forbidden_endpoints for its kind of VM.
 if [ "$POTS_TRANSPORT" = local ]; then
 	. "$POTS_REPO/lib/providers/local.sh"
 else

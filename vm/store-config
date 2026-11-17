@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+import json
+from pathlib import Path
+import sys
+
+REQUIRED = ("sandbox.json", "vault.json")
+OPTIONAL = ("git-identity.json",)
+SESSION_READABLE_DIRECTORY = 0o755
+SESSION_READABLE_FILE = 0o644
+
+
+def refuse(reason):
+    raise SystemExit(f"store-config: {reason} Nothing was changed.")
+
+
+def read_bundle(stream):
+    try:
+        bundle = json.load(stream)
+    except ValueError as error:
+        refuse(f"standard input is not JSON ({error}).")
+    if not isinstance(bundle, dict) or not all(isinstance(content, dict) for content in bundle.values()):
+        refuse("expected one JSON object per file name.")
+    missing = [name for name in REQUIRED if name not in bundle]
+    unknown = [name for name in bundle if name not in REQUIRED + OPTIONAL]
+    if missing or unknown:
+        refuse(f"expected {', '.join(REQUIRED)} and optionally {', '.join(OPTIONAL)}, got missing {missing} and unknown {unknown}.")
+    return bundle
+
+
+# A session command can read a file while it changes, so each file is replaced whole.
+def replace(target, content):
+    pending = target.with_name(f".{target.name}.next")
+    pending.write_text(json.dumps(content, indent=2) + "\n")
+    pending.chmod(SESSION_READABLE_FILE)
+    pending.replace(target)
+
+
+def main():
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: store-config DIRECTORY < bundle.json")
+    directory = Path(sys.argv[1])
+    bundle = read_bundle(sys.stdin)
+    directory.mkdir(parents=True, exist_ok=True)
+    directory.chmod(SESSION_READABLE_DIRECTORY)
+    for name, content in bundle.items():
+        replace(directory / name, content)
+    for name in OPTIONAL:
+        if name not in bundle:
+            (directory / name).unlink(missing_ok=True)
+
+
+main()

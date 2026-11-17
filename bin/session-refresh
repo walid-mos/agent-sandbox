@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
-exec "$POTS_REPO/bin/sandbox-exec" "$POTS_VM_REPO/session/provision-agents"
+exec "$POTS_REPO/bin/sandbox-exec" "$POTS_SESSION_REPOSITORY/session/provision-agents"

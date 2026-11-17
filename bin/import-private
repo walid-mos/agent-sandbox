@@ -58,10 +58,6 @@ def host_values(source):
     alias = re.search(r'"BatchMode=yes", "([^"]+)"', connector)
     if remote and alias:
         host.update(remoteSandboxRepository=remote.group(1), connectHost=alias.group(1))
-    colima = source / "colima/colima.yaml"
-    location = re.search(r"location:\s*(/[^\n]+)", colima.read_text()) if colima.is_file() else None
-    if location:
-        host["developmentDirectory"] = location.group(1).strip().strip('"')
     for field, name in (("macHost", "MAC"), ("peerHost", "PEER")):
         value = literal(source / "bin/probe-boundary", name)
         if value and not value.startswith("$("):
