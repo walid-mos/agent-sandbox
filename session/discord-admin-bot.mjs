@@ -1,13 +1,13 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DISCORD_ADMIN } from './discord-admin-runtime.mjs';
 import { linkFolder } from './link.mjs';
 import { main } from './main.mjs';
 import { ROUTER_MODEL } from './models.mjs';
-import { isMastermind, potsBotHome } from './sandbox.mjs';
+import { ensureRouterBot } from './router-bot.mjs';
+import { isMastermind } from './sandbox.mjs';
 
+export const DISCORD_ADMIN = { id: 'discord-admin', name: 'Discord Admin' };
 const VERSIONED = join(dirname(fileURLToPath(import.meta.url)), 'discord-admin');
 
 function requireBotDefinition(definition) {
@@ -20,9 +20,7 @@ main(import.meta, () => {
     process.stdout.write('discord-admin: this pot is not Mastermind, so it runs no Discord Admin bot.\n');
     return;
   }
-  const home = potsBotHome(DISCORD_ADMIN.id);
-  if (!existsSync(home)) execFileSync('pots', ['bot', 'new', DISCORD_ADMIN.name, '--id', DISCORD_ADMIN.id, '--model', ROUTER_MODEL, '--judge', 'off',
-    '--about', 'Administers Discord through Mastermind with protected, audited REST operations'], { stdio: 'inherit' });
+  const home = ensureRouterBot(DISCORD_ADMIN, 'Administers Discord through Mastermind with protected, audited REST operations');
   const definition = JSON.parse(readFileSync(join(home, 'bot.json'), 'utf8'));
   requireBotDefinition(definition);
   linkFolder(VERSIONED, home);

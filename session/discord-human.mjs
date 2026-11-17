@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DISCORD_ADMIN } from './discord-admin-bot.mjs';
 import { acceptDiscordClick, closeDiscordQuestion, registeredPot, registrationOf } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
 import { ANSWERED, RECEIVED, REFUSED } from './door-requests.mjs';
@@ -68,7 +69,7 @@ function isAnswerWaiting(record) {
 }
 
 async function notifyAdminApproval(record) {
-  await commandWithInput('pots', ['wake', '--bot', botId, '--from', 'discord-admin', '--note', `Discord Admin dialog ${record.id} has a registered click. Delegate approve with this ID to discord-admin. The command rechecks the exact operation and consumes it once.`], '', { timeout: 10_000 });
+  await commandWithInput('pots', ['wake', '--bot', botId, '--from', DISCORD_ADMIN.id, '--note', `${DISCORD_ADMIN.name} dialog ${record.id} has a registered click. Delegate approve with this ID to ${DISCORD_ADMIN.id}. The command rechecks the exact operation and consumes it once.`], '', { timeout: 10_000 });
   await store.patch(record.id, { replySent: true });
 }
 

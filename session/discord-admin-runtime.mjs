@@ -4,8 +4,6 @@ import { isApplicationRole } from './discord-admin-policy.mjs';
 import { isSnowflake } from './human-contract.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 
-export const DISCORD_ADMIN = { id: 'discord-admin', name: 'Discord Admin' };
-
 export function discordAccount(primaryHome) {
   const definition = JSON.parse(readFileSync(join(primaryHome, 'bot.json'), 'utf8'));
   const accounts = (definition.channels ?? []).filter(channel => channel.type === 'discord');
