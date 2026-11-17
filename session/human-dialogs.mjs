@@ -1,9 +1,39 @@
 import { createHash } from 'node:crypto';
-import { answersOf, dialogSource, discordEvidence, packet, questionsOf, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
-import { checkedReply, questionDigest, questionPacket } from './human-discord.mjs';
+import { answersOf, dialogSource, discordEvidence, discordMessage, LOCAL_POLICY, MASTERMIND_POT, onlyFor, packet, policyOf, questionsOf, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
+import { ANSWERED, ASKED } from './door-requests.mjs';
 import { humanStore } from './human-store.mjs';
 
 export const dialogId = source => createHash('sha256').update(JSON.stringify(dialogSource(source))).digest('hex').slice(0, 32);
+
+export function questionDigest(dialog) {
+  return createHash('sha256').update(JSON.stringify({ dialog: dialog.id, questions: dialog.questions, policy: dialog.policy, scope: dialog.scope, context: dialog.context })).digest('hex');
+}
+
+export function questionPacket(dialog) {
+  return packet('human.question', { dialog: dialog.id, for: dialog.served, digest: questionDigest(dialog), policy: dialog.policy,
+    scope: dialog.scope, context: dialog.context, questions: dialog.questions });
+}
+
+function clickOf(question, clicks) {
+  const click = onlyFor(question, clicks, 'question');
+  if (!click) throw new Error('human: answer must carry one click per question.');
+  return click;
+}
+
+function checkedReply(dialog, reply) {
+  if (reply?.type !== 'human.answer' || reply.version !== VERSION || reply.dialog !== dialog.id || reply.request !== dialog.delivery?.id || reply.digest !== questionDigest(dialog)) {
+    throw new Error('human: answer packet does not match the dialog, its request and its scope.');
+  }
+  if (!Array.isArray(reply.clicks) || reply.clicks.length !== dialog.questions.length) throw new Error('human: answer must carry one click per question.');
+  if (!dialog.posted) throw new Error('human: no registered Discord message context.');
+  for (const question of dialog.questions) {
+    const click = clickOf(question, reply.clicks);
+    const message = dialog.posted.messages.find(item => item.question === question.id);
+    if (click.messageUrl !== message?.messageUrl || click.guildId !== dialog.posted.guildId) throw new Error('human: click does not match its registered message.');
+  }
+  const messages = dialog.questions.map(question => discordMessage(clickOf(question, reply.clicks).messageUrl).messageId);
+  if (new Set(messages).size !== messages.length) throw new Error('human: each question needs its own Discord message.');
+}
 
 export async function openDialog(input, store = humanStore()) {
   if (!['question', 'secret'].includes(input?.kind)) throw new Error('human: a dialog needs a question or secret kind.');
@@ -20,7 +50,7 @@ export async function openDialog(input, store = humanStore()) {
 
 function newDialog(input, id) {
   const common = { id, version: VERSION, kind: input.kind, source: dialogSource(input.source), context: `${input.context ?? ''}`,
-    served: input.served, createdAt: Date.now(), policy: ['ordinary', 'push'].includes(input.policy) ? input.policy : 'local', scope: input.scope };
+    served: input.served, createdAt: Date.now(), policy: policyOf(input.policy), scope: input.scope };
   if (common.policy === 'push' && (typeof input.scope !== 'string' || !input.scope.trim())) throw new Error('human: an approval needs its exact scope.');
   if (input.kind === 'question') return { ...common, questions: questionsOf(input.questions) };
   if (typeof input.purpose !== 'string' || !input.purpose.trim()) throw new Error('human: a secret needs a purpose.');
@@ -34,7 +64,7 @@ export async function answerQuestion(id, answer, { store = humanStore(), identit
     const dialog = get(id);
     if (dialog?.kind !== 'question') throw new Error('human: no such question.');
     if (dialog.result) return dialog;
-    if (origin === 'discord' && dialog.policy === 'local') throw new Error('human: this question requires the pot terminal.');
+    if (origin === 'discord' && dialog.policy === LOCAL_POLICY) throw new Error('human: this question requires the pot terminal.');
     if (origin === 'discord') checkedReply(dialog, answer);
     const evidence = origin === 'discord' ? { clicks: answer.clicks.map(click => ({ question: click.question, ...discordEvidence(click, identity, dialog.policy) })) } : undefined;
     const answers = answersOf(dialog.questions, answer.answers);
@@ -52,10 +82,9 @@ export async function cancelDialog(id, status = 'cancelled', store = humanStore(
 }
 
 export async function acceptDoorAnswer(dialog, request, options) {
-  if (request.pot !== 'mastermind' || request.direction !== 'asked' || request.id !== dialog.delivery?.id || request.state !== 'answered') throw new Error('human: answer is not a reply to this dialog from Mastermind.');
+  if (request.pot !== MASTERMIND_POT || request.direction !== ASKED || request.id !== dialog.delivery?.id || request.state !== ANSWERED) throw new Error('human: answer is not a reply to this dialog from Mastermind.');
   let reply;
   try { reply = JSON.parse(request.reply); } catch { throw new Error('human: Mastermind reply is not an answer packet.'); }
-  checkedReply(dialog, reply);
   return answerQuestion(dialog.id, reply, { ...options, origin: 'discord' });
 }
 

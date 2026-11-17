@@ -1,5 +1,10 @@
 const KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SNOWFLAKE = /^\d{17,20}$/;
+export const DIALOG_ID = /^[a-f0-9]{32}$/;
+export const DIGEST = /^[a-f0-9]{64}$/;
+export const RELAYED_POLICIES = ['ordinary', 'push'];
+export const LOCAL_POLICY = 'local';
+export const policyOf = value => (RELAYED_POLICIES.includes(value) ? value : LOCAL_POLICY);
 const NAME = /^[\w-]+$/;
 const CAPABILITY = /^[\w-]{43,256}$/;
 // Linux Unix socket addresses hold at most 107 path bytes.
@@ -7,6 +12,7 @@ const SOCKET_PATH_BYTES = 107;
 export const BROWSER_KEY = 'SECRET';
 export const SECRET_TTL_MS = 15 * 60 * 1000;
 export const VERSION = 1;
+export const MASTERMIND_POT = 'mastermind';
 
 const text = value => typeof value === 'string' && value.trim().length > 0;
 const unique = values => new Set(values).size === values.length;
@@ -64,24 +70,35 @@ export function targetKeys(target) {
   return target.destination === 'browser' ? [BROWSER_KEY] : [target.name];
 }
 
+export function onlyFor(question, items, field) {
+  const matches = items.filter(item => item?.[field] === question.id);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 export function answersOf(questions, answers) {
   if (!Array.isArray(answers) || answers.length !== questions.length) throw new Error('human: answer every question.');
   return questions.map(question => answerOf(question, answers));
 }
 
 function answerOf(question, answers) {
-  const matches = answers.filter(answer => answer?.id === question.id);
-  const answer = matches[0];
+  const answer = onlyFor(question, answers, 'id');
   const labels = answer?.labels;
-  if (matches.length !== 1 || !Array.isArray(labels) || !unique(labels) || typeof answer.text !== 'string') throw new Error('human: invalid answer shape.');
+  if (!answer || !Array.isArray(labels) || !unique(labels) || typeof answer.text !== 'string') throw new Error('human: invalid answer shape.');
   if (!labels.every(label => question.options.some(option => option.label === label))) throw new Error('human: unknown answer label.');
   const count = labels.length + (answer.text.trim() ? 1 : 0);
   if (count < 1 || (!question.multiple && count !== 1)) throw new Error('human: choose the permitted number of answers.');
   return { id: question.id, labels, text: answer.text };
 }
 
+export const isSnowflake = value => SNOWFLAKE.test(value);
+
+export const capture = pattern => `(${pattern.source.slice(1, -1)})`;
+const MESSAGE_URL = new RegExp(`^https://discord\\.com/channels/${capture(SNOWFLAKE)}/${capture(SNOWFLAKE)}/${capture(SNOWFLAKE)}$`);
+
+export const discordMessageUrl = ({ guildId, channelId, messageId }) => `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
+
 export function discordMessage(messageUrl) {
-  const link = /^https:\/\/discord\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})$/.exec(messageUrl ?? '');
+  const link = MESSAGE_URL.exec(messageUrl ?? '');
   if (!link) throw new Error('human: provide the originating Discord message link.');
   return { guildId: link[1], channelId: link[2], messageId: link[3] };
 }
@@ -91,7 +108,7 @@ export function checkDiscordPolicy(policy, identity) {
   if (identity?.pushApprovalsEnabled !== true || !SNOWFLAKE.test(identity.userId)) throw new Error('human: Discord push approvals stay off until merged and verified live.');
 }
 
-export function discordEvidence(evidence, identity, policy = 'ordinary') {
+export function discordEvidence(evidence, identity, policy) {
   checkDiscordPolicy(policy, identity);
   const message = discordMessage(evidence?.messageUrl);
   if (!SNOWFLAKE.test(evidence?.userId) || message.guildId !== evidence.guildId || !Number.isFinite(Date.parse(evidence?.at))) throw new Error('human: Discord answer has no valid click metadata.');
@@ -99,5 +116,6 @@ export function discordEvidence(evidence, identity, policy = 'ordinary') {
   return { userId: evidence.userId, guildId: evidence.guildId, messageUrl: evidence.messageUrl, at: evidence.at };
 }
 
-export const answerText = answers => answers.map(answer => [...answer.labels, answer.text].filter(Boolean).join('\n')).join('\n');
+export const answerParts = answer => [...answer.labels, answer.text].filter(Boolean);
+export const answerText = answers => answers.map(answer => answerParts(answer).join('\n')).join('\n');
 export const packet = (type, fields) => ({ type, version: VERSION, ...fields });

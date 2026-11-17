@@ -16,7 +16,7 @@ async function pageCommand(binary, arguments_) {
   catch { throw new Error('human: the native secret page service is unavailable. Check Pots and the tailnet page proxy.'); }
 }
 
-export function checkedPageOrigin(settings, serve) {
+function checkedPageOrigin(settings, serve) {
   let url;
   try { url = new URL(settings.publicUrl); } catch { throw new Error('human: configure a tailnet publicUrl before making a secret link.'); }
   const host = url.host.includes(':') ? url.host : `${url.host}:443`;
@@ -35,6 +35,7 @@ async function pageOrigin() {
   return checkedPageOrigin(settings, serve);
 }
 
+const isOpen = dialog => !dialog.result && !dialog.writing && dialog.expiresAt > Date.now();
 const stageFile = id => `human-${id}.env`;
 const stagePath = id => join(homedir(), '.pots/secrets', stageFile(id));
 
@@ -42,7 +43,7 @@ export async function ensureSecretPage(id, store = humanStore()) {
   const origin = await pageOrigin();
   return store.locked(async ({ get, save }) => {
     const dialog = get(id);
-    if (dialog.result || dialog.writing || dialog.pageLink || dialog.expiresAt <= Date.now()) return dialog;
+    if (!isOpen(dialog) || dialog.pageLink) return dialog;
     const output = await pageCommand('pots', ['page', 'secret', '--bot', botId, '--file', stageFile(id), '--keys', targetKeys(dialog.target).join(','), '--text', dialog.purpose]);
     const issued = JSON.parse(output);
     if (issued.via !== 'public-url' || new URL(issued.url).origin !== origin || !/^S\d+$/.test(issued.link)) throw new Error('human: Pots did not return the configured tailnet secret link.');
@@ -57,8 +58,6 @@ function stagedValues(dialog) {
   });
   return Object.fromEntries(pairs);
 }
-
-const isOpen = dialog => !dialog.result && !dialog.writing && dialog.expiresAt > Date.now();
 
 // The staged value leaves the disk after one attempt, whatever its outcome: an interrupted write never accepts a second one.
 async function submitStaged(dialog, store) {
@@ -75,9 +74,9 @@ async function revokePage(dialog, store) {
     rmSync(stagePath(id), { force: true });
     if (dialog.pageRevoked) return dialog;
     await pageCommand('pots', ['page', 'unlink', '--bot', botId, dialog.pageLink.id]);
-    return await store.locked(({ get, save }) => save({ ...get(id), pageRevoked: true, pageIssue: undefined }), id);
+    return await store.patch(id, { pageRevoked: true, pageIssue: undefined });
   } catch {
-    return store.locked(({ get, save }) => save({ ...get(id), pageIssue: 'Secret page cleanup remains pending.' }), id);
+    return store.patch(id, { pageIssue: 'Secret page cleanup remains pending.' });
   }
 }
 

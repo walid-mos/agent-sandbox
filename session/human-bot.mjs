@@ -1,11 +1,14 @@
-import { answerText } from './human-contract.mjs';
+import { answerText, MASTERMIND_POT } from './human-contract.mjs';
 import { answerQuestion, dialogId, openDialog } from './human-dialogs.mjs';
+import { storeDialogSecret } from './human-secrets.mjs';
 import { humanStore } from './human-store.mjs';
 import { questionIn } from './pots-questions.mjs';
 import { conversation, isFromBot, say } from './terminal-conversation.mjs';
 
 const sourceOf = message => ({ type: 'bot', message });
 export const botDialogId = message => dialogId(sourceOf(message));
+const SECRET_STORED = 'Requested secrets were stored in this pot.';
+const botResultMessageId = dialog => dialog.result.messageId ?? `m-human-${dialog.id}`;
 
 function inputOf(record) {
   const common = { source: sourceOf(record.id), context: record.text };
@@ -49,7 +52,7 @@ async function recordLocalReply(dialog, reply, store) {
   await answerQuestion(dialog.id, { answers: botAnswers(dialog, reply.text) }, { store, messageId: reply.id });
 }
 
-export function botAnswers(dialog, text) {
+function botAnswers(dialog, text) {
   const question = dialog.questions[0];
   const lines = text.split('\n');
   const isSelection = lines.every(line => question.options.some(option => option.label === line));
@@ -60,14 +63,29 @@ export async function deliverBotResult(id, store = humanStore()) {
   return store.locked(({ get, save }) => {
     const dialog = get(id);
     if (dialog.source.type !== 'bot' || !dialog.result || dialog.deliveredToBot) return;
-    const messageId = dialog.result.messageId ?? `m-human-${id}`;
+    const messageId = botResultMessageId(dialog);
     if (!conversation().some(record => record.id === messageId || record.answers === dialog.source.message)) {
-      const text = dialog.result.status === 'stored' ? 'Requested secrets were stored in this pot.'
+      const text = dialog.result.status === 'stored' ? SECRET_STORED
         : dialog.result.status === 'answered' ? answerText(dialog.result.answers) : `Question ${dialog.result.status}.`;
-      if (text) say({ id: messageId, text, ...(dialog.kind === 'secret' && { answers: dialog.source.message }), humanDialog: id, humanStatus: dialog.result.status,
-        neighbourReport: dialog.result.evidence ? { pot: 'mastermind', ...dialog.result.evidence, approval: dialog.policy === 'push', scope: dialog.scope, dialog: dialog.id, digest: dialog.result.digest } : undefined });
+      say({ id: messageId, text, ...(dialog.kind === 'secret' && { answers: dialog.source.message }), humanDialog: id, humanStatus: dialog.result.status,
+        neighbourReport: dialog.result.evidence ? { pot: MASTERMIND_POT, ...dialog.result.evidence, approval: dialog.policy === 'push', scope: dialog.scope, dialog: dialog.id, digest: dialog.result.digest } : undefined });
     }
     save({ ...dialog, deliveredToBot: true });
   }, id);
 }
 
+/** Answers the bot question a message asks with the person's text, and resolves to the ID of the reply it records. */
+export async function answerBotQuestion(message, text, replyId, store = humanStore()) {
+  const dialog = store.get(botDialogId(message));
+  if (dialog?.kind !== 'question') throw new Error('pots: that message has no question. Refresh the conversation.');
+  const answered = await answerQuestion(dialog.id, { answers: botAnswers(dialog, text) }, { store, messageId: replyId });
+  await deliverBotResult(dialog.id, store);
+  return botResultMessageId(answered);
+}
+
+/** Stores the secrets a bot message asks for, and resolves to the text the bot receives. */
+export async function storeBotSecret(message, values, store = humanStore()) {
+  await storeDialogSecret(botDialogId(message), values, { store });
+  await deliverBotResult(botDialogId(message), store);
+  return SECRET_STORED;
+}

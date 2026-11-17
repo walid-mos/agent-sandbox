@@ -1,4 +1,4 @@
-import { questionDigest } from './human-discord.mjs';
+import { questionDigest } from './human-dialogs.mjs';
 import { humanStore } from './human-store.mjs';
 
 export async function consumePush(id, input, store = humanStore()) {

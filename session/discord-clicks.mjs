@@ -1,16 +1,17 @@
-import { answersOf, checkDiscordPolicy, discordEvidence, packet, questionsOf, VERSION } from './human-contract.mjs';
+import { answerParts, answersOf, capture, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
+import { isPotName, isRequestId } from './door-messages.mjs';
 
 const MESSAGE_LIMIT = 2000;
-const snowflake = value => /^\d{17,20}$/.test(value);
+const CUSTOM_ID = new RegExp(`^(?:human|form:human-answer):${capture(DIALOG_ID)}:(\\d+)(?::(\\d+|select))?$`);
 
 export async function registerDiscordQuestion(registration, store, identity) {
   const { question, request, pot, channelAccount, guildId, messages } = registration;
-  if (question?.type !== 'human.question' || question.version !== VERSION || !/^[a-f0-9]{32}$/.test(question.dialog) || !/^[a-f0-9]{64}$/.test(question.digest)) throw new Error('discord-human: invalid question packet.');
-  if (!/^[a-z][a-z0-9-]*\.[a-z0-9]{8,32}$/.test(request) || !/^[a-z][a-z0-9-]*$/.test(pot) || !channelAccount || !snowflake(guildId)) throw new Error('discord-human: register the originating door and channel account.');
+  if (question?.type !== 'human.question' || question.version !== VERSION || !DIALOG_ID.test(question.dialog) || !DIGEST.test(question.digest)) throw new Error('discord-human: invalid question packet.');
+  if (!isRequestId(request) || !isPotName(pot) || !channelAccount || !isSnowflake(guildId)) throw new Error('discord-human: register the originating door and channel account.');
   questionsOf(question.questions);
-  if (!['ordinary', 'push'].includes(question.policy)) throw new Error('discord-human: this question is local only.');
+  if (!RELAYED_POLICIES.includes(question.policy)) throw new Error('discord-human: this question is local only.');
   checkDiscordPolicy(question.policy, identity);
-  if (!Array.isArray(messages) || messages.length !== question.questions.length || !messages.every(message => snowflake(message.channelId) && snowflake(message.messageId))) throw new Error('discord-human: register one Discord message per question.');
+  if (!Array.isArray(messages) || messages.length !== question.questions.length || !messages.every(message => isSnowflake(message.channelId) && isSnowflake(message.messageId))) throw new Error('discord-human: register one Discord message per question.');
   if (new Set(messages.map(message => `${message.channelId}/${message.messageId}`)).size !== messages.length) throw new Error('discord-human: question messages must be distinct.');
   return store.locked(({ get, save }) => {
     const existing = get(question.dialog);
@@ -25,7 +26,7 @@ export async function registerDiscordQuestion(registration, store, identity) {
 
 function customIdParts(interaction) {
   const custom = interaction.data?.custom_id ?? '';
-  const match = /^(?:human|form:human-answer):([a-f0-9]{32}):(\d+)(?::(\d+|select))?$/.exec(custom);
+  const match = CUSTOM_ID.exec(custom);
   return match && { dialog: match[1], index: Number(match[2]), option: match[3], isForm: custom.startsWith('form:') };
 }
 
@@ -50,6 +51,13 @@ function disabled(components = []) {
   }));
 }
 
+const answered = answer => `Answered: ${answerParts(answer).join(', ')}`;
+
+function messageUpdate(message, content, components = message.components) {
+  return { channelId: message.channelId, messageId: message.messageId,
+    body: { content: content.slice(0, MESSAGE_LIMIT), components: disabled(components), allowed_mentions: { parse: [] } } };
+}
+
 export async function acceptDiscordClick(interaction, { store, identity, channelAccount, at = new Date().toISOString() }) {
   const parts = customIdParts(interaction);
   if (!parts) return { status: 'unhandled' };
@@ -61,7 +69,7 @@ export async function acceptDiscordClick(interaction, { store, identity, channel
     const asked = question.questions[parts.index];
     if (!message || !asked || channelAccount !== record.registration.channelAccount || interaction.guild_id !== record.registration.guildId || interaction.channel_id !== message.channelId || interaction.message?.id !== message.messageId) throw new Error('discord-human: click does not belong to the registered message.');
     const evidence = discordEvidence({ userId: interaction.member?.user?.id ?? interaction.user?.id, guildId: interaction.guild_id,
-      messageUrl: `https://discord.com/channels/${interaction.guild_id}/${message.channelId}/${message.messageId}`, at }, identity, question.policy);
+      messageUrl: discordMessageUrl({ guildId: interaction.guild_id, ...message }), at }, identity, question.policy);
     if (record.closed || Object.hasOwn(record.picks, asked.id)) return { status: 'duplicate' };
     const [answer] = answersOf([asked], [chosenAnswer(asked, interaction, parts)]);
     const picks = { ...record.picks, [asked.id]: { answer, evidence } };
@@ -69,10 +77,9 @@ export async function acceptDiscordClick(interaction, { store, identity, channel
     const outbox = isComplete ? packet('human.answer', { dialog: question.dialog, request: record.registration.request, digest: question.digest,
       answers: question.questions.map(item => picks[item.id].answer),
       clicks: question.questions.map(item => ({ question: item.id, ...picks[item.id].evidence })) }) : undefined;
-    const content = `Answered: ${[...answer.labels, answer.text].filter(Boolean).join(', ')}\nDelivery to the owning pot is pending.`.slice(0, MESSAGE_LIMIT);
-    const update = { content, components: disabled(message.components ?? interaction.message.components), allowed_mentions: { parse: [] } };
-    save({ ...record, picks, outbox, updates: { ...record.updates, [asked.id]: { channelId: message.channelId, messageId: message.messageId, body: update } } });
-    return { status: 'accepted', update, channelId: message.channelId, messageId: message.messageId };
+    const update = messageUpdate(message, `${answered(answer)}\nDelivery to the owning pot is pending.`, message.components ?? interaction.message.components);
+    save({ ...record, picks, outbox, updates: { ...record.updates, [asked.id]: update } });
+    return { status: 'accepted', dialog: parts.dialog, update: update.body, channelId: message.channelId, messageId: message.messageId };
   }, parts.dialog);
 }
 
@@ -90,7 +97,7 @@ export async function closeDiscordQuestion(completion, store, originPot) {
     if (!record.registration) return save({ ...record, closed: completion });
     if (record.registration.question.digest !== completion.digest) throw new Error('discord-human: completion does not match the question scope.');
     const updates = Object.fromEntries(record.registration.messages.map((message, index) => [record.registration.question.questions[index].id,
-      { channelId: message.channelId, messageId: message.messageId, body: { content: (completion.status === 'answered' ? `Answered: ${[...completion.answers[index].labels, completion.answers[index].text].filter(Boolean).join(', ')}` : `Question ${completion.status}.`).slice(0, MESSAGE_LIMIT), components: disabled(message.components), allowed_mentions: { parse: [] } } }]));
+      messageUpdate(message, completion.status === 'answered' ? answered(completion.answers[index]) : `Question ${completion.status}.`)]));
     return save({ ...record, closed: completion, updates, outbox: undefined });
   }, completion.dialog);
 }

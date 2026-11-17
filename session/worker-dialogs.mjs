@@ -5,12 +5,10 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parsedLine } from './jsonl.mjs';
 import { command } from './run.mjs';
-import { publishedDialog } from './worker-human.mjs';
+import { publishedDialog, readTerminal, SESSION_LABEL } from './worker-human.mjs';
 import { answerQuestion } from './human-dialogs.mjs';
 import { answerText } from './human-contract.mjs';
 
-// The Pi harness publishes the interactive session's file under this terminal label.
-const SESSION_LABEL = 'pi.session';
 const QUESTION_TOOL = 'ask_user_question';
 const SECRET_TOOL = 'ask_user_secret';
 const DIALOG_TOOLS = new Set([QUESTION_TOOL, SECRET_TOOL]);
@@ -82,7 +80,7 @@ function questionView({ prompt, options = [], multiSelect = false }) {
 }
 
 function dialogOf(terminal) {
-  const { labels, status } = JSON.parse(command('hc', ['get', terminal.address]));
+  const { labels, status } = readTerminal(terminal);
   const session = labels?.[SESSION_LABEL];
   const lines = session ? sessionLines(session) : [];
   const call = openCall(lines);

@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { DOOR_COMMAND } from './door-command.mjs';
 import { knock } from './door-knock.mjs';
 import { HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, parse, Refusal, REPLY, replyMessage, REQUEST, requestMessage } from './door-messages.mjs';
-import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, remove, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
+import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, remove, RESENDABLE, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId, sandbox } from './sandbox.mjs';
@@ -10,7 +10,6 @@ import { botId, sandbox } from './sandbox.mjs';
 const CONNECTED = 'Running';
 // A pot that answers nothing cannot be made to hold an endless list: its neighbour waits for an answer first.
 const UNANSWERED_REQUESTS_PER_POT = 20;
-const RESENDABLE = [UNKNOWN, UNDELIVERED];
 const SETTLED = [ANSWERED, REFUSED];
 const DELIVERED_STATE = { [ASKED]: OPEN, [RECEIVED]: ANSWERED };
 const USAGE = `usage: ${DOOR_COMMAND} ask POT --need TEXT [--for REQUEST_ID] | ${DOOR_COMMAND} reply REQUEST_ID --text TEXT | ${DOOR_COMMAND} resend REQUEST_ID | ${DOOR_COMMAND} requests [--all]`;

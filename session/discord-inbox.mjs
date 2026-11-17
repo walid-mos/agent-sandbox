@@ -15,5 +15,5 @@ const INTERACTIONS = `SELECT id, channel, at, json_object(
 export function discordInbox(path) {
   const database = new DatabaseSync(path, { readOnly: true });
   const query = database.prepare(INTERACTIONS);
-  return { after: cursor => query.all(cursor, READ_LIMIT).map(row => ({ ...row, interaction: JSON.parse(row.interaction) })), close: () => database.close() };
+  return { after: cursor => query.all(cursor, READ_LIMIT).map(row => ({ ...row, interaction: JSON.parse(row.interaction) })) };
 }
