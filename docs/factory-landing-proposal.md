@@ -1,14 +1,16 @@
-# Factory landing proposal
+# Factory landing: implemented
+
+Walid approved this design on 2026-11-17 16:18 UTC with the defaults below, and this branch implements the smallest path. Nothing is deployed until he signs and pushes a release: the signer, the isolated factory and the trust files then reach a pot at its next `vm-up`.
 
 **What Walid gets.** Changes the factory approves for agent-sandbox land on the pots without him. He stops re-signing `main` by hand, as he did on 2026-11-17 with `81d5895`.
 
-**What it costs.** One new signing key, held by root in a pot's VM, outside the worker session. Automation, not Walid, then decides what runs as root on every pot. The Factory bot must first leave the worker session, because a worker could otherwise obtain a signature. That move is most of the work.
+**What it costs.** One new signing key, held by root in a pot's VM, outside the worker session. Automation, not Walid, then decides what runs as root on every pot. The Factory bot leaves the worker session first, because a worker could otherwise obtain a signature.
 
-**What he does once.** Approve this design. Sign and push the release that implements it. From his Mac, create the key in the VM with one command, save its public half in his runtime directory, and run `vm-up` for each pot.
+**What he does once.** Sign and push the release that implements this, then run [his one-time steps](#walids-one-time-steps): seed the factory's model router, create the key in the VM, export its public half, install trust with `vm-up` on every pot.
 
 **GitHub.** Adding the key on GitHub is not needed. It changes a badge, not what a pot accepts.
 
-No factory key exists, and nothing in this repository can sign a commit. Handing over a public key needs no pull request. The pull request is for the code that signs and publishes, which this document proposes. It answers two messages from Walid: [trust what the pots merge](https://discord.com/channels/1572196042844413992/1572200475359711334/1572273475677331582), then "Donne moi les GPG et je les ajoute a github non ?". PR #30 stays draft. Nothing here creates or installs a key, changes a runtime or a GitHub setting, or authorizes implementation. A section marked proposed describes work that does not exist yet.
+The three defaults he approved with it: the Mac keeps trusting his key only, so factory trust reaches the VMs alone through a second file; root creates the factory key inside the signing pot's VM; key expiry, operator-only control files and the stricter controls of the [fuller design](#fuller-design-authority-boundary) come in a second step. Pi and Herdr stay outside this trust until their provisioner checks signatures. The document keeps option D as the alternative if he ever wants his own signature on each release.
 
 ## Does adding the key on GitHub do it?
 
@@ -31,11 +33,33 @@ Two cases would call for it later. A "Require signed commits" rule on `main` mak
 | Verify a signed tip | Exists. The [launcher](../lib/trusted_source.py) checks the clone's HEAD before each root run, and the [Mac updater](../mac/update) checks each fetched tip. |
 | Send trust to a VM | Exists. [`vm-trust`](../bin/vm-trust) copies the Mac's `~/.config/agent-sandbox/trusted-signers.asc` to the VM's `/etc/agent-sandbox/trusted-signers.asc` at each `vm-up`, and refuses private key material. A running VM gets a changed file only when `vm-up` runs. |
 | Keep a secret from the session | Exists as a pattern. The [vault broker](../vm/vault-broker) is a root service started through the launcher. Its identity sits in a root-only file outside every session mount, it answers fixed request kinds on a socket, and [attacks from the session](../probes/vault-attacks.sh) check it. |
-| Sign a commit | Missing. No signer and no factory key exist. The verifier needs `gpgv` alone, which cannot sign. |
-| A factory decision a worker cannot fake | Missing. The Factory bot, its [verdict records](../session/factory-records.mjs) and its [merge call](../session/factory-github.mjs) run as the session user, with GitHub credentials the workers share. A signer that this user can reach signs for any worker. |
-| Limit what a trusted key may do | Missing. Any key in the signers file has the operator's full authority over the clone, and the same file serves the Mac. |
+| Sign a commit | Exists in this branch. [`vm/landing-signer`](../vm/landing-signer) runs as VM root through the launcher, holds the key, builds the landing commit itself and signs it. |
+| A factory decision a worker cannot fake | Exists in this branch. VM root starts the factory in [its own container](../vm/factory-runtime) from the clone's revision, and the signer answers only a caller holding a token written into a directory no session mount names. |
+| Limit what a trusted key may do | Missing, deferred to the second step. Any key in the signers file keeps the operator's full authority over the clone, and the Mac still reads the operator file alone. |
 
-## Smallest path (proposed)
+## Implementation boundary
+
+| Trusted principals | Untrusted principals |
+| --- | --- |
+| VM root holds the signing key until rotation and starts the signer from the trusted clone. | The worker session, its processes and files, PR contents and check containers. |
+| The isolated factory owns its toolchain, model runtime, bot home, checks and verdict records. It holds the existing GitHub and provider credentials while running. | Session wakes, PASS files, GitHub comments and claimed actor names cannot authorize signatures. |
+| The Mac operator installs public trust through the provider connection and keeps the operator key on the Mac. | Pot messages are not an authenticated public-key delivery channel. |
+
+| Channel | Required closing mechanism |
+| --- | --- |
+| Environment and sourced files | Fixed signer environment and root-owned configuration. Independent factory home with no session startup files. |
+| Process inspection | The signer answers only a caller holding the token VM root writes into the socket's directory, which only the factory container mounts. VM root stays trusted. |
+| Privilege | Neither container mounts the VM Docker socket or signing key. The factory uses its own inner check engine. |
+| Tool configuration and subprocesses | Separate installed toolchain. Candidate code runs only in credential-free check containers. Signing uses a private bare store and never checks out candidate code. |
+| Shared writable paths | Separate factory home and inner Docker volume. No session cache, runtime, bot directory or symlink is adopted. |
+| Shell evaluation | Bounded parsed JSON and validated object IDs. The signer constructs the only permitted commit itself. |
+| Lookup paths | Fixed tools and private HOME. No caller Git, GPG, Python or shell configuration. |
+| Output | Public fingerprints, release objects and bounded errors only. No private keys or credential values. |
+| Network | Separate Docker bridge and private signer socket bound only into the factory. No published management listener. |
+
+Compromise of the approving automation remains delegated root-code authority. VM root and the trusted runtime remain trusted.
+
+## Smallest path (implemented)
 
 Four pieces close the missing rows. The verifier, the launcher and the Mac updater stay unchanged.
 
@@ -54,21 +78,25 @@ What this path does not do:
 - It adds no expiry and no limit by path. The [fuller design](#fuller-design-authority-boundary) adds both, and they can follow in a second step.
 - Pi and Herdr are not covered. Their [provisioner](../lib/agent_sources.py) checks no signature.
 
-Source changes, all proposed:
+Source changes, all implemented:
 
 | Where | Change |
 | --- | --- |
-| [`session/launch.env`](../session/launch.env) | Names the signer's key directory and socket, as it names the vault's. |
-| `vm/`, a new signer script and unit, and [`vm/setup.sh`](../vm/setup.sh) | The root signer service, installed with the other units, and the GnuPG tool that signs. |
-| `vm/` and `bin/`, a new `landing-key` command | Creates the key as root in the VM. Prints its public half and fingerprint to the Mac over the channel `vm-exec` uses. |
+| [`session/launch.env`](../session/launch.env) | Names the key home, the landing state, the signer socket, and the isolated factory's container, volumes, network, state and report socket. |
+| [`vm/landing.py`](../vm/landing.py), [`vm/landing-signer`](../vm/landing-signer), [`vm/pots-landing.service`](../vm/pots-landing.service) | The root signer: caller token, policy, the one commit it builds, and its receipt. |
+| [`vm/landing-key`](../vm/landing-key), [`bin/landing-key`](../bin/landing-key) | Creates and exports the key as VM root, from the Mac. |
+| [`vm/factory-runtime`](../vm/factory-runtime), [`vm/pots-factory.service`](../vm/pots-factory.service), [`vm/factory-seed`](../vm/factory-seed), [`vm/factory-reports`](../vm/factory-reports), [`vm/pots-factory-reports.service`](../vm/pots-factory-reports.service) | The isolated factory's container, its operator seed, and its one-way reports to Principal. |
+| [`session/factory-runtime/`](../session/factory-runtime) | The container's image and entrypoint: its own toolchain, home, router, gateway and inner Docker. |
+| [`bin/factory-bootstrap`](../bin/factory-bootstrap) | Seals a router seed on the Mac and installs it outside the session. |
+| [`vm/setup.sh`](../vm/setup.sh) | Installs GnuPG and the three services with the other units. |
 | [`bin/vm-trust`](../bin/vm-trust) | Builds the VM's signers file from the operator file plus `factory-signers.asc`. The Mac updater keeps reading the operator file alone. |
-| Session launcher and [keeper](../vm/keeper) | Start the factory's container, with the signer's socket bound there and nowhere else. |
-| [`session/factory-github.mjs`](../session/factory-github.mjs) | After the squash merge, request the landing commit and push it without force. Report merged, signed and landed as three facts. |
-| `probes/`, a new attack probe in the project's checks | From the worker session: read the key, reach the socket, forge a request. Each must fail. |
+| [`session/factory-channel`](../session/factory-channel), [`session/factory-publication.mjs`](../session/factory-publication.mjs), [`session/factory-mirror.mjs`](../session/factory-mirror.mjs) | After the squash merge, ask the signer, check the object's identity, push it without force and reconcile the tip. Merged, signed and published stay three facts. |
+| [`session/factory-authority.mjs`](../session/factory-authority.mjs), [`session/factory-scan.mjs`](../session/factory-scan.mjs), [`session/factory-verdict.mjs`](../session/factory-verdict.mjs), [`session/factory-bot.mjs`](../session/factory-bot.mjs) | The signing pot's session factory stops, and host-code publication needs the signer socket. |
+| [`bin/render-config`](../bin/render-config) | Refuses a session bind that would reach the key home, the landing state, a factory state or either socket. |
+| [`probes/landing-policy.py`](../probes/landing-policy.py), [`probes/landing-attacks.sh`](../probes/landing-attacks.sh), [`bin/probe-boundary`](../bin/probe-boundary), [`session/factory-repositories.json`](../session/factory-repositories.json) | Disposable-key policy tests as the repository's `landing` check step, plus the session and VM attack probes in `probe-boundary`. |
 | [`lib/signed_commit.py`](../lib/signed_commit.py), [`lib/trusted_source.py`](../lib/trusted_source.py), [`mac/update`](../mac/update) | No change. |
-| README | Its trust section names the second key and what it can do. |
 
-Agents implement every row, tested with disposable keys and repositories, behind a pull request Walid reviews. Walid does the [steps below](#walids-one-time-steps) once. No agent creates, moves or reads the real key.
+Walid does the [steps below](#walids-one-time-steps) once. No agent creates, moves or reads the real key.
 
 ## How the public key reaches Walid
 
@@ -84,18 +112,21 @@ Recommend the second. No secret ever moves, and the public key arrives over the 
 
 ## Walid's one-time steps
 
-Every command runs on the Mac, in his agent-sandbox checkout. Steps 2 and 3 use the proposed `landing-key` command. Every other command exists today. `NAME` is a pot's name.
+Every command runs on the Mac, in his agent-sandbox checkout. `NAME` is the signing pot's name, the pot whose bot `POTS_SIGNING_FACTORY_BOT` names in [`session/launch.env`](../session/launch.env). Every command below exists in this branch.
 
-1. Review the implementation pull request. Sign and push its release to `main` himself, as he does today, then run `SANDBOX=NAME ./bin/vm-up` for each pot. The signer is installed and holds no key.
-2. Create the key in the signing pot's VM with `SANDBOX=NAME ./bin/landing-key create`. It prints the 40-character fingerprint. Note it.
-3. Save the public key with `SANDBOX=NAME ./bin/landing-key export > ~/.config/agent-sandbox/factory-signers.asc`.
-4. Check the file. `gpg --show-keys --with-fingerprint ~/.config/agent-sandbox/factory-signers.asc` shows one key with the fingerprint of step 2. `python3 -I lib/signed_commit.py signers ~/.config/agent-sandbox/factory-signers.asc` answers that it holds public keys only.
-5. Send it to every pot with `SANDBOX=NAME ./bin/vm-up`, once per pot. Each run copies the trust files into that VM. A pot that was off gets them at its next `vm-up`.
-6. After the factory's next merge, confirm the landing. `SANDBOX=NAME ./bin/vm-exec sudo python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py verify` prints the fingerprint that signed the commit the VM runs, which must be the one from step 2. `SANDBOX=NAME ./bin/vm-exec sudo git -C /opt/agent-sandbox rev-parse HEAD` must print the commit that `git ls-remote origin refs/heads/main` prints.
+1. Review this pull request. Sign and push its release to `main` himself, as he does today, then run `SANDBOX=NAME ./bin/vm-up` once for each pot. That installs the three services. The signer starts and holds no key; the isolated factory prints that it is waiting and its unit retries it every minute.
+2. Create the key in the signing pot's VM: `SANDBOX=NAME ./bin/landing-key create`. It prints the 40-character fingerprint. Note it.
+3. Export the public half: `SANDBOX=NAME ./bin/landing-key export > ~/.config/agent-sandbox/factory-signers.asc`.
+4. Check it. `gpg --show-keys --with-fingerprint ~/.config/agent-sandbox/factory-signers.asc` shows one key with that fingerprint, and `python3 -I lib/signed_commit.py signers ~/.config/agent-sandbox/factory-signers.asc` answers that it holds public keys only.
+5. Seed the isolated factory's model router: `SANDBOX=NAME ./bin/factory-bootstrap`. It seals a router seed without keys, without the library and without sign-ins, and installs it outside the session. Running it twice is refused, so a rotation needs its own reviewed step.
+6. Install trust on every pot: `SANDBOX=NAME ./bin/vm-up`, once per pot. Each run copies the operator file plus `factory-signers.asc` into that VM's `/etc/agent-sandbox/trusted-signers.asc`, restarts the signer and lets the factory start. A pot that was off gets them at its next `vm-up`.
+7. From this point the signing pot's session factory stops: its scan prints that the factory runs outside the worker session, and the isolated container scans the same owners. After the factory's next merge, confirm the landing. `SANDBOX=NAME ./bin/vm-exec sudo python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py verify` prints the fingerprint that signed the commit the VM runs, which must be the one from step 2. `SANDBOX=NAME ./bin/vm-exec sudo git -C /opt/agent-sandbox rev-parse HEAD` must print the commit that `git ls-remote origin refs/heads/main` prints.
 
-There is nothing to do on GitHub. To stop trusting the factory, he signs a tip himself, deletes `factory-signers.asc` and runs `vm-up` for each pot. The launcher then refuses a tip that only the factory signed.
+There is nothing to do on GitHub. To stop trusting the factory, he signs a tip himself, deletes `factory-signers.asc` and runs `vm-up` for each pot. The launcher then refuses a tip that only the factory signed, and removing a tip the factory already landed on a pot that has not updated yet needs his own signed commit on top.
 
 ## What was checked
+
+[`probes/landing-policy.py`](../probes/landing-policy.py) passes seven cases with disposable keys created inside the test: the valid job produces one commit whose only parent is the squash and whose diff is empty, signed by the factory key and naming the checked head; a caller cannot choose the tree, the message, the payload, the parents, the origin or a command; an untrusted parent is not promoted; a moved main or a changed head is not substituted; a squash whose tree differs from the checked head is refused; a repeated request returns the identical object after a restart; and an older trusted parent cannot replace the last signed release. The repository's `landing` check step runs it, and [`bin/probe-boundary`](../bin/probe-boundary) runs [`probes/landing-attacks.sh`](../probes/landing-attacks.sh) inside the session as its user and as its root, then through the launcher on the VM: the key home, the landing state, the factory state, the sockets and the token are absent from the session, `sudo` gives it no root, and a caller with no token is refused.
 
 The installed [commit verifier](../lib/signed_commit.py) requires an OpenPGP signature on the tip commit and checks it with `gpgv`. SSH signatures are refused. Its first valid signer has unrestricted authority over the guarded clone. It has no repository, branch, path or signer-role policy. Adding a factory public key to its current signers file would grant that unrestricted authority.
 
