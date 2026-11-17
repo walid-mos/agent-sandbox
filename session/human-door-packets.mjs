@@ -119,7 +119,7 @@ export function checkHumanReply(request, reply) {
     fieldsOf(answer, ['type', 'version', 'dialog', 'request', 'digest', 'answers', 'clicks']);
     if (original.type !== 'human.question' || answer.type !== 'human.answer' || answer.version !== VERSION || answer.dialog !== original.dialog || answer.request !== request.id || answer.digest !== original.digest || !Array.isArray(answer.answers) || !Array.isArray(answer.clicks)) throw new Error('answer differs from its question');
   } catch (cause) {
-    throw new Refusal(`pots: invalid human dialog reply: ${cause.message}`);
+    throw new Refusal(`pots: invalid human dialog reply: ${cause.message}. Dialog requests are answered only by the human handlers discord-human and the relay, not with doors.mjs reply.`);
   }
 }
 

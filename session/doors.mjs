@@ -4,7 +4,7 @@ import { knock, knockAsync } from './door-knock.mjs';
 import { DIALOG, dialogMessage, HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, Refusal, replyMessage, requestMessage } from './door-messages.mjs';
 import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, RESENDABLE, save, SETTLED, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { receiveMessage } from './door-deliveries.mjs';
-import { checkDialogDirection, humanPacket } from './human-door-packets.mjs';
+import { checkDialogDirection, checkHumanReply, humanPacket } from './human-door-packets.mjs';
 import { main, runOperation } from './main.mjs';
 import { command } from './run.mjs';
 import { sandbox } from './sandbox.mjs';
@@ -127,6 +127,7 @@ function recordReply(id, text) {
   if (received?.direction !== RECEIVED) throw new Error(`pots: no request ${id} came through this pot's door. ${DOOR_COMMAND} requests lists the ones that did.`);
   const pending = RESENDABLE.includes(received.state) ? ` It has not reached ${received.pot} yet: ${DOOR_COMMAND} resend ${id} sends it again.` : '';
   if (received.state !== OPEN) throw new Error(`pots: ${id} already has its reply, and a request takes one.${pending}`);
+  if (received.kind === DIALOG) checkHumanReply(received, text);
   const replying = { ...received, state: UNKNOWN, reply: text, answeredAt: Date.now() };
   save(replying);
   return replying;

@@ -144,11 +144,13 @@ test('a refused dialog answer is reported and never knocked again for the same r
   const received = all().find(request => request.kind === 'dialog' && request.direction === 'received');
   assert.equal(received.state, 'open');
   nextOutcome = { state: 'refused', failure: "door of nextnode, exit 76: the neighbour's session refused the message" };
-  const pending = dialogDoors.reply(received.id, '{"type":"human.answer"}');
+  const question = questionPacket(dialog);
+  const reply = JSON.stringify({ type: 'human.answer', version: 1, dialog: question.dialog, request: received.id, digest: question.digest, answers: [], clicks: [] });
+  const pending = dialogDoors.reply(received.id, reply);
   assert.equal(typeof pending.then, 'function');
   await assert.rejects(pending, /refused/);
   assert.equal(find(received.id).state, 'refused');
   const knocked = sent.length;
-  await assert.rejects(dialogDoors.reply(received.id, '{"type":"human.answer"}'), /refused/);
+  await assert.rejects(dialogDoors.reply(received.id, reply), /refused/);
   assert.equal(sent.length, knocked);
 });
