@@ -1,0 +1,41 @@
+#!/bin/bash
+# nginx hands the desktop stream to Selkies at 127.0.0.1:8082, the image's CUSTOM_WS_PORT default, so an established socket there is an attached client.
+readonly stream_socket_suffix=:1F92
+readonly established_state=01
+readonly desktop_service=/run/service/svc-de
+readonly check_seconds=2
+readonly idle_checks_before_stop=30
+readonly wake_fifo=/run/pots-desktop.wake
+readonly stop_timeout_ms=20000
+readonly desktop_bus_babysitter='dbus-launch --exit-with-session /usr/bin/xfce4-session'
+
+is_client_attached() {
+	local slot local_address remote_address state rest
+	while read -r slot local_address remote_address state rest; do
+		[[ $state == "$established_state" && $local_address == *"$stream_socket_suffix" ]] && return 0
+	done < /proc/net/tcp
+	return 1
+}
+
+stop_desktop() {
+	/command/s6-svc -wD -T "$stop_timeout_ms" -d "$desktop_service" || return 1
+	# The stopped desktop leaves its session bus and accessibility bus running, and each start would add another set.
+	/usr/bin/pkill -TERM -x -f "$desktop_bus_babysitter"
+	return 0
+}
+
+rm -f "$wake_fifo" && mkfifo -m 600 "$wake_fifo" || exit 1
+# Each pause waits on a fifo nobody writes, so a check starts no process.
+exec 3<> "$wake_fifo"
+desktop_state=unknown
+idle_checks=0
+while true; do
+	if is_client_attached; then
+		idle_checks=0
+		[[ $desktop_state == up ]] || { /command/s6-svc -u "$desktop_service" && desktop_state=up && echo "pots-desktop: a client attached, desktop started"; }
+	elif [[ $desktop_state != down ]] && (( ++idle_checks >= idle_checks_before_stop )); then
+		idle_checks=0
+		stop_desktop && desktop_state=down && echo "pots-desktop: no client for $((check_seconds * idle_checks_before_stop)) s, desktop stopped"
+	fi
+	read -r -t "$check_seconds" -u 3
+done

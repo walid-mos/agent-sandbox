@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { ROUTER_MODEL } from './models.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 
-const WORKERS = join(homedir(), '.config/agent-sandbox/workers');
+export const WORKERS = join(homedir(), '.config/agent-sandbox/workers');
 export const RESUME = '--continue';
 export const WORKER_PREFIX = 'pots-';
 // hc accepts terminal names of at most 32 characters.
@@ -68,17 +68,37 @@ export function recordPass(worker, pass, commit) {
   writeFileSync(passRecord(worker.name), JSON.stringify({ ...passes(worker), [pass]: commit }));
 }
 
+export const isLive = terminal => terminal.state === 'live';
+
+export function allTerminals() {
+  return JSON.parse(command('hc', ['ls', '--all'])).terminals;
+}
+
 export function liveTerminals() {
-  return JSON.parse(command('hc', ['ls', '--all'])).terminals.filter(terminal => terminal.state === 'live');
+  return allTerminals().filter(isLive);
 }
 
 export function terminalOf(worker, terminals) {
   return terminals.find(terminal => terminal.name === worker.name);
 }
 
+/** Writes the terminal's screen beside the worker's record, and resolves to that file. */
+export function keepScreen(worker, terminal) {
+  const path = join(WORKERS, `${worker.name}.screen`);
+  writeFileSync(path, command('hc', ['read', terminal.address]), { mode: 0o600 });
+  return path;
+}
+
+// hc keeps an ended terminal in its list until it is removed, so every end of a worker's terminal removes it.
+export function closeTerminal(worker, terminal) {
+  keepScreen(worker, terminal);
+  if (isLive(terminal)) command('hc', ['kill', terminal.address]);
+  command('hc', ['rm', terminal.address]);
+}
+
 export function endTerminal(worker, terminals) {
   const terminal = terminalOf(worker, terminals);
-  if (terminal) command('hc', ['kill', terminal.address]);
+  if (terminal) closeTerminal(worker, terminal);
 }
 
 export function openTerminal({ name, cwd, tab, options = [], label, vaultCommand }) {
@@ -94,7 +114,7 @@ export function launch(worker, conversation) {
     options: ['--no-parent', '--no-notify', '--outlive-parent'],
     vaultCommand: ['pi', '--provider', 'magpie', '--model', worker.model ?? ROUTER_MODEL, ...conversation],
   });
-  const launched = { ...worker, terminal, startedAt: Date.now() };
+  const launched = { ...worker, terminal, startedAt: Date.now(), isClosed: false };
   save(launched);
   return launched;
 }

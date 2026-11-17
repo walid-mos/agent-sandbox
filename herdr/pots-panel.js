@@ -168,7 +168,7 @@ export class PotsPanel {
         .child(label(STATES[state].label, TEXT.micro, colors[STATES[state].color]).flex_none()))
       .child(label(`${worker.repository} · ${worker.branch}`, TEXT.micro, colors.dim))
       .child(h_flex().gap(4)
-        .child(textButton({ id: `open-${worker.name}`, text: "Open", action: () => openWorker(this.sandbox, worker) }))
+        .when(Boolean(worker.terminal), element => element.child(textButton({ id: `open-${worker.name}`, text: "Open", action: () => openWorker(this.sandbox, worker) })))
         .child(textButton({ id: `stop-${worker.name}`, text: this.stopping === worker.name ? "Confirm stop" : "Stop", action: (_event, cx) => this.stop(worker, cx) })))
       .when(Boolean(dialog), element => element.child(dialog));
   }

@@ -6,6 +6,7 @@ import { parsedLine } from './jsonl.mjs';
 import { main } from './main.mjs';
 import { questionIn } from './pots-questions.mjs';
 import { storeSecrets } from './pots-secrets.mjs';
+import { queued } from './queue.mjs';
 import { commandOutput } from './run.mjs';
 import { botHome, botId } from './sandbox.mjs';
 import { endTerminal, isStopped, liveTerminals, markStopped, terminalOf, WORKER_PREFIX, workers } from './workers.mjs';
@@ -85,11 +86,13 @@ async function snapshot() {
     section(['trace', '--bot', botId, '--last', TRACE_LIMIT]),
   ]);
   const terminals = liveTerminals();
+  const waiting = new Set(queued().map(request => request.worker));
   const rows = workers().map(worker => {
     const terminal = terminalOf(worker, terminals);
-    const status = isStopped(worker) ? 'offline' : terminal?.status ?? worker.status ?? 'starting';
+    const isQueued = !terminal && waiting.has(worker.name);
+    const status = isStopped(worker) ? 'offline' : terminal?.status ?? (isQueued ? 'starting' : worker.status ?? 'starting');
     const dialog = status === 'blocked' && terminal ? waitingDialog(terminal) : null;
-    return { ...worker, title: worker.name.slice(WORKER_PREFIX.length), terminal: terminal?.address ?? worker.terminal, status, dialog };
+    return { ...worker, title: worker.name.slice(WORKER_PREFIX.length), terminal: terminal?.address ?? null, status, dialog, isQueued };
   });
   const [status, children, routines, trace] = await sections;
   return {

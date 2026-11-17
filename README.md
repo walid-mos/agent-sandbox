@@ -15,6 +15,8 @@ Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named a
 | `serverPort` | `sealskin` only. Mac-local port of the sandbox's SealSkin server. Each sandbox needs its own |
 | `bot` | Name of the Pots bot that bootstrap creates, in one word |
 | `rules` | Optional. Path, in the session, of an instruction file that the bot and every worker of the sandbox load |
+| `maxWorkers` | Optional. Workers that run at once, the others waiting in the order they came. The default divides the session's memory less 2 GiB by 3 GiB, with at least 1. The kernel reports a little less than the VM's size, so a 20 GB VM runs 5, a 10 GB VM 2, and an 8 GB or 2 GB VM 1. The 2 GiB for the session and 3 GiB per worker are estimates until `bin/pots-load` measures a pot |
+| `idleStackMinutes` | Optional, 30 by default. Minutes a worker's worktree goes with no live terminal before the watcher stops its Compose projects |
 | `owners` | GitHub owners that the dispatcher and the GitHub wrapper accept, each with the name of its token in the vault's `/tools/github` |
 | `secrets` | Other vault folders, each with the names injected from it |
 | `onRequest` | Named groups of vault folders and names, injected only into a command that asks for the group |
@@ -22,7 +24,7 @@ Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named a
 | `doors` | Optional. The pots this pot can ask through [their doors](#doors), each with one line on what it owns |
 | `sources` | Names from [the source catalog](session/agent-sources.json) that the session fetches and installs, such as `["pi", "herdr"]`. A catalog source left out is never fetched |
 
-Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). One file serves every pot: `~/.config/agent-sandbox/tailnet.json`, beside the sandboxes, holds `operatorLogin`, the Tailscale login of the operator's devices, which [the pots policy](#tailnet-and-doors) grants and the node checks expect. `./bin/vm-config` copies these files into the VM's `/etc/agent-sandbox`, readable by every user of the VM and writable by root only, and `vm-up` runs it. The session mounts that VM directory read-only at the same path. An edit on the Mac reaches the sandbox at the next `./bin/vm-config`. From there, the next command reads a changed `owners`, `secrets`, `onRequest` or `doors`. `vm` applies when the VM next starts, `serverPort` when the server is next created, and `bot`, `rules` and `role` at the next bootstrap. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart.
+Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). One file serves every pot: `~/.config/agent-sandbox/tailnet.json`, beside the sandboxes, holds `operatorLogin`, the Tailscale login of the operator's devices, which [the pots policy](#tailnet-and-doors) grants and the node checks expect. `./bin/vm-config` copies these files into the VM's `/etc/agent-sandbox`, readable by every user of the VM and writable by root only, and `vm-up` runs it. The session mounts that VM directory read-only at the same path. An edit on the Mac reaches the sandbox at the next `./bin/vm-config`. From there, the next command reads a changed `owners`, `secrets`, `onRequest` or `doors`. `vm` applies when the VM next starts, `serverPort` when the server is next created, `bot`, `rules` and `role` at the next bootstrap, and `maxWorkers` and `idleStackMinutes` when the watcher next starts, which bootstrap does. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart.
 
 [The VM's vault broker](vm/vault-broker) refuses a listed name starting with `INFISICAL_`, since such a name carries vault access, and `./bin/check` refuses one in the examples, and an example whose `sources` is not a list of catalog names.
 
@@ -200,7 +202,7 @@ Terminal, at the start of the control bar under Principal, opens a resizable pan
 
 The installer adds Cmd-T to show or hide the pane (the same key hides it again), Cmd-Shift-J for a new shell and Cmd-Alt-J to focus the next shell, scoped to `command-center-pots`. It leaves a shortcut another action already holds untouched, which is why the pane does not use Cmd-J: Command Center binds it. A `keys.json` that is not valid JSON is left alone and reported once on standard error, and the shortcuts are bound on the first run after it is fixed. The commands also work from a terminal: `herdr-app do pots.terminal`, `herdr-app do pots.terminal-new` and `herdr-app do pots.terminal-next`. `herdr-app do pots.terminal-machine` opens the computer picker from the keyboard. Shell keys, including Escape and Ctrl-C, go to the terminal program. A popup computer picker takes Up, Down and Enter, with Escape to dismiss it.
 
-Five toggles sit above the conversation: Workers, Recent wakes, Routines, Pots children and Gateway. Each one shows or hides its section, and the Workers toggle carries the chosen bot's worker count. Every toggle starts off, so the conversation takes the full width. The sections that are on stack in a sidebar to the right of the conversation, or under it when the pane is narrow. A narrow pane with several bots also moves the toggles to their own row under the tabs. Open and Stop in the Workers section act on the chosen sandbox's workers. The toggles keep their state when the bot changes. Herdr does not store them, so they start off again each time the pane loads.
+Five toggles sit above the conversation: Workers, Recent wakes, Routines, Pots children and Gateway. Each one shows or hides its section, and the Workers toggle carries the chosen bot's worker count. Every toggle starts off, so the conversation takes the full width. The sections that are on stack in a sidebar to the right of the conversation, or under it when the pane is narrow. A narrow pane with several bots also moves the toggles to their own row under the tabs. Open and Stop in the Workers section act on the chosen sandbox's workers. Open shows only for a worker whose terminal runs. The toggles keep their state when the bot changes. Herdr does not store them, so they start off again each time the pane loads.
 
 A worker that waits on Pi's `ask_user_question` in its terminal shows that question under its row in the Workers section: each question with its options, and a field for an answer of your own where the question takes one. The Workers toggle counts the workers asking. Answer hands the choices to `control.mjs answer-dialog`, which reads the open question from the worker's Pi session file, the one its terminal's `pi.session` label names, and presses in its terminal the keys a person would press. The row then shows for a minute what the worker received. Those keys start from the question as it opened, so a questionnaire resumed after Discuss, with answers from the terminal, is left to the terminal. So is a secret the worker asks for, and any other dialog: the row says what it waits for, and Open is where to answer it.
 
@@ -277,9 +279,10 @@ A recreated session, or a restarted VM, comes back as follows.
 | Router | Starts on its own with its keys and its Claude account, with no seed |
 | Gateway and watcher | Start on their own, with no bootstrap |
 | Bot | Keeps its conversation and answers again |
-| Unfinished worker | Resumed once in a new terminal, then idle until the bot instructs it |
+| Unfinished worker | Queued once for a resume in a new terminal, then idle until the bot instructs it |
 | Completed or stopped worker | Stays closed |
 | Containers of a development stack | Kept but stopped. Start their Compose project again |
+| Desktop | Starts with the session, and stops after 60 seconds with no client attached |
 | Development tunnels on the Mac | Gone. Start them again |
 
 The desktop UI after a restart is unchecked. Rerun the boundary probe after lifecycle changes.
@@ -323,13 +326,13 @@ The bot starts and reaches workers itself. To do it by hand, create a brief or a
 ./bin/sandbox-exec /opt/agent-sandbox/session/with-vault node /opt/agent-sandbox/session/dispatch.mjs send WORKER /config/message.md
 ```
 
-`send` pastes the message into the worker's live terminal. A worker whose terminal has closed, or that was stopped, comes back in a new terminal with its conversation and reads the message there.
+`send` pastes the message into the worker's live terminal. A worker whose terminal has closed, or that was stopped, comes back in a new terminal with its conversation and reads the message there, once a slot is free.
 
-The dispatcher accepts repositories under the sandbox's `owners`. It clones or fetches the repository, creates a new branch and worktree from the default branch or an optional final base argument, opens a draft PR, and launches Pi through `hc`. Branches must use a supported prefix such as `feat/`, `fix/`, `chore/`, `docs/`, `refactor/` or `test/`, followed by lowercase letters, digits or hyphens. The worker takes its name from the repository and the whole branch, shortened with a digest when the name exceeds hc's limit. A dispatch whose worker name already has a record is rejected before the clone, the worktree and the draft PR. An existing worktree is rejected. A later failure can leave the clone, worktree or draft PR behind, so inspect those before retrying.
+The dispatcher accepts repositories under the sandbox's `owners`. It clones or fetches the repository, creates a new branch and worktree from the default branch or an optional final base argument, opens a draft PR, and queues the worker. `start` prints the worker's record with `ahead`, the requests queued before it, and `maxWorkers`. Branches must use a supported prefix such as `feat/`, `fix/`, `chore/`, `docs/`, `refactor/` or `test/`, followed by lowercase letters, digits or hyphens. The worker takes its name from the repository and the whole branch, shortened with a digest when the name exceeds hc's limit. A dispatch whose worker name already has a record is rejected before the clone, the worktree and the draft PR. An existing worktree is rejected. A later failure can leave the clone, worktree or draft PR behind, so inspect those before retrying.
 
 Gateway and watcher wrappers wait indefinitely if their prerequisites are missing at service start. Bootstrap restarts both after installing prerequisites. Check their status before relying on automatic reports.
 
-Worker briefs and records live under `/config/.config/agent-sandbox/workers`. The watcher polls their terminal state and wakes the bot with the branch, commit, uncommitted-path count, unpushed-commit count, clean-pass record and PR URL. It marks a worker complete only when its status is `done`, its worktree is clean and no commit is missing from `origin`. That signal does not verify PR checks or a merge. A lost unfinished worker is resumed once per watcher process. A terminal that just started is never treated as lost, because the vault login shows no agent status at first. A completed or stopped worker is relaunched only by a `send`. A stop is a `NAME.stopped` file beside the worker's record, which a `send` removes, and the watcher ends any terminal of a stopped worker that it finds running.
+Worker briefs and records live under `/config/.config/agent-sandbox/workers`, and the requests of `start` and `send` wait in its `queue` folder, one file each, named by the time they came. The watcher launches Pi through `hc` for the oldest request while fewer than `maxWorkers` workers have a live terminal. A request for a stopped worker leaves the queue. A launch that fails wakes the bot once with the status `not started` and the reason, and its request leaves the queue. A message for a worker that has not shown a status yet waits in the queue until it does. The watcher follows `hc events` and looks at the workers when a terminal starts, ends, or changes status or turn, so it runs no command while nothing changes. It reopens the stream five seconds after hc's core restarts. It wakes the bot with the worker's title, branch, commit, uncommitted-path count, unpushed-commit count, clean-pass record and PR URL. When a worker reports `done`, the watcher writes its screen to `NAME.screen` beside its record and names that file in the note, then ends and removes its terminal, which frees its slot. A message that started a new turn meanwhile keeps the terminal open. Any other end of a worker's terminal, a stop, a crash or a resume, also keeps its screen in that file and removes the terminal, so hc lists no finished worker terminal. It marks a worker complete only when its status is `done`, its worktree is clean and no commit is missing from `origin`. That signal does not verify PR checks or a merge. A lost unfinished worker is queued for a resume once per watcher process. A terminal that just started is never treated as lost, because the vault login shows no agent status at first. A completed, closed or stopped worker is relaunched only by a `send`, with its conversation. A stop is a `NAME.stopped` file beside the worker's record, which a `send` removes, and the watcher ends any terminal of a stopped worker that it finds running.
 
 A thread outside the pots reports to the Mastermind through its Herdr machine, from either Mac. The Mastermind reads the note and tells the person in the Pots pane. A report starts no work. `--from` accepts letters, digits, `-` and `_` only, so the thread's title opens the note.
 
@@ -398,11 +401,41 @@ The probe reports repository identity, push permission and a HEAD commit without
 
 The session's Docker daemon is separate from the VM daemon used by SealSkin. Give each worktree its own Compose project and published ports. Keep overrides and application environment injection outside client repositories. Pass application variables by name into app containers, excluding unrelated provider, GitHub and vault credentials. Client push rules still apply.
 
+The watcher stops the Compose projects of a worker's worktree once no live hc terminal has had its folder in that worktree for `idleStackMinutes`. It finds them by their `com.docker.compose.project.working_dir` label, at or under the worktree, runs `docker compose -p PROJECT stop` from `/`, and removes no container and no volume. `docker compose start` brings a project back, and each worker's brief says so. The clock starts when the watcher starts or the worktree's last terminal ends, and a terminal in the worktree resets it. A project outside every worker's worktree keeps running.
+
 A development server in the session gets its link from the session's own tailnet node: run `tailnet-link PORT` in the session, as on any machine. The link names the pot.
+
+### Load
+
+```sh
+./bin/pots-load --seconds 30
+```
+
+[The load command](session/load.mjs) measures the running session over a window, 10 seconds unless `--seconds` says otherwise, and prints one JSON line. Inside a pot, `node /opt/agent-sandbox/session/load.mjs` prints the same line. The session reads its VM's `/proc`, so the CPU, pressure and memory figures are the VM's as the session sees them.
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | 1. A field that changes meaning raises it |
+| `bot`, `at`, `windowSeconds` | The sandbox's bot, the end of the window in UTC, and its length |
+| `cpu.busyPercent`, `cpu.iowaitPercent`, `cpu.stealPercent` | Shares of all vCPU time over the window, from `/proc/stat`: running, idle with a read or write pending, and taken by the hypervisor |
+| `cpu.load1` | The one-minute load average |
+| `pressure.cpu`, `pressure.io`, `pressure.memory` | `/proc/pressure`. Under `some`, at least one task waited for the resource, and under `full`, every task did. `avg10`, `avg60` and `avg300` are the kernel's averages in percent, and `windowPercent` is the share of this window |
+| `memory` | `totalKiB`, `availableKiB`, `swapTotalKiB` and `swapFreeKiB` from `/proc/meminfo`, and `sessionKiB`, what the session container holds |
+| `terminals` | hc's `live` and `finished` terminals, and `workersLive` and `workersFinished` among them |
+| `containers` | The `running` and `total` inner containers, and under `composeProjects` each Compose project with its own `running` and `total` |
+| `unavailable` | Each part that could not be read, with the reason. Its fields are `null` |
+
+CPU wait is `cpu.iowaitPercent`, and `pressure.io.some.windowPercent` is the share of the window in which a task waited on a disk. Compare two runs of the same length, taken under the same work.
 
 ### CPU
 
 The pane's requests, the bot and the session's Herdr keep the default CPU priority, and worker jobs run behind them. A worker, a clean pass and the processes they start run at niceness 10, set where [their terminal opens](session/workers.mjs). The session user can lower a priority and cannot raise one, so the workers step down. Inner containers, the PR factory's check containers among them, all run under one cgroup. [The Docker service](session/services.d/docker) gives that cgroup a CPU weight of 10 against the session's 100 when it starts, so a running session takes a changed weight at its next restart. A weight on one container, such as `--cpu-shares`, only ranks it among the other containers. Neither setting caps a job: a worker alone on idle vCPUs runs at full speed.
+
+### Desktop
+
+The session's desktop, XFCE with every window opened in it, Herdr's among them, runs only while a client watches its stream. [The desktop service](session/services.d/pots-desktop), which s6 runs as root, reads the kernel's TCP table every two seconds for an established socket on 127.0.0.1:8082, where nginx hands the stream to Selkies. A check starts no process. A client that attaches starts the desktop at the next check, and its autostart entries run again. Sixty seconds with no client stops it: s6 ends the desktop and every process under it, and the service ends the session bus and accessibility bus the desktop leaves behind. Save your work in a desktop window before you leave it.
+
+Xvfb, Selkies and nginx keep running, so a client connects at once and sees the desktop a few seconds later. The hc core leaves the process tree of whatever starts it, the desktop included, so the bot, the workers and the Pots pane, which reaches the session through hc over ssh, keep running while the desktop is down. The X display stays up for a worker's browser or test runner.
 
 ### Memory
 
@@ -416,7 +449,7 @@ The only lever is a lower `vm.memoryGiB` in the sandbox's file. Apply it with `c
 colima ssh -p "$SANDBOX" -- python3 /opt/agent-sandbox/vm/memory.py
 ```
 
-Size the cap from your own workload, measured with the memory command. Take three figures: the session alone, with its desktop, gateway and Docker daemon, then one worker with no development stack, then the stack a worker starts, both at rest and at its peak. The cap must hold the session plus every worker with its stack at peak whenever the stacks can peak together. Stacks at rest let more workers fit under the same cap. A sandbox whose `vm.swapGiB` is 0 has no swap, so exceeding the cap there ends with the kernel killing a process.
+Size the cap from your own workload, measured with the memory command. Take three figures: the session alone, with a client attached so its desktop runs, its gateway and Docker daemon, then one worker with no development stack, then the stack a worker starts, both at rest and at its peak. The cap must hold the session plus every worker with its stack at peak whenever the stacks can peak together. Stacks at rest let more workers fit under the same cap. A sandbox whose `vm.swapGiB` is 0 has no swap, so exceeding the cap there ends with the kernel killing a process.
 
 `vm.swapGiB` gives the VM a swap file of that size, `/swapfile` on its root disk. The file takes Mac disk space and no Mac memory, so the memory cap and the Mac's margin stay as they are. [The VM setup](vm/setup.sh) creates, resizes or removes the file to match the setting, and turns it on at every `./bin/vm-up`. The file has no boot entry, so a VM that starts without `vm-up`, such as one that reboots on its own, runs without swap until the next `vm-up`.
 
