@@ -12,7 +12,6 @@ LAUNCH_ENV = Path("/etc/pots-door/launch.env")
 STATE = Path("/var/lib/pots-door")
 DOCKER = "/usr/bin/docker"
 TAILSCALE = "/usr/bin/tailscale"
-SESSION_USER = "abc"
 RECEIVER = "/opt/agent-sandbox/session/door-receive"
 CALLER_TAG_PREFIX = "tag:pot-"
 MESSAGE_LIMIT_BYTES = 16384
@@ -33,6 +32,8 @@ DELIVERY_FAILED = 70
 TRY_LATER = 75
 SESSION_REFUSED = 76
 NOT_ALLOWED = 77
+# Docker resolves --user from the image's account, not the one the session's init renumbered, so the session resolves it once that init has finished.
+AS_SESSION_USER = 's6-rc -a list < /dev/null 2> /dev/null | grep -qx "$1" || exit 1; exec s6-setuidgid "$2" env HOME="$3" "$4" "$5"'
 
 
 class Refusal(Exception):
@@ -135,16 +136,17 @@ def checked_message(caller, receiver, access):
     return raw, request_id(text, caller, receiver, access)
 
 
-def session_label():
+def launch_setting(name):
     for line in LAUNCH_ENV.read_text().splitlines():
-        name, _, value = line.partition("=")
-        if name == "POTS_SESSION_LABEL":
+        key, _, value = line.partition("=")
+        if key == name:
             return value
-    refuse(NO_SESSION, f"{LAUNCH_ENV} names no POTS_SESSION_LABEL")
+    refuse(NO_SESSION, f"{LAUNCH_ENV} names no {name}")
 
 
 def session_container():
-    listing = subprocess.run([DOCKER, "ps", "--filter", "label=" + session_label(), "--filter", "status=running",
+    label = launch_setting("POTS_SESSION_LABEL")
+    listing = subprocess.run([DOCKER, "ps", "--filter", "label=" + label, "--filter", "status=running",
                               "--format", "{{.Names}}"], capture_output=True, text=True)
     names = listing.stdout.split()
     if listing.returncode or not names:
@@ -154,7 +156,9 @@ def session_container():
 
 # The session's output never reaches the caller: it could carry text written to steer the caller's bot.
 def deliver(raw, caller, container):
-    command = [DOCKER, "exec", "--interactive", "--user", SESSION_USER, container, RECEIVER, caller]
+    settings = [launch_setting(name) for name in ("POTS_SESSION_INIT_SERVICE", "POTS_SESSION_USER", "POTS_SESSION_HOME")]
+    command = [DOCKER, "exec", "--interactive", "--user", "root", container, "sh", "-c", AS_SESSION_USER, "pots-door", *settings,
+               RECEIVER, caller]
     try:
         result = subprocess.run(command, input=raw, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 timeout=DELIVERY_SECONDS)
