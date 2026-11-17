@@ -1,14 +1,14 @@
 # agent-sandbox
 
-Development sandboxes for a Pots bot and its Pi workers. Each sandbox is a desktop session on its own VM, a Colima VM on the Mac or a Proxmox VM on a node, started either by plain Docker or, on Colima, by SealSkin. The session has its own writable home and nested Docker daemon. A Colima session reads the Mac's Development directory; a Proxmox session reads nothing from the Mac.
+Development sandboxes for a Pots bot and its Pi workers. Each sandbox is a desktop session on its own VM, a Colima VM on the Mac or a Proxmox VM on a node, started either by plain Docker or, on Colima, by SealSkin. The session has its own writable home and nested Docker daemon, and reads this repository from its VM's own clone. Nothing of the Mac is mounted in the VM or in the session.
 
 ## Sandboxes
 
-Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named after it, holding `sandbox.json`. [`sandboxes.example/`](sandboxes.example) holds a starting point, which `./bin/configure-host [docker|sealskin|proxmox]` copies when the runtime directory has none. `POTS_RUNTIME` names another runtime directory, which keeps a trial sandbox out of the watchdog's sight. That name is also its Colima profile or Proxmox VM name. Every command under `bin/` and `mac/` acts on the sandbox that `SANDBOX` names and stops when it is unset.
+Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named after it, holding `sandbox.json`. [`sandboxes.example/`](sandboxes.example) holds a starting point, which `./bin/configure-host [docker|sealskin|proxmox]` copies when the runtime directory has none. `POTS_RUNTIME` names another runtime directory, which keeps a trial sandbox out of the watchdog's sight. That name is also its Colima profile or Proxmox VM name. Every command under `bin/` and `mac/` acts on the sandbox that `SANDBOX` names and stops when it is unset. Inside a VM, a command of its own clone at `/opt/agent-sandbox` run with `POTS_TRANSPORT=local` acts on that VM's sandbox and needs no `SANDBOX`: the keeper and the forced command of the session keys run that way. `vm-up`, `vm-config` and `probe-boundary` refuse it and run only from the operator's checkout.
 
 | Key | Meaning |
 | --- | --- |
-| `provider` | `colima` (the default) or `proxmox`: where the sandbox's VM runs. [Proxmox sandboxes](#proxmox-sandboxes) describes the second |
+| `provider` | `colima` (the default) or `proxmox`: where the sandbox's VM runs. [Proxmox sandboxes](#proxmox-sandboxes) describes the second. The Mac's watchdog keeps only the sandboxes on `colima` |
 | `proxmox` | `proxmox` only. The node and the VM's network |
 | `launcher` | `docker` (the default) or `sealskin`. Docker starts the session image with `docker run`. SealSkin starts it through its server, as before |
 | `vm` | Cores, memory, swap file and disk of the VM |
@@ -20,31 +20,30 @@ Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named a
 | `secrets` | Other vault folders, each with the names injected from it |
 | `onRequest` | Named groups of vault folders and names, injected only into a command that asks for the group |
 
-Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). The session mounts that directory read-only at `/etc/agent-sandbox`; on Proxmox, `vm-up` first copies it into the VM. The next command reads a changed `owners`, `secrets` or `onRequest`. `vm` applies when the VM next starts, `serverPort` when the server is next created, and `bot` and `rules` at the next bootstrap. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart. The watchdog's next check applies a changed `tailnetSshPort`, and the old port stays served until `tailscale serve --tcp=PORT off`.
+Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). `./bin/vm-config` copies these files into the VM's `/etc/agent-sandbox`, readable by every user of the VM and writable by root only, and `vm-up` runs it. The session mounts that VM directory read-only at the same path. An edit on the Mac reaches the sandbox at the next `./bin/vm-config`. From there, the next command reads a changed `owners`, `secrets` or `onRequest`. `vm` applies when the VM next starts, `serverPort` when the server is next created, and `bot` and `rules` at the next bootstrap. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart. The watchdog's next check applies a changed `tailnetSshPort`, and the old port stays served until `tailscale serve --tcp=PORT off`.
 
 ## Install on the operator's Mac
 
-The configuration targets Apple Silicon macOS. The checkout lives under the Development directory that `~/.config/agent-sandbox/host.json` names as `developmentDirectory`. The VM mounts that directory and its sandbox's directory read-only at the same paths, and the session template, session services, Pots pane and remote connector read the checkout path from the host configuration. Host names, the Git identity and the vault project stay in that private directory, never in this repository: `./bin/import-private OLD_CHECKOUT` copies them out of an older checkout without changing it.
+The configuration targets Apple Silicon macOS. A VM mounts nothing of the Mac. `vm-up` clones the public origin that [`session/launch.env`](session/launch.env) names into the VM's `/opt/agent-sandbox`, on the branch the Mac checkout is on, and copies the sandbox's files into `/etc/agent-sandbox`. The session binds both read-only at the same paths. Host names, the Git identity and the vault project stay in `~/.config/agent-sandbox`, never in this repository: `./bin/import-private OLD_CHECKOUT` copies them out of an older checkout without changing it. Its `host.json` holds `macHost` and `peerHost`, which `probe-boundary` checks the session cannot reach, and `connectHost` and `remoteSandboxRepository`, which [the connector](mac/sealskin-connect) reads.
 
 Install Colima, the Docker CLI with Compose, Node, curl and jq first. The Mac also needs the Pi harness in the home directory's `.pi/agent`, its Infisical machine authentication and a binding whose `boats` key identifies the Agents Sandboxes identity. The host identity must be allowed to mint that identity's client secret. Never put credential values in this repository or a command line.
 
-Run these commands from the Mac checkout. Keep `sandbox_repo` and `SANDBOX` set for the later host commands.
+Run these commands from the Mac checkout. Keep `SANDBOX` set for the later host commands.
 
 ```sh
 cd /path/to/agent-sandbox
-sandbox_repo="$PWD"
 export SANDBOX=sealskin
 ./bin/vm-up
 ./bin/sealskin-up   # launcher sealskin only
 ```
 
-With the `docker` launcher, `vm-up` is the only step before `./bin/pots-session ensure`: no server starts and no admin setup exists. `pots-session` then runs the session image with `docker run`, with the same runtime, label, home volume `pots-home`, inner Docker volume and binds as SealSkin. [`session/launch.env`](session/launch.env) holds the image digest, runtime and volume names that both launchers read, and `./bin/render-config binds SANDBOX` prints the binds. `sealskin-up`, `sealskin-apply` and `mac/forward-dev` refuse a docker sandbox.
+With the `docker` launcher, `vm-up` is the only step before `./bin/pots-session ensure`: no server starts and no admin setup exists. `pots-session` then runs the session image with `docker run`, with the same runtime, label, home volume `pots-home`, inner Docker volume and binds as SealSkin. [`session/launch.env`](session/launch.env) holds the image digest, runtime and volume names that both launchers read, and `./bin/render-config binds` prints the binds. `sealskin-up`, `sealskin-apply` and `mac/forward-dev` refuse a docker sandbox.
 
-`vm-up` writes the Colima profile from [the Colima template](colima/colima.yaml) and the sandbox's `vm` values, then starts the VM when it is stopped. It installs Sysbox, the container runtime, and enables the firewall service. Review the template and [the firewall configuration](vm/network.env) before starting. `sealskin-up` starts the server and applies the app template. Applying configuration restarts the SealSkin server and waits for it to load the template and installed app before returning.
+`vm-up` writes the Colima profile from [the Colima template](colima/colima.yaml) and the sandbox's `vm` values, then starts the VM when it is stopped, with no mount: Colima mounts the Mac home for an empty `mounts` list, so the template sets it to `null` and the start also passes `--mount none`. It clones or fast-forwards `/opt/agent-sandbox`, copies the configuration, installs Sysbox, the container runtime, enables the firewall service and starts the VM's keeper and update timers. A VM started with a mount keeps it until it stops: `pots-session` refuses to launch there, as [the host-path check](vm/check-host-paths) says, and `probe-boundary` fails. Review the template and [the firewall configuration](vm/network.env) before starting. `sealskin-up` starts the server and applies the app template. Applying configuration restarts the SealSkin server and waits for it to load the template and installed app before returning.
 
 With the `sealskin` launcher, complete SealSkin's initial admin setup through its Mac-local endpoint, `https://127.0.0.1:PORT`, where `PORT` is the sandbox's `serverPort`. The session API requires SealSkin's `/config/root_key`, and the installed Pots app is assigned to `admin`. This repository does not automate that initial admin setup.
 
-Then create the session and bootstrap its tools:
+The VM's keeper launches the session within a minute of `vm-up`. To have it at once, and to bootstrap its tools:
 
 ```sh
 ./bin/pots-session ensure
@@ -79,7 +78,7 @@ A device whose Herdr adds machines by ssh only, such as the phone, reaches a ses
 
 ## Proxmox sandboxes
 
-A sandbox whose `provider` is `proxmox` runs on a VM of a Proxmox VE node, reached over ssh as root. `./bin/vm-up` creates that VM once and starts it. It copies the checkout's committed `HEAD` to `/opt/agent-sandbox` in the VM and the sandbox's directory to `/etc/agent-sandbox`, then runs the same [VM setup](vm/setup.sh) and [session keys](vm/session-keys) as on Colima. The session binds those two VM paths, and nothing from the Mac is mounted. Commit a change before `vm-up` for the VM to receive it. [The example](sandboxes.example/proxmox/sandbox.json) is a starting point.
+A sandbox whose `provider` is `proxmox` runs on a VM of a Proxmox VE node, reached over ssh as root. `./bin/vm-up` creates that VM once and starts it. As on Colima, it clones this repository into `/opt/agent-sandbox` in the VM, copies the sandbox's files to `/etc/agent-sandbox`, then runs the [VM setup](vm/setup.sh) and [session keys](vm/session-keys). The session binds those two VM paths, and nothing from the Mac is mounted. Push a change to the branch the VM's clone follows for the VM to receive it. [The example](sandboxes.example/proxmox/sandbox.json) is a starting point.
 
 | `proxmox` key | Meaning |
 | --- | --- |
@@ -114,7 +113,7 @@ Limits:
 
 - The pinned image is amd64, so the node must be amd64.
 - Only cores, memory, CPU weight and a larger disk reach an existing VM. A changed `address`, `storage`, `bridge` or `gateway` needs a new VM, which `vm-up` never creates over an existing one. No command stops or deletes a Proxmox VM.
-- The copies follow the checkout's `HEAD` at each `vm-up` and update in place, so a running session keeps its binds. A Git clone at either path is left as it is.
+- As on Colima, the VM's clone takes the pushes to its branch within five minutes, and a changed sandbox file reaches the VM at the next `./bin/vm-config`.
 - The SealSkin launcher, `mac/forward-dev` and the tailnet ssh port exist only on Colima.
 
 ## Agent sources
@@ -133,7 +132,7 @@ Each session provisions the Pi harness, the Herdr configuration and, for a sandb
 
 A source whose origin differs from the catalog stops with an error. `allowCutover: true` in the private `provisioning.json` lets the next run move that checkout to the new history in place: it fetches the new `main`, keeps the previous head under `refs/agent-sandbox/before-origin-switch`, resets with `--keep` so edited files stop it, then points `origin` at the new address. Untracked files, linked worktrees and task branches stay. An untracked file that collides with a tracked one in the new history stops the switch before anything changes.
 
-For this checkout on a Mac, run `./bin/import-private OLD_CHECKOUT` from a clone of the new repository first. It copies host names, the Git identity, the vault project and the sandbox configurations out of the old checkout into `~/.config/agent-sandbox`, and records the old revision. Then run `python3 lib/source_refresh.py NEW_URL OLD_CHECKOUT --allow-cutover` from that clone. The watchdog's own update keeps following `origin` afterwards. A running session still binds the old `sandboxes/` directory, and its VM keeps the mounts it started with. For each sandbox, once: run `./bin/pots-session stop`, which stops every worker in the session, then `colima stop --profile "$SANDBOX"`, `./bin/vm-up`, `./bin/sealskin-up` and `./bin/pots-session ensure`.
+For this checkout on a Mac, run `./bin/import-private OLD_CHECKOUT` from a clone of the new repository first. It copies host names, the Git identity, the vault project and the sandbox configurations out of the old checkout into `~/.config/agent-sandbox`, and records the old revision. Then run `python3 lib/source_refresh.py NEW_URL OLD_CHECKOUT --allow-cutover` from that clone. The watchdog's own update keeps following `origin` afterwards. Each VM's clone has its own origin, and the switch leaves it as it is.
 
 ## Daily operations
 
@@ -183,21 +182,23 @@ herdr-app do layout.switch '{"name":"command-center-pots"}'
 
 The same last command with `command-center` returns to the Principal terminal.
 
-The watchdog starts at user login. Every minute it brings the checkout and the pane up to date, as described above, then checks, for every sandbox under `sandboxes/`, that its VM, its SealSkin server and its session are running, then that [the session still has the checkout's directories bound](mac/session-binds) and that its tailnet ssh port points at the VM. It therefore creates the VM of a directory added there. Its LaunchAgent configuration comes from [the installer](mac/install-watchdog). Apart from Magpie, which it keeps at [the bootstrap pin](session/bootstrap), it does not update the session's tools, mint credentials or rebootstrap the session. Loading the agent with the VM stopped brings all three back, which is the path a login takes. A real Mac reboot has not been exercised.
+The watchdog starts at user login. Every minute it brings the checkout and the pane up to date, as described above, then checks, for every sandbox under `sandboxes/` on the `colima` provider, that its VM and its SealSkin server are running and that its tailnet ssh port points at the VM. It therefore creates the VM of a directory added there. A sandbox on another provider is left to the keeper of its own VM. Its LaunchAgent configuration comes from [the installer](mac/install-watchdog). Loading the agent with the VM stopped brings the VM and its server back, and the VM's keeper the session, which is the path a login takes. A real Mac reboot has not been exercised.
 
-Keep the Mac checkout on a branch that holds this code. Every session binds directories of the checkout and the Mac reaches each sandbox through its scripts, so a branch without them cuts all sandboxes off until the branch is back. Git recreates the directories on the way back, and the watchdog's next check binds them into the running sessions again, with no restart.
+Each VM keeps its own session. `pots-keeper.timer` runs [the keeper](vm/keeper) every minute: it runs `pots-session ensure`, then keeps Magpie at [the bootstrap pin](session/bootstrap). It does not update the session's tools, mint credentials or rebootstrap the session. Docker and the timers start with the VM, so a stopped session or a restarted VM comes back within a minute. `pots-update.timer` fast-forwards `/opt/agent-sandbox` every five minutes on the branch the clone is on, with [the refresh](lib/source_refresh.py) the sessions use for their sources: a clone with an edited file, on no branch, or with Git configuration that runs commands stays as it is, and `journalctl -u pots-update` in the VM says why. The units run the clone's scripts in place, so a fast-forward reaches the keeper with no reinstall. A changed unit file, firewall or Sysbox version waits for the next `./bin/vm-up`.
+
+No session reads the Mac checkout, so switching its branch changes no running session. The Mac still reaches each sandbox through the checkout's scripts, so a branch whose scripts predate this layout cannot reach the sandboxes until the branch is back.
 
 Run the following from the Mac checkout:
 
 ```sh
 ./bin/pots-session name
 ./bin/pots-session ensure
-./bin/sandbox-exec "$sandbox_repo/session/with-vault" pots status
+./bin/sandbox-exec /opt/agent-sandbox/session/with-vault pots status
 ./bin/sandbox-exec hc ls --all
 ./bin/probe-boundary
 ```
 
-`name` prints the running session container name, or nothing. `ensure` launches a session if none is running. `ensure` and `restart` hold one lock, so the watchdog's check waits for a restart to finish and never launches a second session on the same home. `sandbox-exec` runs a command as the session user and fails when no session exists. Use `pots status` for the gateway and bot state, and `hc ls --all` for worker terminals.
+`name` prints the running session container name, or nothing. `pots-session` runs in the VM: from the Mac it hands its command to the VM's clone through `sudo`. `ensure` launches a session if none is running, once the VM shows no path of the Mac. `ensure` and `restart` hold one lock in the VM, `/run/pots-session.lock`, so the keeper's check waits for a restart to finish and never launches a second session on the same home. `sandbox-exec` runs a command as the session user and fails when no session exists. Use `pots status` for the gateway and bot state, and `hc ls --all` for worker terminals.
 
 [The server image](sealskin/compose.yaml) and [the session image](session/launch.env) are pinned by digest, and SealSkin's hourly image pull is off for the session app. Change the session image by committing its new digest in `session/launch.env`, then run `./bin/pots-session restart` (after `./bin/sealskin-apply` for SealSkin). Change the server image in its compose file and rerun `./bin/sealskin-up`.
 
@@ -215,12 +216,14 @@ Docker requires the firewall unit. Never stop or restart `pots-firewall.service`
 
 The unit is a oneshot, so `systemctl is-active pots-firewall.service` answers `inactive` once its run has ended. That is its healthy state, and a run that failed answers `failed`. To check the firewall, read `systemctl show docker.service --property Requires`, which must name the unit, and `sudo iptables -S DOCKER-USER`, which must list the `DROP` rules.
 
-To stop the Pots session deliberately, unload the watchdog first so it will not recreate the session:
+To stop the Pots session deliberately, stop the VM's keeper first so it will not recreate the session:
 
 ```sh
-launchctl bootout "gui/$(id -u)/fr.nextnode.agent-sandbox"
+./bin/vm-exec sudo systemctl stop pots-keeper.timer
 ./bin/pots-session stop
 ```
+
+`sudo systemctl start pots-keeper.timer` in the VM, the next `./bin/vm-up` or a VM restart brings the keeper back.
 
 Stopping the session leaves the SealSkin server and Colima VM running. The named Pots home and inner Docker volume hold persistent state. `restart` stops and recreates the session.
 
@@ -260,11 +263,11 @@ For Codex, [the adapter](session/router-codex.mjs) validates the publication and
 
 [The launcher](session/router.mjs) runs the shared sync at startup and on refresh. The gateway starts listening first so a slow vault read does not make the watchdog restart it. Each provider syncs on its own: a missing or failing credential is reported and skipped, the others still import, and the round retries after one minute. Its schedule follows the publication expiry, and failures retry without stopping the gateway. This also lets a first installation wait for its seed. A stale Codex publication cannot replace the previous file, and an expired access token cannot be renewed in the sandbox. Existing Codex and Pi sign-ins stay outside the managed directory.
 
-On every check, the Mac watchdog compares both the installed Magpie and the running gateway against [the bootstrap pin](session/bootstrap). A mismatch installs the verified binary with `--router-only`, replaces the executable atomically, and restarts only `pots-router`. The next start imports fresh vault values. The upgrade keeps the same home, sign-ins, provider definitions and groups, without restoring the seed again. The watchdog retries an incomplete upgrade on its next check. No manual Mac command or restart of Principal, Factory, the Pots gateway or the worker watcher is required.
+On every check, the VM's keeper compares both the installed Magpie and the running gateway against [the bootstrap pin](session/bootstrap). A mismatch installs the verified binary with `--router-only`, replaces the executable atomically, and restarts only `pots-router`. The next start imports fresh vault values. The upgrade keeps the same home, sign-ins, provider definitions and groups, without restoring the seed again. The keeper retries an incomplete upgrade on its next check. No manual Mac command or restart of Principal, Factory, the Pots gateway or the worker watcher is required.
 
 ## The bot and its Pi workers
 
-Each sandbox has one bot, named by its `bot` key. It uses `magpie/group/router` for coordination, and the Pots gateway runs it through the session's service supervisor. Pi workers start on `magpie/group/router`, or `magpie/group/max` when the person asks for it, and use the installed Pi harness and separate Git worktrees under the session's `/config/Development`. The host Development mount remains read-only.
+Each sandbox has one bot, named by its `bot` key. It uses `magpie/group/router` for coordination, and the Pots gateway runs it through the session's service supervisor. Pi workers start on `magpie/group/router`, or `magpie/group/max` when the person asks for it, and use the installed Pi harness and separate Git worktrees under the session's `/config/Development`.
 
 [The bot's instructions](session/bot) are the same in every sandbox. Bootstrap links them into the bot's folder, so the bot reads them and cannot edit them. Change them in this repository. What differs between sandboxes is data. `owners` limits the repositories, and `rules` names an instruction file that bootstrap links at `/config/AGENTS.md`, where Pi loads it for the bot and for every worker.
 
@@ -273,8 +276,8 @@ A sandbox for a client uses `rules` for the client's own instruction file, which
 The bot starts and reaches workers itself. To do it by hand, create a brief or a message file inside the session, then run this from the Mac. The dispatcher identifies the repository explicitly when looking up its default branch.
 
 ```sh
-./bin/sandbox-exec "$sandbox_repo/session/with-vault" node "$sandbox_repo/session/dispatch.mjs" start NextNodeSolutions/REPOSITORY docs/task-name /config/task.md
-./bin/sandbox-exec "$sandbox_repo/session/with-vault" node "$sandbox_repo/session/dispatch.mjs" send WORKER /config/message.md
+./bin/sandbox-exec /opt/agent-sandbox/session/with-vault node /opt/agent-sandbox/session/dispatch.mjs start NextNodeSolutions/REPOSITORY docs/task-name /config/task.md
+./bin/sandbox-exec /opt/agent-sandbox/session/with-vault node /opt/agent-sandbox/session/dispatch.mjs send WORKER /config/message.md
 ```
 
 `send` pastes the message into the worker's live terminal. A worker whose terminal has closed, or that was stopped, comes back in a new terminal with its conversation and reads the message there.
@@ -296,9 +299,9 @@ hc exec --on "$SANDBOX" pots wake --from mac-thread --note "$thread_title: $repo
 A worker whose task builds a feature or changes a lot of code runs `/untangle-codebase`, `/code-review` and `/simplify` before its final report, as [its guide](session/clean-pass.md) says. Each pass is Claude Code running the real command in its own terminal, in the worker's worktree, on the person's Claude account. That traffic goes to Anthropic and not through the router, and an empty Claude quota stops the pass.
 
 ```sh
-node "$sandbox_repo/session/clean-pass.mjs" untangle AREA
-node "$sandbox_repo/session/clean-pass.mjs" review
-node "$sandbox_repo/session/clean-pass.mjs" simplify
+node /opt/agent-sandbox/session/clean-pass.mjs untangle AREA
+node /opt/agent-sandbox/session/clean-pass.mjs review
+node /opt/agent-sandbox/session/clean-pass.mjs simplify
 ```
 
 [The command](session/clean-pass.mjs) runs from the worktree and opens one pass. It starts Claude Code through `with-vault --with claude`, so the Claude token reaches that terminal and no worker terminal. A pass reads [its settings](session/claude/settings.json), the untangle skill of the harness and its trusted folders from `/config/.config/agent-sandbox/claude`, apart from the home the router's Claude Code uses. Those settings let it run every tool without asking, which the sandbox is there to contain.
@@ -316,7 +319,7 @@ The GitHub CLI wrapper selects a credential by repository owner, from the sandbo
 This read-only probe checks API access and HTTPS Git access for the repositories it is given:
 
 ```sh
-./bin/sandbox-exec "$sandbox_repo/session/with-vault" sh "$sandbox_repo/probes/github-owners" NextNodeSolutions/agent-sandbox walid-mos/dotfiles
+./bin/sandbox-exec /opt/agent-sandbox/session/with-vault sh /opt/agent-sandbox/probes/github-owners NextNodeSolutions/agent-sandbox walid-mos/dotfiles
 ```
 
 The probe reports repository identity, push permission and a HEAD commit without printing tokens. Access does not authorize a push. A wrapped command receives the tokens of its own sandbox's owners and no other.
@@ -344,12 +347,12 @@ The only lever is a lower `vm.memoryGiB` in the sandbox's file. Apply it with `c
 [The memory command](vm/memory.py) reports guest memory, the live balloon features and the balloon counters. Compare its output with the `footprint` of the Mac virtualization process. Host RSS understates the cost because macOS compresses and swaps the rest.
 
 ```sh
-colima ssh -p "$SANDBOX" -- python3 "$sandbox_repo/vm/memory.py"
+colima ssh -p "$SANDBOX" -- python3 /opt/agent-sandbox/vm/memory.py
 ```
 
 Size the cap from your own workload, measured with the memory command. Take three figures: the session alone, with its desktop, gateway and Docker daemon, then one worker with no development stack, then the stack a worker starts, both at rest and at its peak. The cap must hold the session plus every worker with its stack at peak whenever the stacks can peak together. Stacks at rest let more workers fit under the same cap. A sandbox whose `vm.swapGiB` is 0 has no swap, so exceeding the cap there ends with the kernel killing a process.
 
-`vm.swapGiB` gives the VM a swap file of that size, `/swapfile` on its root disk. The file takes Mac disk space and no Mac memory, so the memory cap and the Mac's margin stay as they are. [The VM setup](vm/setup.sh) creates, resizes or removes the file to match the setting, and turns it on at every `./bin/vm-up`.
+`vm.swapGiB` gives the VM a swap file of that size, `/swapfile` on its root disk. The file takes Mac disk space and no Mac memory, so the memory cap and the Mac's margin stay as they are. [The VM setup](vm/setup.sh) creates, resizes or removes the file to match the setting, and turns it on at every `./bin/vm-up`. The file has no boot entry, so a VM that starts without `vm-up`, such as one that reboots on its own, runs without swap until the next `vm-up`.
 
 A small sandbox for one worker building next to a started development stack can pair a low cap with a swap file. The build then pages to swap instead of being killed, and the stack keeps answering more slowly. A stack that is still starting leaves less memory than the same stack at rest, so size the swap file for a build that runs during that start.
 
@@ -359,8 +362,10 @@ This is a development environment that holds credentials and runs agent-selected
 
 The VM firewall blocks container traffic to private IPv4 and local IPv6 ranges, the Mac's Magpie included. It permits DNS to VM services and blocks other new container connections to those services. It also blocks new connections from outside the SealSkin server into its bridge network. Public internet access remains available. Docker starts only after the firewall has loaded its rules, so a firewall that fails keeps Docker, the SealSkin server and the session down. The SealSkin server is a trusted control component with the VM's Docker socket. The session gets a nested Docker daemon instead of that socket.
 
-`probe-boundary` checks that Docker requires the firewall unit, without provoking a failed start. It checks selected forbidden endpoints from both the VM and session. The sandbox VMs share one network, so those endpoints include the SSH port of every sandbox's VM and every SealSkin server port the Mac publishes. A forbidden endpoint that is also closed from the VM is reported as untestable and fails the probe. It checks allowed npm and GitHub connections, then runs mount, user-mapping and nested-Docker attack probes as both the session user and root. Those probes can pull an Alpine image and run temporary containers. Their success covers the exercised boundaries, not every network destination, kernel escape or credential misuse.
+`probe-boundary` checks that Docker requires the firewall unit, without provoking a failed start. It checks selected forbidden endpoints from both the VM and session. The sandbox VMs share one network, so those endpoints include the SSH port of every sandbox's VM and every SealSkin server port the Mac publishes. A forbidden endpoint that is also closed from the VM is reported as untestable and fails the probe. It checks allowed npm and GitHub connections, then runs mount, user-mapping and nested-Docker attack probes as both the session user and root, writes to `/opt/agent-sandbox` and `/etc/agent-sandbox` among them. It fails when the VM or the session sees a path of the Mac: a `/Users` or `/Volumes` directory, or a virtiofs, 9p or sshfs share other than Colima's Rosetta share, which holds Apple's translator and no file of the operator. Those probes can pull an Alpine image and run temporary containers. Their success covers the exercised boundaries, not every network destination, kernel escape or credential misuse.
 
 The probe contains no browser UI scenario and restarts nothing itself. A clean result is not proof of either.
 
 A merge into `main` is code that runs with the operator's rights. The watchdog pulls it within a minute, runs its Mac scripts as the operator and installs its pane, which Herdr runs with the operator's rights on every Mac the config sync reaches. Nothing reviews it on the Mac, so the branch rules on `main` are the whole gate. Set them for code that runs with host permissions, and count every token a session holds as able to merge whatever those rules allow.
+
+Each VM fast-forwards its clone within five minutes of a push to the branch it follows, and runs that code as root in the VM: the keeper, `pots-session` and the update come from the clone. The clone reads the public repository over HTTPS, so the VM holds no GitHub credential. A VM cloned from a checkout on another branch follows that branch's pushes, which no rule on `main` reviews. Put it back on `main` from inside the VM with `sudo git -C /opt/agent-sandbox fetch origin main` then `sudo git -C /opt/agent-sandbox switch --create main FETCH_HEAD`.

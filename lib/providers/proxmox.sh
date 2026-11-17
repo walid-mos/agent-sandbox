@@ -1,7 +1,4 @@
 . "$POTS_REPO/proxmox/host.env"
-# The VM holds its own copy of this repository and of the sandbox's directory at the session's paths; nothing is mounted from this machine.
-POTS_VM_REPO=$POTS_SESSION_REPOSITORY
-POTS_VM_ENTRY_ENVIRONMENT=POTS_TRANSPORT=local
 PROXMOX_WEB_PORT=8006
 MIB_PER_GIB=1024
 
@@ -46,17 +43,6 @@ vm_is_running() {
 	[ "$(proxmox_host qm status "$PROXMOX_VMID" < /dev/null)" = 'status: running' ]
 }
 
-# The archive goes to a file first, so a failed archive stops vm-up instead of installing a partial tree.
-install_tree() {
-	target=$1
-	shift
-	archive=$(mktemp "${TMPDIR:-/tmp}/pots-tree.XXXXXX")
-	status=0
-	"$@" > "$archive" && sandbox_vm sh -c "$(cat "$POTS_REPO/proxmox/install-tree.sh")" install-tree "$target" < "$archive" || status=$?
-	rm -f "$archive"
-	return "$status"
-}
-
 vm_start() {
 	cores=$(vm_setting cpu)
 	memory_gib=$(vm_setting memoryGiB)
@@ -68,12 +54,6 @@ vm_start() {
 	ensure_script=$(cat "$POTS_REPO/proxmox/host.env" "$POTS_REPO/proxmox/ensure-vm.sh")
 	proxmox_host sh -c "$ensure_script" ensure-vm "$PROXMOX_VMID" "$SANDBOX" "$cores" "$((memory_gib * MIB_PER_GIB))" "$disk_gib" \
 		"$cpu_units" "$storage" "$bridge" "$PROXMOX_ADDRESS" "$gateway" < /dev/null
-	install_tree "$POTS_VM_REPO" git -C "$POTS_REPO" archive --format=tar HEAD
-	install_tree "$POTS_SESSION_CONFIGURATION" env COPYFILE_DISABLE=1 tar --no-xattrs -c -f - -C "$POTS_SANDBOX_DIR" .
-}
-
-vm_scripts() {
-	echo "$POTS_VM_REPO/vm"
 }
 
 proxmox_sandbox_endpoints() {

@@ -1,8 +1,5 @@
 POTS_PROFILE=$SANDBOX
 POTS_CONTEXT="colima-$POTS_PROFILE"
-# The VM mounts the Mac's Development directory at its Mac path, so the VM and the session read this checkout.
-POTS_VM_REPO=$POTS_REPO
-POTS_VM_ENTRY_ENVIRONMENT=
 COLIMA_VM_INTERFACE=eth0
 COLIMA_HOST=host.lima.internal
 
@@ -24,28 +21,20 @@ write_colima_profile() {
 	disk_gib=$(vm_setting diskGiB)
 	profile="$HOME/.colima/$POTS_PROFILE/colima.yaml"
 	mkdir -p "$(dirname "$profile")"
-	template=$("$POTS_REPO/bin/render-config" colima "$SANDBOX")
-	[ -n "$template" ] || { echo "$(basename "$0"): rendered profile is empty" >&2; exit 1; }
 	pending=$(mktemp "$profile.XXXXXX")
 	trap 'rm -f "$pending"' EXIT HUP INT TERM
-	printf '%s\n' "$template" | sed -e "s/^cpu: CPU$/cpu: $cpu/" \
+	sed -e "s/^cpu: CPU$/cpu: $cpu/" \
 		-e "s/^memory: MEMORY_GIB$/memory: $memory_gib/" \
 		-e "s/^disk: DISK_GIB$/disk: $disk_gib/" \
 		-e "s/^hostname: HOSTNAME$/hostname: colima-$POTS_PROFILE/" \
-		> "$pending"
+		"$POTS_REPO/colima/colima.yaml" > "$pending"
 	mv "$pending" "$profile"
 }
 
 vm_start() {
 	write_colima_profile
-	vm_is_running || colima start --profile "$POTS_PROFILE"
-	# The VM's Docker takes the Mac's context name, so sandbox-exec runs unchanged in the VM.
-	sandbox_vm docker context inspect "$POTS_CONTEXT" > /dev/null 2>&1 ||
-		sandbox_vm docker context create "$POTS_CONTEXT" --docker host=unix:///var/run/docker.sock > /dev/null
-}
-
-vm_scripts() {
-	echo "$POTS_VM_REPO/vm"
+	# A start that cannot read the profile falls back to Colima's defaults, which mount the Mac home, so the flag names no mount as well.
+	vm_is_running || colima start --profile "$POTS_PROFILE" --mount none
 }
 
 # The Colima VMs share one network and the Mac publishes each SealSkin server, so a session is checked against every Colima sandbox, its own included.

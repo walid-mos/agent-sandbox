@@ -3,11 +3,12 @@ set -eu
 PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 export PATH
 repo=$(cd "$(dirname "$0")/.." && pwd)
+MAC_PROVIDER=colima
 
-# Each sandbox is checked by its own run, so one that fails does not keep the next from starting.
+# Each VM is checked by its own run, so one that fails does not keep the next from starting.
 if [ -z "${SANDBOX:-}" ]; then
 	status=0
-	# The update runs before the sandboxes and apart from them, so a merge that breaks their checks still arrives, and so does the merge that repairs it.
+	# The update runs before the VMs and apart from them, so a merge that breaks their checks still arrives, and so does the merge that repairs it.
 	"$repo/mac/update" || status=1
 	for config in "$HOME"/.config/agent-sandbox/sandboxes/*/sandbox.json; do
 		SANDBOX=$(basename "$(dirname "$config")") "$0" || status=1
@@ -16,17 +17,13 @@ if [ -z "${SANDBOX:-}" ]; then
 fi
 . "$repo/lib/sandbox.sh"
 
+# Only a Colima VM lives on this Mac. A pot on another provider is kept by the keeper of its own VM.
+[ "$POTS_PROVIDER" = "$MAC_PROVIDER" ] || exit 0
+# The keeper in the VM starts the session and pins its router. This Mac keeps what the VM cannot: the VM itself and its SealSkin server.
 if ! vm_is_running; then
 	"$POTS_REPO/bin/vm-up"
 fi
 if [ "$POTS_LAUNCHER" = sealskin ] && ! sandbox_docker inspect --format '{{.State.Running}}' "$POTS_SERVER_CONTAINER" 2> /dev/null | grep -qx true; then
 	"$POTS_REPO/bin/sealskin-up"
-fi
-"$POTS_REPO/bin/pots-session" ensure > /dev/null
-"$POTS_REPO/mac/session-binds"
-session=$(running_session)
-if ! session_exec "$session" "$POTS_VM_REPO/session/bootstrap" --router-current; then
-	session_exec "$session" "$POTS_VM_REPO/session/bootstrap" --router-only
-	restart_services "$session" pots-router
 fi
 "$POTS_REPO/mac/tailnet-ssh"

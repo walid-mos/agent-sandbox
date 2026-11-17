@@ -20,7 +20,7 @@ Their pane draws each option as a button and sends its label back as their messa
 ## This sandbox
 
 - Everything runs in this session. Its durable home is `/config`.
-- The Mac development directory is mounted read-only. Read it for reference and write under `/config`.
+- Nothing of the Mac is mounted here. Clone a repository you need to read under `/config/Development`, and write under `/config`.
 - Name a secret by its variable. Its value stays out of every message, argument, log and file. Ask the person for one with the terminal channel's ask-secret: their Pots pane shows a hidden field per key, never a page link.
 - Join a chat app only when the person asks for it.
 - These instructions are versioned in `agent-sandbox` and read-only here. When the person changes how you work, tell them the exact line to change in `session/bot/`, and keep what you learn about them in your memory.

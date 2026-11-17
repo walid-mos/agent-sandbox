@@ -29,4 +29,4 @@ subprocess.run(["launchctl", "bootout", f"{DOMAIN}/{LABEL}"], stdout=subprocess.
 PLIST.write_bytes(plistlib.dumps(configuration))
 os.chmod(PLIST, 0o600)
 subprocess.run(["launchctl", "bootstrap", DOMAIN, str(PLIST)], check=True)
-print(f"Installed {LABEL}: starts at login and checks VM, server and session every minute.")
+print(f"Installed {LABEL}: starts at login. Every minute it updates the checkout and the pane, and keeps each Colima VM and its SealSkin server running.")

@@ -3,8 +3,9 @@ set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
 . "$POTS_REPO/vm/network.env"
 
-REACH="$POTS_VM_REPO/probes/reach.sh"
-SESSION_ATTACKS="$POTS_VM_REPO/probes/session-attacks.sh"
+REACH="$POTS_SESSION_REPOSITORY/probes/reach.sh"
+SESSION_ATTACKS="$POTS_SESSION_REPOSITORY/probes/session-attacks.sh"
+HOST_PATHS="$POTS_SESSION_REPOSITORY/vm/check-host-paths"
 VM_SEALSKIN_CONFIG=/var/lib/docker/volumes/agent-sandbox_sealskin-config
 TRUSTED_PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -70,8 +71,10 @@ else
 	outer_container=$POTS_SESSION_CONTAINER
 fi
 judge docker-requires-firewall docker_requires_firewall || status=1
+judge vm-sees-no-host-path sandbox_vm sh "$HOST_PATHS" || status=1
+judge session-sees-no-host-path in_session sh "$HOST_PATHS" || status=1
 judge_forbidden || status=1
 judge_allowed || status=1
-in_session bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$(jq -er .developmentDirectory "$POTS_RUNTIME/host.json")" || status=1
-in_session_as_root bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$(jq -er .developmentDirectory "$POTS_RUNTIME/host.json")" || status=1
+in_session bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_CONFIGURATION" || status=1
+in_session_as_root bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_CONFIGURATION" || status=1
 exit "$status"

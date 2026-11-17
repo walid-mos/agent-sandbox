@@ -29,14 +29,14 @@ def git(directory, *arguments, prefix=()):
     return result.stdout.strip()
 
 
-def require_safe_checkout(directory):
+def require_safe_checkout(directory, branch):
     configuration = git(directory, "config", "--local", "--name-only", "--list").splitlines()
     forbidden = [key for key in configuration if not SAFE_CONFIG.fullmatch(key)]
     if forbidden:
         raise RuntimeError(f"source-refresh: {directory} has unsupported Git configuration: {', '.join(forbidden)}. Review it before updating.")
     current = git(directory, "branch", "--show-current")
-    if current != BRANCH:
-        raise RuntimeError(f"source-refresh: left {directory} on {current or 'detached HEAD'}. Updates require {BRANCH}.")
+    if current != branch:
+        raise RuntimeError(f"source-refresh: left {directory} on {current or 'detached HEAD'}. Updates require {branch}.")
 
 
 def require_clean(directory):
@@ -46,35 +46,35 @@ def require_clean(directory):
 
 # installer_edits(directory) sets aside the edits the source's installer makes to tracked files and puts them back on exit.
 # It runs after the configuration check, because restoring a tracked file can run a configured filter.
-def refresh(url, directory, fetch_with=(), allow_cutover=False, installer_edits=nullcontext):
+def refresh(url, directory, fetch_with=(), allow_cutover=False, installer_edits=nullcontext, branch=BRANCH):
     directory = Path(directory).absolute()
     if directory.resolve() != directory:
         raise RuntimeError(f"source-refresh: {directory} contains a symlink. Use an owned source directory.")
     if not directory.exists():
         directory.mkdir(parents=True)
-        git(directory, "init", "--quiet", "--initial-branch", BRANCH)
+        git(directory, "init", "--quiet", "--initial-branch", branch)
         git(directory, "remote", "add", "origin", url)
     if (directory / ".git").is_symlink() or not (directory / ".git").is_dir():
         raise RuntimeError(f"source-refresh: {directory} is not a source clone. Existing files were left untouched.")
-    require_safe_checkout(directory)
+    require_safe_checkout(directory, branch)
     with installer_edits(directory):
         require_clean(directory)
-        return advance(url, directory, fetch_with, allow_cutover)
+        return advance(url, directory, fetch_with, allow_cutover, branch)
 
 
-def advance(url, directory, fetch_with, allow_cutover):
+def advance(url, directory, fetch_with, allow_cutover, branch):
     origin = git(directory, "remote", "get-url", "origin")
     switching = origin.removesuffix(".git") != url.removesuffix(".git")
     if switching and not allow_cutover:
         raise RuntimeError(f"source-refresh: {directory} has another origin. After reviewing its state, enable allowCutover in private provisioning.json, or pass --allow-cutover to this script.")
-    git(directory, "fetch", "--quiet", "--no-tags", "--no-recurse-submodules", "--", url, f"refs/heads/{BRANCH}", prefix=fetch_with)
+    git(directory, "fetch", "--quiet", "--no-tags", "--no-recurse-submodules", "--", url, f"refs/heads/{branch}", prefix=fetch_with)
     revision = git(directory, "rev-parse", "FETCH_HEAD^{commit}")
     result = {"directory": str(directory), "revision": revision}
     if switching:
         result["previous"] = cutover(url, directory, revision)
     else:
         git(directory, "merge", "--quiet", "--ff-only", "--no-edit", revision)
-    git(directory, "update-ref", f"refs/remotes/origin/{BRANCH}", revision)
+    git(directory, "update-ref", f"refs/remotes/origin/{branch}", revision)
     return result
 
 
@@ -92,9 +92,10 @@ def main():
     parser.add_argument("url")
     parser.add_argument("directory")
     parser.add_argument("--allow-cutover", action="store_true")
+    parser.add_argument("--branch", default=BRANCH)
     arguments = parser.parse_args()
     try:
-        print(json.dumps(refresh(arguments.url, arguments.directory, allow_cutover=arguments.allow_cutover)))
+        print(json.dumps(refresh(arguments.url, arguments.directory, allow_cutover=arguments.allow_cutover, branch=arguments.branch)))
     except RuntimeError as error:
         print(str(error), file=sys.stderr)
         return 1

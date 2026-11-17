@@ -2,21 +2,20 @@
 set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
 
-LOCK="$POTS_RUNTIME/locks/$SANDBOX.pots-session.lock"
+LOCK=/run/pots-session.lock
 LOCK_WAIT_SECONDS=300
+LOCK_BUSY_STATUS=75
 DOCKER_STOP_SECONDS=30
 NEWLINE='
 '
 
-# The watchdog and an operator can both find no session and each launch one on the same home, so every launch holds this lock.
+# Two callers can each find no session and launch one on the same home, so every launch runs in the VM and holds this lock there.
 hold_lock() {
 	[ "${POTS_SESSION_LOCK:-}" != held ] || return 0
-	mkdir -p "$(dirname "$LOCK")"
-	case "$(uname -s)" in
-		Darwin) exec env POTS_SESSION_LOCK=held lockf -k -t "$LOCK_WAIT_SECONDS" "$LOCK" "$0" "$@" ;;
-		Linux) exec env POTS_SESSION_LOCK=held flock --wait "$LOCK_WAIT_SECONDS" "$LOCK" "$0" "$@" ;;
-		*) echo "pots-session: no launch lock command for $(uname -s)" >&2; exit 1 ;;
-	esac
+	status=0
+	env POTS_SESSION_LOCK=held flock --timeout "$LOCK_WAIT_SECONDS" --conflict-exit-code "$LOCK_BUSY_STATUS" "$LOCK" "$0" "$@" || status=$?
+	[ "$status" -ne "$LOCK_BUSY_STATUS" ] || echo "pots-session: another launch kept $LOCK for $LOCK_WAIT_SECONDS seconds" >&2
+	exit "$status"
 }
 
 api() {
@@ -47,7 +46,7 @@ stop_sealskin() {
 }
 
 launch_docker() {
-	binds=$("$POTS_REPO/bin/render-config" binds "$SANDBOX")
+	binds=$("$POTS_REPO/bin/render-config" binds)
 	[ -n "$binds" ] || { echo 'pots-session: rendered binds are empty' >&2; exit 1; }
 	set -- --volume "$POTS_HOME_VOLUME:$POTS_SESSION_HOME:rw"
 	# One bind per line: a path with a space stays one argument, and no pattern in a path expands.
@@ -83,6 +82,7 @@ stop() {
 ensure() {
 	running=$(session_container)
 	if [ -z "$running" ]; then
+		"$POTS_REPO/vm/check-host-paths"
 		launch
 		running=$(session_container)
 	fi
@@ -90,6 +90,10 @@ ensure() {
 	echo "$running"
 }
 
+if [ "$POTS_TRANSPORT" = provider ]; then
+	sandbox_vm sudo env POTS_TRANSPORT=local "$POTS_SESSION_REPOSITORY/bin/pots-session" "$@"
+	exit
+fi
 case "${1:-}" in
 	ensure) hold_lock "$@"; ensure ;;
 	name) session_container ;;

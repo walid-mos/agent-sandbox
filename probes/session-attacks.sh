@@ -6,8 +6,8 @@ launcher=$1
 outer_container=$2
 server_address=$3
 vm_sealskin_config=$4
-DEVELOPMENT=$5
-MAC_HOME=$(dirname "$DEVELOPMENT")
+clone=$5
+configuration=$6
 failures=0
 
 expect() {
@@ -22,10 +22,6 @@ expect() {
 	fi
 }
 
-only_development_is_mounted() {
-	[ "$(ls -A "$MAC_HOME")" = "$(basename "$DEVELOPMENT")" ]
-}
-
 session_root_is_vm_root() {
 	grep -qE '^ *0 +0 ' /proc/self/uid_map
 }
@@ -37,8 +33,8 @@ session_docker_sees_vm_containers() {
 echo "as $(id -un)"
 expect succeed control-worker-container-runs docker run --rm -v /:/session "$PROBE_IMAGE" test -d /session/config
 expect succeed control-worker-reaches-internet docker run --rm "$PROBE_IMAGE" nc -z -w 4 registry.npmjs.org 443
-expect succeed only-development-is-mounted only_development_is_mounted
-expect fail write-development touch "$DEVELOPMENT/.agent-sandbox-probe"
+expect fail write-clone touch "$clone/.agent-sandbox-probe"
+expect fail write-configuration touch "$configuration/.agent-sandbox-probe"
 expect fail session-root-is-vm-root session_root_is_vm_root
 expect fail session-docker-sees-vm-containers session_docker_sees_vm_containers
 if [ "$launcher" = sealskin ]; then

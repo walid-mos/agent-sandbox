@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../session/launch.env"
+
+# The clone follows the branch it is on, so a pot on a trial branch takes that branch's pushes and a pot on main takes the merges.
+branch=$(git -C "$POTS_SESSION_REPOSITORY" symbolic-ref --quiet --short HEAD) || { echo "update: $POTS_SESSION_REPOSITORY is on no branch. Check out the branch it follows, then run this again." >&2; exit 1; }
+exec python3 -I "$POTS_SESSION_REPOSITORY/lib/source_refresh.py" "$POTS_SOURCE_URL" "$POTS_SESSION_REPOSITORY" --branch "$branch"

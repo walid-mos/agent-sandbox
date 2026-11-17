@@ -9,7 +9,9 @@ sys.path.insert(0, str(REPOSITORY / "lib"))
 from agent_sources import HERDR_APP_HOME, HERDR_KEYS, PROVISIONING_FILE, STATE, install_herdr, refresh_source, require_herdr_initialized, source_catalog
 
 SOURCE = REPOSITORY / "herdr"
-CONTROL = REPOSITORY / "session/control.mjs"
+LAUNCH = dict(line.split("=", 1) for line in (REPOSITORY / "session/launch.env").read_text().splitlines() if line)
+# The pane runs this file in a session, which holds it in the pot's clone.
+CONTROL = Path(LAUNCH["POTS_SESSION_REPOSITORY"]) / "session/control.mjs"
 # A sandbox's Herdr machine carries the name of its folder, and the pane reaches each bot through that machine.
 sandboxes = [
     {"machine": path.parent.name, "bot": json.loads(path.read_text())["bot"]}

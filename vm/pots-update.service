@@ -1,0 +1,9 @@
+[Unit]
+Description=Fast-forward the agent-sandbox clone of this VM
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/agent-sandbox/vm/update
+TimeoutStartSec=5min
