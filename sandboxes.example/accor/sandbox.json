@@ -20,6 +20,7 @@
   "jira": "atlassian",
   "sources": [
     "pi",
+    "accor",
     "herdr"
   ]
 }

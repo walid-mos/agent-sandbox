@@ -3,6 +3,11 @@
     "repository": "walid-mos/agent-pi",
     "directory": ".pi/agent"
   },
+  "accor": {
+    "repository": "walid-mos/agent-pi-accor",
+    "credential": "GITHUB_TOKEN_WALID_MOS",
+    "directory": ".pi/agent/client/accor"
+  },
   "nextnode": {
     "repository": "NextNodeSolutions/agents",
     "credential": "GITHUB_TOKEN",
