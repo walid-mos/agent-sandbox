@@ -59,6 +59,8 @@ SANDBOX=nextnode ./bin/tailnet-up
 | --- | --- |
 | The policy's `tagOwners` | `tailnet-key: Tailscale refused a key for tag:pot-...`; no node joins |
 | The policy's grants, or a wider grant left in place | `tailnet_node: shields stay up: ...` naming the port, source or peer; the node is joined and takes no connection |
+| A grant left in place that opens an allowed port to another source: another user, a pot tag, a tagged device, a range or a CIDR | `tailnet_node: shields stay up: the policy lets [...] reach ports 54321-54321, which only the operator's untagged devices may reach`, or `which only other pots' session nodes may reach` on the door port; the VM guard prints the same after `shields raised:` |
+| `~/.config/agent-sandbox/tailnet.json`, or `bin/vm-config` after writing it | `tailnet_policy: ... tailnet.json must hold {"operatorLogin": ...}`; on a node, `shields stay up:` with the same line |
 | The OAuth client, or its tag | `tailnet-key: Tailscale refused the OAuth client` or the key refusal above |
 | The vault entry, or Universal Auth in the shell | `tailnet-key: The vault did not return TAILSCALE_POTS_OAUTH_CLIENT_SECRET` |
 | `bin/pots-doors` | A door call ends with ssh's exit 255 (no key, unknown host key); `probe-boundary` reports the door attacks untestable |
