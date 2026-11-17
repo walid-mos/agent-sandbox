@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { CHANNEL } from './discord-admin-operations.mjs';
+import { isApplicationRole } from './discord-admin-policy.mjs';
 import { isSnowflake } from './human-contract.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
-
-export const DISCORD_ADMIN = { id: 'discord-admin', name: 'Discord Admin' };
 
 export function discordAccount(primaryHome) {
   const definition = JSON.parse(readFileSync(join(primaryHome, 'bot.json'), 'utf8'));
@@ -23,23 +23,19 @@ function owningMap(path) {
 }
 
 function resourceIds(value) {
-  if (typeof value === 'string') return snowflakeIds(value);
+  if (typeof value === 'string') return isSnowflake(value) ? [value] : [];
   if (!value || typeof value !== 'object') return [];
   return Object.entries(value).flatMap(([key, child]) => [...(isSnowflake(key) ? [key] : []), ...resourceIds(child)]);
 }
-
-const snowflakeIds = value => isSnowflake(value) ? [value] : [];
 
 function requireOneGuild(guilds) {
   if (!Array.isArray(guilds) || guilds.length !== 1) throw new Error('discord-admin: the existing app must belong to exactly one guild. Refusing ambiguous administration.');
   return guilds[0].id;
 }
 
-const cachedPotId = (cache, name) => cache?.potChannels?.[name];
-
 function potChannelId(name, channels, cache) {
-  const previous = cachedPotId(cache, name);
-  const matches = previous ? channels.filter(channel => channel.id === previous) : channels.filter(channel => channel.name === name && channel.type === 0);
+  const previous = cache?.potChannels?.[name];
+  const matches = previous ? channels.filter(channel => channel.id === previous) : channels.filter(channel => channel.name === name && channel.type === CHANNEL.text);
   if (matches.length !== 1) throw new Error('discord-admin: a pot channel cannot be identified from owning configuration and Discord metadata. Restore protection metadata.');
   return matches[0].id;
 }
@@ -64,7 +60,7 @@ export async function discoverProtection({ api, config, primaryHome, stateDirect
   const names = [...new Set([config.bot.toLowerCase(), ...Object.keys(config.doors ?? {})])];
   const potChannels = Object.fromEntries(names.map(name => [name, potChannelId(name, channels, cache)]));
   const protection = { guildId, channelIds: [...new Set([...Object.values(potChannels), ...routeIds])],
-    threadIds: resourceIds(northStars), botRoleIds: roles.filter(role => role.managed && role.tags?.bot_id === bot.id).map(role => role.id) };
+    threadIds: resourceIds(northStars), botRoleIds: roles.filter(role => isApplicationRole(role, bot.id)).map(role => role.id) };
   if (!protection.botRoleIds.length) throw new Error('discord-admin: application managed role is missing.');
   writePrivateJson(cachePath, { guildId, potChannels });
   return protection;

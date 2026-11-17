@@ -22,31 +22,31 @@ function readInput() {
   catch { throw new Error('discord-admin: provide one JSON request on stdin.'); }
 }
 
-function dispatch(mode, input, dependencies) {
-  const { approvals, api, protection } = dependencies;
-  const handlers = {
-    register: () => approvals.register(input),
-    inspect: () => inspectDiscord(input, { api, guildId: protection.guildId }),
-    operate: () => administerDiscord(input, dependencies),
-    approve: () => administerDiscord(approvals.approvedRequest(input.approval), dependencies),
-  };
-  return handlers[mode]();
-}
+const MODES = {
+  operate: (input, dependencies) => administerDiscord(input, dependencies),
+  register: (input, { approvals }) => approvals.register(input),
+  approve: (input, dependencies) => administerDiscord(dependencies.approvals.approvedRequest(input.approval), dependencies),
+  inspect: (input, { api, protection }) => inspectDiscord(input, { api, guildId: protection.guildId }),
+};
+const USAGE_MODES = ['actions', ...Object.keys(MODES)];
 
-main(import.meta, async () => {
-  if (!isMastermind) throw new Error('discord-admin: only the Mastermind pot runs this command.');
-  const mode = process.argv[2];
-  if (mode === 'actions') {
-    process.stdout.write(`${JSON.stringify(actions())}\n`);
-    return;
-  }
-  if (!['operate', 'register', 'inspect', 'approve'].includes(mode)) throw new Error('discord-admin: use actions, operate, register, approve or inspect. Supply JSON on stdin.');
-  const input = readInput();
+async function connect() {
   const account = discordAccount(botHome);
   const api = discordAdminApi(account.secrets);
   const protection = await discoverProtection({ api, config: sandbox, primaryHome: botHome, stateDirectory: join(homedir(), '.config/agent-sandbox/discord-admin') });
   const approvals = discordAdminApprovals({ clicks: humanStore(join(HUMAN_HOME, 'discord')), pending: humanStore(join(HUMAN_HOME, 'discord-admin')),
     channelAccount: account.id, guildId: protection.guildId });
-  const result = await dispatch(mode, input, { api, protection, approvals });
-  process.stdout.write(`${JSON.stringify(result)}\n`);
+  return { api, protection, approvals };
+}
+
+async function run(mode) {
+  if (mode === 'actions') return actions();
+  if (!Object.hasOwn(MODES, mode)) throw new Error(`discord-admin: use ${USAGE_MODES.slice(0, -1).join(', ')} or ${USAGE_MODES.at(-1)}. Supply JSON on stdin.`);
+  const input = readInput();
+  return MODES[mode](input, await connect());
+}
+
+main(import.meta, async () => {
+  if (!isMastermind) throw new Error('discord-admin: only the Mastermind pot runs this command.');
+  process.stdout.write(`${JSON.stringify(await run(process.argv[2]))}\n`);
 });

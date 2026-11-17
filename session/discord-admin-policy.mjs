@@ -1,21 +1,14 @@
-import { isSnowflake } from './human-contract.mjs';
+import { CHANNEL, DISCORD_PERMISSIONS, isThread, OVERWRITE, snowflake, STANDALONE_THREAD_TYPES } from './discord-admin-operations.mjs';
 
-export const DISCORD_PERMISSIONS = {
-  CreateInstantInvite: 1n, KickMembers: 2n, BanMembers: 4n, Administrator: 8n, ManageChannels: 16n,
-  ManageGuild: 32n, ViewChannel: 1024n, ManageRoles: 268435456n, ManageNicknames: 134217728n,
-  ManageThreads: 17179869184n, CreatePublicThreads: 34359738368n, CreatePrivateThreads: 68719476736n, ModerateMembers: 1099511627776n,
-};
-const THREAD_TYPES = [10, 11, 12];
-export const isThread = channel => THREAD_TYPES.includes(channel.type);
 const includesId = (ids, id) => ids.includes(id);
 const isRename = payload => Object.keys(payload).length === 1 && typeof payload.name === 'string';
 const rejectProtected = () => { throw new Error('discord-admin: protected pot resource cannot be changed by this operation.'); };
-const validId = id => typeof id === 'string' && isSnowflake(id);
-const validIds = ids => Array.isArray(ids) && ids.every(validId);
+const validIds = ids => Array.isArray(ids) && ids.every(snowflake);
+export const protectedIds = protection => [...protection.channelIds, ...protection.threadIds];
+export const isApplicationRole = (role, botId) => Boolean(role.managed) && role.tags?.bot_id === botId;
 
 export function requireProtection(protection, guildId) {
-  if (protection?.guildId !== guildId) throw new Error('discord-admin: protection metadata is missing or invalid. Restore owning runtime metadata before administering this guild.');
-  if (!validProtectionLists(protection)) throw new Error('discord-admin: protection metadata is missing or invalid. Restore owning runtime metadata before administering this guild.');
+  if (protection?.guildId !== guildId || !validProtectionLists(protection)) throw new Error('discord-admin: protection metadata is missing or invalid. Restore owning runtime metadata before administering this guild.');
 }
 
 function validProtectionLists(protection) {
@@ -23,7 +16,7 @@ function validProtectionLists(protection) {
 }
 
 function isProtectedChannel(request, { channels, protection, channel }) {
-  const ids = [...protection.channelIds, ...protection.threadIds];
+  const ids = protectedIds(protection);
   const hasProtectedChild = channels.some(item => item.parent_id === request.channelId && includesId(ids, item.id));
   return [includesId(ids, request.channelId), hasProtectedChild, includesId(ids, channel?.parent_id)].some(Boolean);
 }
@@ -37,12 +30,12 @@ function guardProtectedEdit(request, snapshot) {
 function guardDestination(request, snapshot) {
   const parentId = request.payload.parent_id;
   if (!parentId) return;
-  if ([...snapshot.protection.channelIds, ...snapshot.protection.threadIds].includes(parentId)) rejectProtected();
-  if (snapshot.parent.type !== 4) throw new Error('discord-admin: parent_id must name a category in this guild.');
+  if (protectedIds(snapshot.protection).includes(parentId)) rejectProtected();
+  if (snapshot.parent.type !== CHANNEL.category) throw new Error('discord-admin: parent_id must name a category in this guild.');
 }
 
 function isBotOverwrite(item, snapshot) {
-  return snapshot.protection.botRoleIds.includes(item.id) || (item.type === 1 && item.id === snapshot.bot.id);
+  return snapshot.protection.botRoleIds.includes(item.id) || (item.type === OVERWRITE.member && item.id === snapshot.bot.id);
 }
 
 function guardOverwrites(request, snapshot) {
@@ -69,7 +62,7 @@ export function guardChannels(request, snapshot) {
 }
 
 function guardThreadCreation(request, channel) {
-  if (![0, 5].includes(channel?.type)) throw new Error('discord-admin: thread creation needs a text or announcement parent channel.');
+  if (![CHANNEL.text, CHANNEL.announcement].includes(channel?.type)) throw new Error('discord-admin: thread creation needs a text or announcement parent channel.');
   if (request.messageId) return requireMessageThread(request);
   requireStandaloneThread(request, channel);
 }
@@ -79,8 +72,8 @@ function requireMessageThread(request) {
 }
 
 function requireStandaloneThread(request, channel) {
-  if (![11, 12].includes(request.payload.type)) throw new Error('discord-admin: thread creation without a message requires explicit public or private type.');
-  if (channel.type !== 0) throw new Error('discord-admin: announcement threads require a parent message.');
+  if (!STANDALONE_THREAD_TYPES.includes(request.payload.type)) throw new Error('discord-admin: thread creation without a message requires explicit public or private type.');
+  if (channel.type !== CHANNEL.text) throw new Error('discord-admin: announcement threads require a parent message.');
 }
 
 function guardProtectedRoles(request, { protection, botMember, bot }) {
@@ -103,7 +96,6 @@ function requireRolePosition(role, guild, botPosition) {
 
 function guardMemberHierarchy(request, snapshot, botPosition) {
   if (!snapshot.targetMember) return;
-  if (request.action === 'member.unban') return;
   const targetPosition = Math.max(0, ...snapshot.roles.filter(item => snapshot.targetMember.roles.includes(item.id)).map(item => item.position));
   if ([request.userId === snapshot.guild.owner_id, targetPosition >= botPosition].some(Boolean)) throw new Error('discord-admin: guild owner or member hierarchy prevents this operation.');
   guardTimeout(request, snapshot);
@@ -140,21 +132,21 @@ function changesEveryone(request, snapshot) {
   if (changesEveryoneRole(request)) return true;
   if (!Object.hasOwn(request.payload, 'permission_overwrites')) return false;
   const overwrites = [...request.payload.permission_overwrites, ...existingOverwrites(snapshot)];
-  return overwrites.some(item => item.type === 0 && item.id === request.guildId);
+  return overwrites.some(item => item.type === OVERWRITE.role && item.id === request.guildId);
 }
 
-export function requiresApproval(request, snapshot) {
-  if (['channel.delete', 'thread.delete', 'role.delete', 'member.kick', 'member.ban'].includes(request.action)) return true;
+export function requiresApproval(request, operation, snapshot) {
+  if (operation.approval) return true;
   if (request.action === 'role.revoke' && request.userId === snapshot.guild.owner_id) return true;
   return changesEveryone(request, snapshot);
 }
 
-function guildPermissions({ guild, botMember, roles }) {
-  return roles.filter(role => role.id === guild.id || botMember.roles.includes(role.id)).reduce((bits, role) => bits | BigInt(role.permissions), 0n);
+export function guildPermissions(roles, memberRoles, guildId) {
+  return roles.filter(role => role.id === guildId || memberRoles.includes(role.id)).reduce((bits, role) => bits | BigInt(role.permissions), 0n);
 }
 
 function requiredThreadPermission(request, operation) {
-  if (request.action === 'thread.create' && request.payload.type === 12) return 'CreatePrivateThreads';
+  if (request.action === 'thread.create' && request.payload.type === CHANNEL.privateThread) return 'CreatePrivateThreads';
   return operation.permission;
 }
 
@@ -166,7 +158,7 @@ function resourcePermissions(granted, snapshot) {
 
 export function requirePermission(request, operation, snapshot) {
   if (snapshot.guild.owner_id === snapshot.bot.id) return;
-  let granted = guildPermissions(snapshot);
+  let granted = guildPermissions(snapshot.roles, snapshot.botMember.roles, snapshot.guild.id);
   if (granted & DISCORD_PERMISSIONS.Administrator) return;
   granted = resourcePermissions(granted, snapshot);
   const permission = requiredThreadPermission(request, operation);
@@ -182,7 +174,7 @@ function applyOverwrites(bits, entries) {
 function channelPermissions(granted, channel, member, guildId, botId) {
   if (!channel) throw new Error('discord-admin: thread parent metadata is missing.');
   const overwrites = channel.permission_overwrites ?? [];
-  granted = applyOverwrites(granted, overwrites.filter(entry => entry.type === 0 && entry.id === guildId));
-  granted = applyOverwrites(granted, overwrites.filter(entry => entry.type === 0 && member.roles.includes(entry.id)));
-  return applyOverwrites(granted, overwrites.filter(entry => entry.type === 1 && entry.id === botId));
+  granted = applyOverwrites(granted, overwrites.filter(entry => entry.type === OVERWRITE.role && entry.id === guildId));
+  granted = applyOverwrites(granted, overwrites.filter(entry => entry.type === OVERWRITE.role && member.roles.includes(entry.id)));
+  return applyOverwrites(granted, overwrites.filter(entry => entry.type === OVERWRITE.member && entry.id === botId));
 }

@@ -57,7 +57,7 @@ Approvals bind guild, operation, targets, payload and audit reason. They expire 
 
 ## Runtime metadata and installation
 
-Only a sandbox with the Mastermind role installs the bot. Its ID and title are defined in `session/discord-admin-runtime.mjs`. The installer creates it through `pots bot new`, checks the router model and absence of a Discord gateway, and links its versioned instructions and responsibilities into its bot home.
+Only a sandbox with the Mastermind role installs the bot. Its ID and title are defined in `session/discord-admin-approvals.mjs`. The installer creates it through `pots bot new`, checks the router model and absence of a Discord gateway, and links its versioned instructions and responsibilities into its bot home.
 
 Protection discovery reads Mastermind's owning `workspace/discord/routes.json` and `north-star-threads.json`, the sandbox's configured pot names, the existing account and live guild/channel/role metadata. It caches pot channel IDs privately so renames retain protection. Missing maps, missing pot channels, ambiguous guild membership or a missing managed role fail closed. Missing runtime maps must be restored by their owner, never replaced with invented empty protection lists. No private guild, person, channel or application IDs belong in this repository.
 

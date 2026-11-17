@@ -4,7 +4,15 @@ import { isPotName, isRequestId } from './door-messages.mjs';
 
 const MESSAGE_LIMIT = 2000;
 
-export async function registerDiscordQuestion(registration, store, identity, approvalOwner) {
+export function registerDiscordQuestion(registration, store, identity) {
+  return saveRegistration(registration, store, identity, { savedRegistration: registration, registrationState: 'saved', registered: false });
+}
+
+export function registerOwnerQuestion(registration, store, ownerId) {
+  return saveRegistration(registration, store, undefined, { localAdmin: true, ownerId, registration, registrationState: 'acknowledged', registered: true });
+}
+
+async function saveRegistration(registration, store, identity, state) {
   const { question, request, pot, channelAccount, guildId, messages } = registration;
   if (question?.type !== 'human.question' || question.version !== VERSION || !DIALOG_ID.test(question.dialog) || !DIGEST.test(question.digest)) throw new Error('discord-human: invalid question packet.');
   if (!isRequestId(request) || !isPotName(pot) || !channelAccount || !isSnowflake(guildId)) throw new Error('discord-human: register the originating door and channel account.');
@@ -20,14 +28,8 @@ export async function registerDiscordQuestion(registration, store, identity, app
       if (JSON.stringify(registrationOf(existing)) !== JSON.stringify(registration)) throw new Error('discord-human: a registration cannot change.');
       return existing;
     }
-    return save(registrationRecord(registration, approvalOwner));
+    return save({ id: question.dialog, picks: {}, ...state });
   }, question.dialog);
-}
-
-function registrationRecord(registration, ownerId) {
-  const common = { id: registration.question.dialog, picks: {} };
-  if (ownerId) return { ...common, localAdmin: true, ownerId, registration, registrationState: 'acknowledged', registered: true };
-  return { ...common, savedRegistration: registration, registrationState: 'saved', registered: false };
 }
 
 function requireApprovalOwner(record, event) {

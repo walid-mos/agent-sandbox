@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import { registerDiscordQuestion, closeDiscordQuestion } from './discord-clicks.mjs';
+import { closeDiscordQuestion, registerOwnerQuestion } from './discord-clicks.mjs';
 import { DIALOG_ID, MASTERMIND_POT, packet } from './human-contract.mjs';
 import { questionDigest, questionPacket } from './human-dialogs.mjs';
 
+export const DISCORD_ADMIN = { id: 'discord-admin', name: 'Discord Admin' };
 export const APPROVE = 'Approve this operation';
 export const DECLINE = 'Cancel';
 const QUESTION = 'operation';
@@ -16,7 +17,7 @@ const canonical = value => {
   return value;
 };
 
-export const operationScope = ({ approval: _approval, ...request }) => JSON.stringify(canonical(request));
+const operationScope = ({ approval: _approval, ...request }) => JSON.stringify(canonical(request));
 const requestId = dialog => `${MASTERMIND_POT}.${dialog}`;
 const isUnused = prepared => prepared && !prepared.consumed && prepared.expiresAt > Date.now();
 
@@ -90,7 +91,7 @@ async function registerApproval(input, { pending, clicks, channelAccount, guildI
   const prepared = pendingApproval(input?.dialog, pending);
   if (!isUnused(prepared)) throw new Error('discord-admin: no unused approval has that dialog ID.');
   const registration = { question: questionPacket(prepared.question), request: requestId(prepared.id), pot: MASTERMIND_POT, channelAccount, guildId, messages: input.messages };
-  const record = await registerDiscordQuestion(registration, clicks, undefined, prepared.ownerId);
+  const record = await registerOwnerQuestion(registration, clicks, prepared.ownerId);
   return { dialog: record.id, registered: true, state: record.registrationState };
 }
 
@@ -104,6 +105,8 @@ function approvedRequest(id, pending) {
   if (!prepared) throw new Error('discord-admin: no approval has that dialog ID.');
   return { ...JSON.parse(prepared.question.scope), approval: id };
 }
+
+export const approvalWake = dialog => ['--from', DISCORD_ADMIN.id, '--note', `${DISCORD_ADMIN.name} dialog ${dialog} has a registered click. Delegate approve with this ID to ${DISCORD_ADMIN.id}. The command rechecks the exact operation and consumes it once.`];
 
 export function discordAdminApprovals(dependencies) {
   return { authorize: (request, identity) => authorize(request, identity, dependencies),
