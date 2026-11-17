@@ -61,8 +61,11 @@ async function fixture(policy = 'push', state = 'open') {
   return { store, directory, discord, dialog: store.get(dialog.id), doors, registration, issues };
 }
 
-const click = (dialog, userId = OPERATOR, option = 0) => ({ type: 3, guild_id: GUILD, channel_id: CHANNEL, member: { user: { id: userId } },
-  message: { id: MESSAGE }, data: { custom_id: `human:${dialog.id}:0:${option}` } });
+const click = (dialog, userId = OPERATOR, option = 0) => ({ channel: 'discord', at: Date.parse('2026-01-01T00:00:00Z'),
+  text: `clicked button "${choices[option]}" (custom_id human:${dialog.id}:0:${option})`, person: `discord:@${userId}`,
+  message: `discord:#${CHANNEL}/${MESSAGE}`, place: CHANNEL,
+  raw: JSON.stringify({ id: `i-${option}-${userId}`, type: 3, guild_id: GUILD, channel_id: CHANNEL, member: { user: { id: userId } }, message: { id: MESSAGE },
+    data: { custom_id: `human:${dialog.id}:0:${option}`, values: [] } }) });
 const pick = (f, userId, option) => acceptDiscordClick(click(f.dialog, userId, option), { store: f.discord, identity: IDENTITY, channelAccount: 'discord', at: '2026-01-01T00:00:00Z' });
 const returnedDoor = f => ({ ...f.doors.find(f.dialog.delivery.id), state: 'answered', reply: JSON.stringify(f.discord.get(f.dialog.id).outbox) });
 
@@ -105,14 +108,71 @@ test('ordinary clicks need no user allowlist or enabled push switch', async () =
 test('simultaneous duplicate clicks commit one answer and retain disabled controls', async () => {
   const f = await fixture();
   const outcomes = await Promise.all([pick(f, OPERATOR, 0), pick(f, OPERATOR, 1)]);
-  assert.deepEqual(outcomes.map(outcome => outcome.status), ['accepted', 'duplicate']);
+  assert.deepEqual(outcomes.map(outcome => outcome.status), ['accepted', 'stale']);
   assert.equal(f.discord.get(f.dialog.id).outbox.answers[0].labels[0], choices[0]);
 });
 
-for (const [name, change] of Object.entries({ 'guild': { guild_id: OTHER }, 'channel': { channel_id: OTHER }, 'message': { message: { id: OTHER } } })) {
-  test(`a push click on the wrong ${name} is rejected`, async () => {
+test('a click binds only to the registered control of its own message', async () => {
+  const f = await fixture();
+  const forged = click(f.dialog);
+  const rows = {
+    'unregistered option': { ...forged, raw: JSON.stringify({ ...JSON.parse(forged.raw), data: { custom_id: `human:${f.dialog.id}:0:9` } }) },
+    'label of another option': { ...forged, text: `clicked button "${choices[1]}" (custom_id human:${f.dialog.id}:0:1)` },
+    'other message': { ...forged, raw: JSON.stringify({ ...JSON.parse(forged.raw), message: { id: OTHER } }) },
+    'other channel': { ...forged, raw: JSON.stringify({ ...JSON.parse(forged.raw), channel_id: OTHER }) },
+    'no platform user': { ...forged, person: 'discord:@present', raw: JSON.stringify({ ...JSON.parse(forged.raw), member: undefined, user: undefined }) },
+    'text and field naming different options': { ...forged, raw: JSON.stringify({ ...JSON.parse(forged.raw), data: { custom_id: `human:${f.dialog.id}:0:1` } }) },
+  };
+  for (const [name, row] of Object.entries(rows)) {
+    const outcome = await acceptDiscordClick(row, { store: f.discord, identity: IDENTITY, channelAccount: 'discord' }).catch(error => ({ status: error.message }));
+    assert.notEqual(outcome.status, 'accepted', name);
+  }
+  assert.deepEqual(f.discord.get(f.dialog.id).picks, {});
+  assert.equal(f.discord.get(f.dialog.id).outbox, undefined);
+});
+
+test('a text-only gateway event answers from its registered component', async () => {
+  const f = await fixture();
+  const row = click(f.dialog);
+  const result = await acceptDiscordClick({ ...row, raw: 'not json' }, { store: f.discord, identity: IDENTITY, channelAccount: 'discord' });
+  assert.equal(result.status, 'accepted');
+  assert.equal(f.discord.get(f.dialog.id).picks.answer.customId, `human:${f.dialog.id}:0:0`);
+});
+
+test('the first claim records its question, request, message and control before any edit', async () => {
+  const f = await fixture();
+  const claimed = await pick(f);
+  const record = f.discord.get(f.dialog.id);
+  assert.deepEqual(record.picks.answer.request, f.dialog.delivery.id);
+  assert.equal(record.picks.answer.messageUrl, URL);
+  assert.equal(record.picks.answer.option, '0');
+  assert.equal(record.updates.answer.body.content.startsWith(`Answered: ${choices[0]}`), true);
+  assert.equal(claimed.status, 'accepted');
+  const restarted = humanStore(join(home, 'restart'));
+  assert.equal(restarted.all().length, 0);
+  const reread = f.discord.get(f.dialog.id);
+  assert.equal(reread.picks.answer.customId, `human:${f.dialog.id}:0:0`);
+  assert.ok(reread.updates.answer.body.components[0].components.every(component => component.disabled));
+});
+
+test('a click after the owning pot canceled only disables and claims nothing', async () => {
+  const f = await fixture();
+  await cancelDialog(f.dialog.id, 'cancelled', f.store);
+  await closeDiscordQuestion(JSON.parse(completionNeed(f.store.get(f.dialog.id))), f.discord, 'accor');
+  const result = await pick(f);
+  assert.equal(result.status, 'stale');
+  const record = f.discord.get(f.dialog.id);
+  assert.deepEqual(record.picks, {});
+  assert.equal(record.outbox, undefined);
+  assert.match(record.updates.answer.body.content, /already cancelled/);
+  assert.ok(record.updates.answer.body.components[0].components.every(component => component.disabled));
+});
+
+for (const [name, change] of Object.entries({ 'guild': { guild_id: OTHER }, 'channel': { channel_id: OTHER } })) {
+  test(`a push click from the wrong ${name} is rejected`, async () => {
     const f = await fixture();
-    await assert.rejects(acceptDiscordClick({ ...click(f.dialog), ...change }, { store: f.discord, identity: IDENTITY, channelAccount: 'discord' }), /registered message/);
+    const row = click(f.dialog);
+    await assert.rejects(acceptDiscordClick({ ...row, raw: JSON.stringify({ ...JSON.parse(row.raw), ...change }) }, { store: f.discord, identity: IDENTITY, channelAccount: 'discord' }), /registered/);
     assert.deepEqual(f.discord.get(f.dialog.id).picks, {});
   });
 }

@@ -1,8 +1,8 @@
-import { answerParts, answersOf, capture, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
+import { answerParts, answersOf, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
+import { bindsTo, eventOf } from './discord-event.mjs';
 import { isPotName, isRequestId } from './door-messages.mjs';
 
 const MESSAGE_LIMIT = 2000;
-const CUSTOM_ID = new RegExp(`^(?:human|form:human-answer):${capture(DIALOG_ID)}:(\\d+)(?::(\\d+|select))?$`);
 
 export async function registerDiscordQuestion(registration, store, identity) {
   const { question, request, pot, channelAccount, guildId, messages } = registration;
@@ -24,10 +24,8 @@ export async function registerDiscordQuestion(registration, store, identity) {
   }, question.dialog);
 }
 
-function customIdParts(interaction) {
-  const custom = interaction.data?.custom_id ?? '';
-  const match = CUSTOM_ID.exec(custom);
-  return match && { dialog: match[1], index: Number(match[2]), option: match[3], isForm: custom.startsWith('form:') };
+function rawOf(row) {
+  try { return JSON.parse(row.raw); } catch { return undefined; }
 }
 
 function formText(components = []) {
@@ -35,12 +33,17 @@ function formText(components = []) {
     : formText(component.components ?? (component.component ? [component.component] : []))).join('\n');
 }
 
-function chosenAnswer(question, interaction, parts) {
-  if (parts.isForm && interaction.type === 5) return { id: question.id, labels: [], text: formText(interaction.data.components) };
-  if (parts.isForm || interaction.type !== 3) throw new Error('discord-human: unsupported answer interaction.');
-  const indexes = parts.option === 'select' ? interaction.data.values : [parts.option];
-  if (!Array.isArray(indexes) || !indexes.every(index => /^\d+$/.test(index) && question.options[Number(index)])) throw new Error('discord-human: unknown selection.');
-  if (parts.option === 'select' && !question.multiple) throw new Error('discord-human: this question is not multiple choice.');
+function chosenAnswer(question, row, event) {
+  const interaction = rawOf(row);
+  const isForm = event.customId.startsWith('form:');
+  if (isForm) {
+    if (interaction?.type !== 5) throw new Error('discord-human: a stored form answers only on its modal submission.');
+    return { id: question.id, labels: [], text: formText(interaction.data?.components) };
+  }
+  if (interaction && interaction.type !== 3) throw new Error('discord-human: unsupported answer interaction.');
+  const indexes = event.option === 'select' ? [event.optionText] : [event.option];
+  if (!indexes.every(index => /^\d+$/.test(index ?? '') && question.options[Number(index)])) throw new Error('discord-human: unknown selection.');
+  if (event.option === 'select' && !question.multiple) throw new Error('discord-human: this question is not multiple choice.');
   return { id: question.id, labels: indexes.map(index => question.options[Number(index)].label), text: '' };
 }
 
@@ -54,33 +57,44 @@ function disabled(components = []) {
 const answered = answer => `Answered: ${answerParts(answer).join(', ')}`;
 
 function messageUpdate(message, content, components = message.components) {
-  return { channelId: message.channelId, messageId: message.messageId,
-    body: { content: content.slice(0, MESSAGE_LIMIT), components: disabled(components), allowed_mentions: { parse: [] } } };
+  const body = { content: content.slice(0, MESSAGE_LIMIT), allowed_mentions: { parse: [] } };
+  if (components?.length) body.components = disabled(components);
+  return { channelId: message.channelId, messageId: message.messageId, body };
 }
 
-export async function acceptDiscordClick(interaction, { store, identity, channelAccount, at = new Date().toISOString() }) {
-  const parts = customIdParts(interaction);
-  if (!parts) return { status: 'unhandled' };
+export async function acceptDiscordClick(row, { store, identity, channelAccount, at = new Date().toISOString() }) {
+  const event = eventOf(row);
+  if (!event) return { status: 'unhandled' };
   return store.locked(({ get, save }) => {
-    const record = get(parts.dialog);
+    const record = get(event.dialog);
     if (!record) return { status: 'unhandled' };
     const { question, messages } = record.registration;
-    const message = messages[parts.index];
-    const asked = question.questions[parts.index];
-    if (!message || !asked || channelAccount !== record.registration.channelAccount || interaction.guild_id !== record.registration.guildId || interaction.channel_id !== message.channelId || interaction.message?.id !== message.messageId) throw new Error('discord-human: click does not belong to the registered message.');
-    const evidence = discordEvidence({ userId: interaction.member?.user?.id ?? interaction.user?.id, guildId: interaction.guild_id,
-      messageUrl: discordMessageUrl({ guildId: interaction.guild_id, ...message }), at }, identity, question.policy);
-    if (record.closed || Object.hasOwn(record.picks, asked.id)) return { status: 'duplicate' };
-    const [answer] = answersOf([asked], [chosenAnswer(asked, interaction, parts)]);
-    const picks = { ...record.picks, [asked.id]: { answer, evidence } };
+    const asked = question.questions[event.questionIndex];
+    const message = asked && messages[event.questionIndex];
+    if (!message || channelAccount !== record.registration.channelAccount || (event.guildId && event.guildId !== record.registration.guildId)) throw new Error('discord-human: click does not belong to the registered message.');
+    if (!bindsTo(record.registration, asked, event.questionIndex, event)) throw new Error('discord-human: click does not name a registered control of this question.');
+    if (record.closed || Object.hasOwn(record.picks, asked.id)) return withdrawn(record, asked, message, save);
+    const evidence = discordEvidence({ userId: event.userId, guildId: event.guildId ?? record.registration.guildId,
+      messageUrl: discordMessageUrl({ guildId: record.registration.guildId, ...message }), at }, identity, question.policy);
+    const [answer] = answersOf([asked], [chosenAnswer(asked, row, event)]);
+    const picks = { ...record.picks, [asked.id]: { question: asked.id, request: record.registration.request, messageUrl: discordMessageUrl({ guildId: record.registration.guildId, ...message }),
+      customId: event.customId, option: event.option, answer, evidence, at } };
     const isComplete = question.questions.every(item => Object.hasOwn(picks, item.id));
     const outbox = isComplete ? packet('human.answer', { dialog: question.dialog, request: record.registration.request, digest: question.digest,
       answers: question.questions.map(item => picks[item.id].answer),
       clicks: question.questions.map(item => ({ question: item.id, ...picks[item.id].evidence })) }) : undefined;
-    const update = messageUpdate(message, `${answered(answer)}\nDelivery to the owning pot is pending.`, message.components ?? interaction.message.components);
+    const update = messageUpdate(message, `${answered(answer)}\nDelivery to the owning pot is pending.`);
     save({ ...record, picks, outbox, updates: { ...record.updates, [asked.id]: update } });
-    return { status: 'accepted', dialog: parts.dialog, update: update.body, channelId: message.channelId, messageId: message.messageId };
-  }, parts.dialog);
+    return { status: 'accepted', dialog: event.dialog, update: update.body, channelId: message.channelId, messageId: message.messageId };
+  }, event.dialog);
+}
+
+/** A click on a question the owning pot already settled changes no answer, and only takes the controls away. */
+function withdrawn(record, question, message, save) {
+  const settled = record.closed?.status ?? 'answered elsewhere';
+  const update = messageUpdate(message, `This question was already ${settled}.`, message.components);
+  save({ ...record, updates: { ...record.updates, [question.id]: update } });
+  return { status: 'stale', dialog: record.id, update: update.body, channelId: message.channelId, messageId: message.messageId };
 }
 
 export async function closeDiscordQuestion(completion, store, originPot) {

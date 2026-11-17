@@ -37,6 +37,11 @@ async function updateMessage(record, questionId, update) {
   }, record.id);
 }
 
+/** Applies the message updates a durable claim left behind, so a restart finishes the claim it read back. */
+async function settle(record) {
+  for (const [id, update] of Object.entries(record.updates ?? {})) await updateMessage(record, id, update);
+}
+
 async function posted(record) {
   const { question, request, pot, guildId, messages } = record.registration;
   const need = packet('human.posted', { dialog: record.id, request, digest: question.digest, guildId, at: new Date().toISOString(),
@@ -88,15 +93,18 @@ function startDiscordHuman({ onError = () => {} } = {}) {
   let cursor = existsSync(cursorPath) ? JSON.parse(readFileSync(cursorPath, 'utf8')).id : 0;
   async function clicks() {
     try {
-      for (const event of inbox.after(cursor)) {
+      for (const row of inbox.after(cursor)) {
         try {
-          const result = await acceptDiscordClick(event.interaction, { store: store(), identity: sandbox.humanDiscord, channelAccount: event.channel, at: new Date(event.at).toISOString() });
-          if (result.status === 'accepted') {
-            const record = store().get(result.dialog);
-            for (const [id, update] of Object.entries(record.updates ?? {})) await updateMessage(record, id, update);
+          const result = await acceptDiscordClick(row, { store: store(), identity: sandbox.humanDiscord, channelAccount: row.channel, at: new Date(row.at).toISOString() });
+          if (['accepted', 'stale'].includes(result.status)) await settle(store().get(result.dialog));
+        } catch (error) {
+          if (error?.isTransient) {
+            onError('The dialog store is busy, so this click is retried on the next poll.');
+            break;
           }
-        } catch { onError('A click was rejected or its message update needs retry.'); }
-        cursor = event.id;
+          onError(`A click was rejected: ${error.message}`);
+        }
+        cursor = row.id;
         writeFileSync(`${cursorPath}.tmp`, JSON.stringify({ id: cursor }), { mode: 0o600 });
         renameSync(`${cursorPath}.tmp`, cursorPath);
       }
@@ -108,7 +116,7 @@ function startDiscordHuman({ onError = () => {} } = {}) {
       await completions(onError);
       for (const record of store().all()) {
         try {
-          for (const [id, update] of Object.entries(record.updates ?? {})) await updateMessage(record, id, update);
+          await settle(record);
           await deliverAnswer(record);
         } catch { onError('A Discord update or door delivery remains pending.'); }
       }
