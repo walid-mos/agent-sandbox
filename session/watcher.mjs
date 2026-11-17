@@ -1,9 +1,12 @@
 import { spawn } from 'node:child_process';
+import { mkdirSync, watch } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { main } from './main.mjs';
+import { enqueue, isRequest, QUEUE, queued } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { endTerminal, isStopped, launch, liveTerminals, passes, RESUME, save, terminalOf, workers } from './workers.mjs';
+import { serveQueue } from './serve-queue.mjs';
+import { endTerminal, isStopped, liveTerminals, passes, save, terminalOf, workers } from './workers.mjs';
 
 const STARTUP_GRACE_MS = 120000;
 // One change of a terminal comes as several events, so a pass waits for the burst to end.
@@ -37,17 +40,18 @@ function terminalState(worker, terminals, now) {
 }
 
 /** Reports and repairs one worker, and resolves to the time it needs another look, if any. */
-function inspect(worker, terminals, now) {
+function inspect(worker, terminals, now, pending) {
   // A stop can land while a resume is under way, so a stopped worker's terminal is ended whenever it is seen live.
   if (isStopped(worker)) {
     endTerminal(worker, terminals);
     return undefined;
   }
   const terminal = terminalState(worker, terminals, now);
-  if (terminal.state === 'finished' && worker.isComplete) return undefined;
+  if (terminal.state === 'finished' && (worker.isComplete || pending.has(worker.name))) return undefined;
+  // A worker whose record was saved but never queued, after a crash between the two, starts through this request too.
   if (terminal.state === 'finished' && !resumed.has(worker.name)) {
     endTerminal(worker, terminals);
-    launch(worker, [RESUME]);
+    enqueue({ worker: worker.name });
     resumed.add(worker.name);
     return undefined;
   }
@@ -68,9 +72,9 @@ function logFailure(subject, error) {
   process.stderr.write(`pots-watcher: ${subject}: ${error instanceof Error ? error.message : 'failed'}\n`);
 }
 
-function inspectLogged(worker, terminals, now) {
+function inspectLogged(worker, terminals, now, pending) {
   try {
-    return inspect(worker, terminals, now);
+    return inspect(worker, terminals, now, pending);
   } catch (error) {
     logFailure(worker.name, error);
     return undefined;
@@ -86,8 +90,12 @@ function lookAgainAt(times) {
 function pass() {
   try {
     const terminals = liveTerminals();
+    const pending = new Set(queued().map(request => request.worker));
     const now = Date.now();
-    lookAgainAt(workers().map(worker => inspectLogged(worker, terminals, now)));
+    const times = workers().map(worker => inspectLogged(worker, terminals, now, pending));
+    // Inspection ends terminals, so the queue is served from a fresh list where their slots are free.
+    serveQueue(liveTerminals(), logFailure);
+    lookAgainAt(times);
   } catch (error) {
     logFailure('workers', error);
   }
@@ -121,4 +129,15 @@ function followTerminals() {
   events.on('close', () => setTimeout(followTerminals, RESUBSCRIBE_MS));
 }
 
-main(import.meta, followTerminals);
+// Removing a request and writing its temporary file also stir the folder, and neither brings work.
+function followQueue() {
+  mkdirSync(QUEUE, { recursive: true });
+  watch(QUEUE, (_event, file) => {
+    if (!file || isRequest(file)) passSoon();
+  });
+}
+
+main(import.meta, () => {
+  followQueue();
+  followTerminals();
+});

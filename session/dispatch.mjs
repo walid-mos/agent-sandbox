@@ -4,10 +4,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { main, runOperation } from './main.mjs';
+import { maxWorkers } from './limits.mjs';
 import { MAX_MODEL } from './models.mjs';
+import { enqueue, queued } from './queue.mjs';
 import { command } from './run.mjs';
 import { owners, sandbox } from './sandbox.mjs';
-import { clearStop, launch, liveTerminals, RESUME, terminalName, terminalOf, WORKER_PREFIX, workers, writeBrief } from './workers.mjs';
+import { clearStop, liveTerminals, save, terminalName, terminalOf, WORKER_PREFIX, workers, writeBrief } from './workers.mjs';
 
 const WORKSPACES = join(homedir(), 'Development');
 const DRAFT_PR = join(homedir(), '.pi/agent/skills/worktree/scripts/draft-pr');
@@ -48,11 +50,15 @@ function start(arguments_) {
   const title = `${branch.split('/')[0]}: ${branch.split('/')[1].replaceAll('-', ' ')}`;
   const pullRequest = command('bash', [DRAFT_PR, worktree, title, base], { cwd: worktree });
   const brief = writeBrief(name, `${request}\n\nWork only in ${worktree}, branch ${branch}. Draft PR: ${pullRequest}. Use the installed Pi harness and its skills. This checkout already is this task's worktree; do not hand it off again. The only agents you start are the passes of the clean pass. Commit atomic Conventional Commits. Push this branch only as the rules loaded in this session allow. When a push waits for the person's yes, end your turn naming the branch, the remote and the waiting commits; ${sandbox.bot} brings the yes back as a message, and it covers that one push. Before your final response, read ${CLEAN_PASS_GUIDE}: run the clean pass when the task owes one, then mark the pull request ready or keep it in draft as it says. Report the PR, checks, commit, unpushed commits and uncommitted paths in your final response. The Pots watcher will relay your completion to ${sandbox.bot}.\n`);
-  const worker = launch({ name, repository, branch, worktree, brief, pullRequest, request, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }) }, [`@${brief}`]);
-  process.stdout.write(`${JSON.stringify(worker)}\n`);
+  const worker = { name, repository, branch, worktree, brief, pullRequest, request, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }) };
+  // The record comes first: the watcher drops a request that names no worker.
+  save(worker);
+  const ahead = queued().length;
+  enqueue({ worker: name });
+  process.stdout.write(`${JSON.stringify({ ...worker, ahead, maxWorkers })}\n`);
 }
 
-// A worker whose terminal is gone, or that was stopped, comes back with its conversation to read the message.
+// A worker whose terminal is gone, or that was stopped, comes back with its conversation to read the message, once a slot is free.
 function send([name, messageFile]) {
   const worker = workers().find(candidate => candidate.name === name);
   if (!worker) throw new Error(`dispatch: no worker named ${name}. Use one of: ${workers().map(known => known.name).join(', ') || 'none started yet'}.`);
@@ -61,7 +67,7 @@ function send([name, messageFile]) {
   clearStop(worker);
   const terminal = terminalOf(worker, liveTerminals());
   if (terminal) command('hc', ['send', '--', terminal.address, message]);
-  else launch(worker, [RESUME, '--', message]);
+  else enqueue({ worker: name, message });
 }
 
 const OPERATIONS = { start, send };

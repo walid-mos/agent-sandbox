@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { ROUTER_MODEL } from './models.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 
-const WORKERS = join(homedir(), '.config/agent-sandbox/workers');
+export const WORKERS = join(homedir(), '.config/agent-sandbox/workers');
 export const RESUME = '--continue';
 export const WORKER_PREFIX = 'pots-';
 // hc accepts terminal names of at most 32 characters.
