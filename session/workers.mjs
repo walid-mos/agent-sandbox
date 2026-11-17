@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ROUTER_MODEL } from './models.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 
@@ -13,6 +14,7 @@ const TERMINAL_NAME_LIMIT = 32;
 const DIGEST_LENGTH = 6;
 // The session user can lower a priority and never raise one, so workers and passes step down and the pane's requests keep theirs.
 const WORKER_NICENESS = '10';
+const HUMAN_BROKER = fileURLToPath(new URL('./human.mjs', import.meta.url));
 
 export function terminalName(text, identity = text) {
   const readable = text.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -108,11 +110,18 @@ export function openTerminal({ name, cwd, tab, options = [], label, vaultCommand
   return JSON.parse(command('hc', ['get', name])).address;
 }
 
+function humanDialogFlags(worker) {
+  const help = command('pi', ['--help'], { timeout: 15_000 });
+  if (!help.includes('--human-dialog-worker') || !help.includes('--human-dialog-broker')) return [];
+  return ['--human-dialog-worker', worker.name, '--human-dialog-broker', HUMAN_BROKER];
+}
+
 export function launch(worker, conversation) {
   const terminal = openTerminal({
     name: worker.name, cwd: worker.worktree, tab: worker.name, label: 'pots.worker=true',
     options: ['--no-parent', '--no-notify', '--outlive-parent'],
-    vaultCommand: ['pi', '--provider', 'magpie', '--model', worker.model ?? ROUTER_MODEL, ...conversation],
+    vaultCommand: ['pi', '--provider', 'magpie', '--model', worker.model ?? ROUTER_MODEL,
+      ...humanDialogFlags(worker), ...conversation],
   });
   const launched = { ...worker, terminal, startedAt: Date.now(), isClosed: false };
   save(launched);

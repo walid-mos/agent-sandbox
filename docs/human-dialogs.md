@@ -120,6 +120,8 @@ For Accor's pending example, the repository is `accor-hotels/product-data-apps`,
 
 ## Agent-pi integration
 
+The launcher probes the installed Pi's `--help` output. It adds `--human-dialog-worker WORKER_NAME --human-dialog-broker ABSOLUTE_SCRIPT` only when both flags are supported, using its exact worker record name and the broker installed beside the launcher. Older Pi workers keep local dialogs and do not claim external arbitration. Their absence does not disable bot-origin dialogs. Pi supplies its exact session file from its session manager. If the worker runtime moves to another module, retain this flag check at the launch site.
+
 Agent-pi must adopt this contract in its own repository. Reading a Pi transcript and injecting terminal keys cannot arbitrate a simultaneous terminal answer safely. The key-based pane route remains available for unpublished dialogs, but those dialogs are not relayed to Discord.
 
 Invoke `node /opt/agent-sandbox/session/human.mjs open` with JSON on stdin when a dialog opens:
