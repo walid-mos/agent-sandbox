@@ -184,6 +184,19 @@ test('follow-up stays durable until Pi accepts it and is sent only once per laun
   assert.equal(queued().length, 0);
 });
 
+test('a follow-up Pi accepted before it crashed is not sent again to the resumed launch', () => {
+  inspect();
+  enqueue({ worker: worker.name, message: 'Continue' });
+  serve();
+  const request = queued()[0];
+  writePrivateJson(statePath(worker), { ...worker, phase: 'active', received: [request.file] });
+  setTerminals([{ ...terminal, state: 'finished' }]);
+  inspectWorker(workers()[0], { terminals: boundary().terminals, now: Date.now(), pending: new Set([worker.name]) });
+  assert.equal(queued().some(queuedRequest => queuedRequest.file === request.file), false);
+  assert.equal(queued().length, 1);
+  assert.equal(queued()[0].message, undefined);
+});
+
 test('a follow-up arriving as shutdown starts reopens the exact session, never the newer folder session', () => {
   writePrivateJson(statePath(worker), { ...worker, phase: 'closing', received: [] });
   enqueue({ worker: worker.name, message: 'Follow up after close' });

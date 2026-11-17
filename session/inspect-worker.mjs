@@ -1,4 +1,4 @@
-import { enqueue } from './queue.mjs';
+import { dequeue, enqueue, queued } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { endTerminal, isStopped, passes, save, terminalOf } from './workers.mjs';
@@ -41,6 +41,14 @@ function recover(worker, state, pending) {
   resumed.add(worker.name);
 }
 
+// Pi records the follow-ups it accepted per launch, and a resume starts a new launch, so the ended launch's are dropped before they are sent again.
+function forgetReceived(worker, state, pending) {
+  if (!state?.received?.length) return;
+  const requests = queued().filter(request => request.worker === worker.name);
+  requests.filter(request => state.received.includes(request.file)).forEach(dequeue);
+  if (requests.every(request => state.received.includes(request.file))) pending.delete(worker.name);
+}
+
 function recordSession(worker, state) {
   if (!state?.sessionFile || state.sessionFile === worker.sessionFile) return worker;
   const current = { ...worker, sessionFile: state.sessionFile, sessionId: state.sessionId };
@@ -73,6 +81,7 @@ function inspectLaunch(worker, view) {
   const current = recordSession(worker, state);
   const terminal = terminalOf(current, view.terminals);
   if (!terminal || terminal.state === 'finished') {
+    forgetReceived(current, state, view.pending);
     recover(current, state, view.pending);
     return undefined;
   }
