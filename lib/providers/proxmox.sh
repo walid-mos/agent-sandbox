@@ -64,9 +64,15 @@ proxmox_sandbox_endpoints() {
 	done
 }
 
+# Only RFC 1918 ranges, in canonical dotted form: resolvers differ on a leading zero, which inet_aton reads as octal.
+mac_lan_address() {
+	jq -er '.macLanAddress | strings | select(test("\\A(0|[1-9][0-9]{0,2})(\\.(0|[1-9][0-9]{0,2})){3}\\z"))
+		| select(split(".") | map(tonumber) | all(. <= 255) and (.[0] == 10 or (.[0] == 172 and .[1] >= 16 and .[1] <= 31) or .[0:2] == [192, 168]))' "$POTS_RUNTIME/host.json"
+}
+
 # A pot VM routes the Mac's tailnet names through its own node, which the node check covers, so the VM reaches the Mac at its LAN address.
 vm_forbidden_endpoints() {
-	mac=$(jq -er '.macLanAddress | strings | select(test("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"))' "$POTS_RUNTIME/host.json") || {
+	mac=$(mac_lan_address) || {
 		echo "$(basename "$0"): $POTS_RUNTIME/host.json needs macLanAddress, the Mac's IPv4 address on the Proxmox node's LAN, such as 192.168.1.138" >&2
 		return 1
 	}
