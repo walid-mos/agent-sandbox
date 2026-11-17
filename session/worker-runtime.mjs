@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { command } from './run.mjs';
 import { allTerminals } from './workers.mjs';
 import { queued } from './queue.mjs';
-import { canFinish, followUp, hasFinalReply, LIFECYCLE, readLifecycle, receiptPath, resultId, SETTLED_GRACE_MS, statePath, writeLifecycle } from './worker-lifecycle.mjs';
+import { canFinish, followUp, hasFinalReply, LIFECYCLE, readLifecycle, readyAt, receiptPath, resultId, statePath, writeLifecycle } from './worker-lifecycle.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
 const PROTOCOL_VERSION = 1;
@@ -86,7 +86,7 @@ export class WorkerRuntime {
 
   #finishWhenDue(context) {
     if (!this.#hasReceipt()) return;
-    const due = this.#state.settledAt + SETTLED_GRACE_MS - Date.now();
+    const due = readyAt(this.#state) - Date.now();
     if (due > 0) {
       this.#timer = setTimeout(() => this.finish(context), due);
       return;

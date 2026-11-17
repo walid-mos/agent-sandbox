@@ -32,6 +32,8 @@ export function lifecycleOf(worker) {
   return state;
 }
 
+export const readyAt = state => state?.settledAt + SETTLED_GRACE_MS;
+
 export const resultId = state => createHash('sha256').update(JSON.stringify(state)).digest('hex');
 
 export function wrappedFollowUp(request) {
@@ -88,7 +90,7 @@ export function hasUncollectedHelpers(terminal, terminals) {
 export function canFinish(state, terminal, terminals, now) {
   if (!state) return false;
   const { labels = {} } = terminal;
-  return [state.phase === 'settled', Number.isFinite(state.settledAt), now >= state.settledAt + SETTLED_GRACE_MS,
+  return [state.phase === 'settled', Number.isFinite(state.settledAt), now >= readyAt(state),
     terminal.address === state.terminal, ownsTerminal(state, terminal), isLive(terminal), ['done', 'idle'].includes(terminal.status),
     !labels['agent.waiting'], !labels['agent.goal'], !labels['lifecycle.keep'], !hasUncollectedHelpers(terminal, terminals)].every(Boolean);
 }

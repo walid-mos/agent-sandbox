@@ -2,7 +2,7 @@ import { enqueue } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { endTerminal, isStopped, passes, save, terminalOf } from './workers.mjs';
-import { canFinish, lifecycleOf, SETTLED_GRACE_MS } from './worker-lifecycle.mjs';
+import { canFinish, lifecycleOf, readyAt } from './worker-lifecycle.mjs';
 import { keepResult } from './worker-results.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
@@ -48,8 +48,8 @@ function recordSession(worker, state) {
 }
 
 function inspectLive(worker, terminal, state, { now, terminals }) {
-  const readyAt = state?.settledAt + SETTLED_GRACE_MS;
-  if (now < readyAt) return readyAt;
+  const due = readyAt(state);
+  if (now < due) return due;
   reportCurrent(worker, terminal, state, canFinish(state, terminal, terminals, now));
   return undefined;
 }
