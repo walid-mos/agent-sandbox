@@ -31,9 +31,10 @@ if [ "$host_state" = absent ]; then
 	join_node on_host host
 	sandbox_vm sudo systemctl restart pots-door.service
 fi
-operator_view | on_host verify host "$SANDBOX" "$operator_node"
 session_state=$(on_session state session "$SANDBOX")
 if [ "$session_state" = absent ]; then
 	join_node on_session session
 fi
+# The operator's machine sees a session only once its shields are down, and a VM node's door admits other pots' sessions, so the session goes first and each check reads a fresh view.
 operator_view | on_session verify session "$SANDBOX" "$operator_node"
+operator_view | on_host verify host "$SANDBOX" "$operator_node"
