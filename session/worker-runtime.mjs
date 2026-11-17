@@ -66,7 +66,10 @@ export class WorkerRuntime {
     this.#observer = watch(LIFECYCLE, (_event, file) => {
       if (join(LIFECYCLE, `${file}`) === receiptPath(this.#worker)) this.finish(context);
     });
-    this.#removeInput = context.ui.onTerminalInput(() => this.invalidate(context));
+    // Only a published result can be invalidated, so input on an active session writes nothing and starts no watcher pass.
+    this.#removeInput = context.ui.onTerminalInput(() => {
+      if (this.#state?.phase !== 'active') this.invalidate(context);
+    });
   }
 
   input(event, context) {

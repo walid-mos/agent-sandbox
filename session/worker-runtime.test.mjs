@@ -154,6 +154,16 @@ test('new terminal input invalidates the old result receipt', t => {
   assert.equal(readJson(receiptPath(worker)), undefined);
 });
 
+test('a burst of terminal input republishes a result once', t => {
+  acknowledge(t);
+  rawInput('x');
+  const { generation } = readJson(statePath(worker));
+  rawInput('y');
+  rawInput('z');
+  assert.equal(readJson(statePath(worker)).generation, generation);
+  assert.equal(readJson(statePath(worker)).phase, 'active');
+});
+
 test('hc input is durably received and invalidates an earlier close', t => {
   acknowledge(t);
   const transformed = runtime.input({ text: '<hc from="bot"><pots-follow-up id="100-a.json">\nAgain\n</pots-follow-up></hc>' }, context);
