@@ -34,11 +34,11 @@ async function settleRegistration(record, store, doors) {
     if (current.closed || current.registered === true) return current;
     if (delivered.state !== ANSWERED) {
       const registrationState = [OPEN, UNKNOWN].includes(delivered.state) ? 'pending' : 'saved';
-      return save({ ...current, registrationState, postedState: delivered.state, registered: false, failure: delivered.failure });
+      return save({ ...current, registrationState, registered: false, failure: delivered.failure });
     }
     checkHumanReply(delivered, delivered.reply);
     return save({ ...current, registration: current.savedRegistration, savedRegistration: undefined,
-      registrationState: 'acknowledged', postedState: delivered.state, registered: true, failure: undefined });
+      registrationState: 'acknowledged', registered: true, failure: undefined });
   }, record.id);
 }
 
