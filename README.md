@@ -14,7 +14,7 @@ Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named a
 | `vm` | Cores, memory, swap file and disk of the VM |
 | `serverPort` | `sealskin` only. Mac-local port of the sandbox's SealSkin server. Each sandbox needs its own |
 | `bot` | Name of the Pots bot that bootstrap creates, in one word |
-| `rules` | Optional. Path, in the session, of an instruction file that the bot and every worker of the sandbox load |
+| `rules` | Optional. Path, in the session, of an instruction file that the bot and every worker of the sandbox load. [Private client rules](docs/client-rules.md) describes source import and operator approval |
 | `maxWorkers` | Optional. Workers that run at once, the others waiting in the order they came. The default divides the session's memory less 2 GiB by 3 GiB, with at least 1. The kernel reports a little less than the VM's size, so a 20 GB VM runs 5, a 10 GB VM 2, and an 8 GB or 2 GB VM 1. The 2 GiB for the session and 3 GiB per worker are estimates until `bin/pots-load` measures a pot |
 | `idleStackMinutes` | Optional, 30 by default. Minutes a worker's worktree goes with no live terminal before the watcher stops its Compose projects |
 | `owners` | GitHub owners that the dispatcher and the GitHub wrapper accept, each with the name of its token in the vault's `/tools/github` |
@@ -327,6 +327,8 @@ Each sandbox has one bot, named by its `bot` key. It uses `magpie/group/router` 
 A pot with `jira` configured connects its bot and Pi workers through [the vault-backed Jira MCP entry](#jira-authentication). Restart sessions that loaded an older MCP configuration after refreshing it.
 
 A pot's bot follows [the work center's instructions](session/bot), and the Mastermind's bot [its own](session/mastermind). Every bot of a pot also loads [the pot rules](session/pot/AGENTS.md), which bootstrap links at `~/.pots/AGENTS.md`, above the bots' folders and outside the workers' `/config/Development`: questions, doors and reports from a Mac. These instructions are the same in every sandbox. Bootstrap links them into the bot's folder, so the bot reads them and cannot edit them. Change them in this repository. What differs between sandboxes is data. `owners` limits the repositories, and `rules` names an instruction file that bootstrap links at `/config/AGENTS.md`, where Pi loads it for the bot and for every worker.
+
+For rules maintained in a private source, use [the client-rules import and approval commands](docs/client-rules.md). `vm-config` carries the approved snapshot through the trusted launcher to the existing read-only configuration mount. An unsigned source update alone cannot activate new rules.
 
 A sandbox for a client uses `rules` for the client's own instruction file, which can make every push wait for the person's yes. The yes is a rule that the bot and the worker follow, and the sandbox's token can push without it. The bot asks before a start, because the start pushes the branch to open the draft PR. It asks again when a worker stops with unpushed commits, then sends the worker the yes for that one push.
 
