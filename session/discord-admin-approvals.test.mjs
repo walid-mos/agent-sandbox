@@ -11,7 +11,7 @@ import { fixture, guildId, channelId, botId, ownerId, userId, request } from '..
 
 const messageId = '100000000000000020';
 
-async function setup(t, input = request('channel.delete', { channelId })) {
+async function setup(t, input = request('channel.delete', { channelId }), before = () => {}) {
   const folder = mkdtempSync(join(tmpdir(), 'discord-admin-approval-'));
   t.after(() => rmSync(folder, { recursive: true, force: true }));
   const clicks = humanStore(join(folder, 'clicks'));
@@ -19,6 +19,7 @@ async function setup(t, input = request('channel.delete', { channelId })) {
   const approvals = discordAdminApprovals({ clicks, pending, channelAccount: 'discord', guildId, api: (...arguments_) => dependencies.api(...arguments_) });
   const dependencies = { ...fixture(), approvals };
   dependencies.channels.find(channel => channel.id === channelId).permission_overwrites = [{ id: guildId, type: 0, allow: '1024', deny: '0' }];
+  before(dependencies);
   const prepared = await administerDiscord(input, dependencies);
   const id = prepared.approval;
   const buttons = [APPROVE, DECLINE].map((label, index) => ({ type: 2, style: index === 0 ? 1 : 2, label, custom_id: `human:${id}:0:${index}` }));
@@ -27,8 +28,8 @@ async function setup(t, input = request('channel.delete', { channelId })) {
     components: [{ type: 1, components: buttons.map(button => ({ ...button, disabled: true })) }], embeds: [], attachments: [] };
   const api = dependencies.api;
   dependencies.api = (method, path, ...arguments_) => method === 'GET' && path === `/channels/${channelId}/messages/${messageId}` ? display : api(method, path, ...arguments_);
-  const click = (index = 0, overrides = {}) => acceptDiscordClick({ raw: JSON.stringify({ type: 3, guild_id: guildId, channel_id: channelId,
-    message: { ...display, components: registration.messages[0].components }, member: { user: { id: ownerId } }, data: { custom_id: `human:${id}:0:${index}` }, ...overrides }) }, { store: clicks, channelAccount: 'discord' });
+  const click = (index = 0, overrides = {}, at) => acceptDiscordClick({ raw: JSON.stringify({ type: 3, guild_id: guildId, channel_id: channelId,
+    message: { ...display, components: registration.messages[0].components }, member: { user: { id: ownerId } }, data: { custom_id: `human:${id}:0:${index}` }, ...overrides }) }, { store: clicks, channelAccount: 'discord', at });
   return { approvals, pending, clicks, dependencies, input: { ...input, approval: id }, prepared, registration, display, click };
 }
 
@@ -74,6 +75,17 @@ test('an operation whose full scope cannot fit one message gets no approval', as
   await assert.rejects(administerDiscord(oversized, proof.dependencies), /too long/);
   assert.deepEqual(proof.pending.all().map(record => record.id), [proof.input.approval]);
   assert.equal(proof.dependencies.mutations.length, 0);
+});
+
+test('a scope larger than the old cap still gets approval while its message fits', async t => {
+  const topic = 'x'.repeat(1500);
+  const everyone = { id: guildId, type: 0, allow: '1024', deny: '0' };
+  const proof = await setup(t, request('channel.edit', { channelId, payload: { topic, permission_overwrites: [everyone] } }), dependencies => {
+    dependencies.channels.find(channel => channel.id === channelId).type = 15;
+  });
+  assert.equal(proof.prepared.status, 'approval_required');
+  assert.equal(proof.prepared.question.scope.length > 1400, true);
+  assert.equal(proof.prepared.message.content.length <= 2000, true);
 });
 
 test('a text-only click without its canonical message snapshot claims nothing', async t => {

@@ -11,7 +11,6 @@ export const DECLINE = 'Cancel';
 const QUESTION = 'operation';
 const DIALOG_BYTES = 16;
 const APPROVAL_TTL_MS = 15 * 60 * 1000;
-const SCOPE_LIMIT = 1400;
 const TOO_LONG = 'discord-admin: approval scope is too long for one Discord question. Reduce this operation before requesting approval.';
 
 const operationScope = ({ approval: _approval, ...request }) => canonicalJson(request);
@@ -20,7 +19,6 @@ const isUnused = prepared => prepared && !prepared.consumed && prepared.expiresA
 
 function approvalQuestion(id, request) {
   const scope = operationScope(request);
-  if (scope.length > SCOPE_LIMIT) throw new Error(TOO_LONG);
   return { id, kind: 'question', policy: 'ordinary', scope, context: `Discord Admin asks to apply one exact operation: ${scope}`,
     questions: [{ id: QUESTION, prompt: `Apply ${request.action} once, exactly as scoped?`, multiple: false, options: [
       { label: APPROVE, detail: 'Applies only this guild, resource and payload, once.', recommended: false },
