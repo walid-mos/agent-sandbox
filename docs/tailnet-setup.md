@@ -17,7 +17,7 @@ Merge what it prints into the tailnet policy file (Access controls, JSON editor)
 
 | Entry | Effect |
 | --- | --- |
-| `tag:pot-keys` owned by `autogroup:admin` | The tag of the OAuth client below. No node carries it |
+| `tag:pot-keys` owned by `autogroup:admin` | The tag of the OAuth client below. No node carries it, so no pot may be named `keys` |
 | `tag:pot-<pot>` and `tag:pot-<pot>-host`, owned by `tag:pot-keys` | The client can mint keys for these tags and no other |
 | Your login to every `tag:pot-<pot>`, tcp 443, 10001-18790 and 18792-65535 | Your devices open the session's Serve links and tailnet-link previews. A userspace node hands each of these ports without a Serve handler to the session's loopback, so your devices reach every session listener on them, served or not. No other user of the tailnet and no pot reaches a session. 18791 stays out: tailnet-link's file server listens there and trusts the login header Serve adds, and a userspace node hands a port without a Serve handler to its loopback, so a direct grant would let a device forge that header |
 | Your login to every `tag:pot-<pot>-host`, tcp 22 | Your devices enter a session through the VM's forced ssh command |

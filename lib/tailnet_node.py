@@ -19,7 +19,8 @@ LOGIN = re.compile(r"[^@\s]+@[^@\s]+")
 POT_NAME = re.compile(r"[a-z](?:[a-z0-9-]{0,29}[a-z0-9])?")
 HOST_SUFFIX = "-host"
 TAG_PREFIX = "tag:pot-"
-KEYS_TAG = "tag:pot-keys"
+KEYS_POT = "keys"
+KEYS_TAG = TAG_PREFIX + KEYS_POT
 HOST_TAG = re.compile(r"tag:pot-([a-z0-9-]+)-host")
 KEY = re.compile(r"tskey-auth-[A-Za-z0-9-]+")
 SERVE_PORT = 443
@@ -67,8 +68,9 @@ def login_guidance(directory):
 
 
 def node_name(role, pot):
-    if not POT_NAME.fullmatch(pot) or pot.endswith(HOST_SUFFIX):
-        fail(f"pot name {pot!r} must be a DNS label of at most 31 lowercase letters, digits and dashes, not ending in {HOST_SUFFIX}")
+    if not POT_NAME.fullmatch(pot) or pot.endswith(HOST_SUFFIX) or pot == KEYS_POT:
+        fail(f"pot name {pot!r} must be a DNS label of at most 31 lowercase letters, digits and dashes, not ending in {HOST_SUFFIX}, "
+             f"and not {KEYS_POT}, whose tag {KEYS_TAG} belongs to the key-minting client")
     return pot + ROLES[role]["suffix"]
 
 
