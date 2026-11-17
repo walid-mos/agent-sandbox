@@ -186,6 +186,8 @@ For this checkout on a Mac, run `./bin/import-private OLD_CHECKOUT` from a clone
 
 ## Daily operations
 
+[Mac launch setup](docs/mac-launch.md) lets a pot propose a prompt for one Mac. That Mac verifies the operator's Discord click before starting Pi. The feature stays disabled until private configuration and setup on each Mac.
+
 Start Herdr once so it creates its configuration, then install the Pots pane and the login watchdog from the Mac checkout:
 
 ```sh

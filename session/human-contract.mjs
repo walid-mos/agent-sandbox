@@ -4,6 +4,13 @@ export const DIALOG_ID = /^[a-f0-9]{32}$/;
 export const DIGEST = /^[a-f0-9]{64}$/;
 export const RELAYED_POLICIES = ['ordinary', 'push'];
 export const LOCAL_POLICY = 'local';
+// A Mac's launch gate checks this policy itself: no pot relays it, so policyOf keeps a dialog that names it local.
+export const LAUNCH_POLICY = 'launch';
+const OPERATOR_POLICIES = {
+  push: { enabled: 'pushApprovalsEnabled', off: 'human: Discord push approvals stay off until merged and verified live.', other: "human: this push needs the configured operator's own click." },
+  [LAUNCH_POLICY]: { enabled: 'macLaunchEnabled', off: 'human: Mac launches stay off until this Mac is set up and enabled.', other: "human: this launch needs the configured operator's own click." },
+};
+const operatorRule = policy => (Object.hasOwn(OPERATOR_POLICIES, policy) ? OPERATOR_POLICIES[policy] : undefined);
 export const policyOf = value => (RELAYED_POLICIES.includes(value) ? value : LOCAL_POLICY);
 const NAME = /^[\w-]+$/;
 const CAPABILITY = /^[\w-]{43,256}$/;
@@ -118,15 +125,17 @@ export function discordMessage(messageUrl) {
 }
 
 export function checkDiscordPolicy(policy, identity) {
-  if (policy !== 'push') return;
-  if (identity?.pushApprovalsEnabled !== true || !SNOWFLAKE.test(identity.userId)) throw new Error('human: Discord push approvals stay off until merged and verified live.');
+  const rule = operatorRule(policy);
+  if (!rule) return;
+  if (identity?.[rule.enabled] !== true || !SNOWFLAKE.test(identity.userId)) throw new Error(rule.off);
 }
 
 export function discordEvidence(evidence, identity, policy) {
   checkDiscordPolicy(policy, identity);
   const message = discordMessage(evidence?.messageUrl);
   if (!SNOWFLAKE.test(evidence?.userId) || message.guildId !== evidence.guildId || !Number.isFinite(Date.parse(evidence?.at))) throw new Error('human: Discord answer has no valid click metadata.');
-  if (policy === 'push' && evidence.userId !== identity.userId) throw new Error("human: this push needs the configured operator's own click.");
+  const rule = operatorRule(policy);
+  if (rule && evidence.userId !== identity.userId) throw new Error(rule.other);
   return { userId: evidence.userId, guildId: evidence.guildId, messageUrl: evidence.messageUrl, at: evidence.at };
 }
 
