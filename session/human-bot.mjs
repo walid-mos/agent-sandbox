@@ -6,6 +6,7 @@ import { conversation, isFromBot, say } from './terminal-conversation.mjs';
 
 const sourceOf = message => ({ type: 'bot', message });
 export const botDialogId = message => dialogId(sourceOf(message));
+export const botResultMessageId = dialog => dialog.result.messageId ?? `m-human-${dialog.id}`;
 
 function inputOf(record) {
   const common = { source: sourceOf(record.id), context: record.text };
@@ -60,7 +61,7 @@ export async function deliverBotResult(id, store = humanStore()) {
   return store.locked(({ get, save }) => {
     const dialog = get(id);
     if (dialog.source.type !== 'bot' || !dialog.result || dialog.deliveredToBot) return;
-    const messageId = dialog.result.messageId ?? `m-human-${id}`;
+    const messageId = botResultMessageId(dialog);
     if (!conversation().some(record => record.id === messageId || record.answers === dialog.source.message)) {
       const text = dialog.result.status === 'stored' ? 'Requested secrets were stored in this pot.'
         : dialog.result.status === 'answered' ? answerText(dialog.result.answers) : `Question ${dialog.result.status}.`;

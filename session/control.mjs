@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 import { botModel, runCommand } from './commands.mjs';
-import { botAnswers, botDialogId, deliverBotResult, syncBotDialogs } from './human-bot.mjs';
+import { botAnswers, botDialogId, botResultMessageId, deliverBotResult, syncBotDialogs } from './human-bot.mjs';
 import { answerQuestion } from './human-dialogs.mjs';
 import { storeDialogSecret } from './human-secrets.mjs';
 import { humanStore } from './human-store.mjs';
@@ -149,7 +149,7 @@ async function send(request) {
   if (!dialog || dialog.kind !== 'question') throw new Error('pots: that message has no question. Refresh the conversation.');
   const answered = await answerQuestion(dialog.id, { answers: botAnswers(dialog, `${text}`) }, { messageId: id });
   await deliverBotResult(dialog.id);
-  return answered.result.messageId ?? `m-human-${dialog.id}`;
+  return botResultMessageId(answered);
 }
 
 /** Answers one ask-secret as `pots chat` does, so the bot wakes on the same message and learns only which keys came. */
