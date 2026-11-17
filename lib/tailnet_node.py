@@ -8,7 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from tailnet_sources import OPERATOR, POT_SESSIONS, inbound_grants, source_problems, trusted_addresses
+from tailnet_sources import OPERATOR, POT_SESSIONS, agreed_addresses, inbound_grants, operator_view, source_problems
 
 NETWORK_ENV = Path(__file__).resolve().parent.parent / "vm/network.env"
 LAUNCH_ENV = Path(__file__).resolve().parent.parent / "session/launch.env"
@@ -44,6 +44,7 @@ DAEMON_ATTEMPTS = 30
 DAEMON_RETRY_SECONDS = 1
 UNJOINED_STATES = {"NeedsLogin", "NoState"}
 POLICY_GUIDANCE = "Apply the policy bin/tailnet-policy prints, as docs/tailnet-setup.md says, then run bin/tailnet-up again."
+OPERATOR_VIEW_PROBLEM = "standard input held no operator view of this node's tailnet; run bin/tailnet-up from the operator's machine"
 USAGE = "usage: tailnet_node.py name|tag|state|join|check|verify host|session POT [TARGET...] | guard host|session"
 
 
@@ -138,11 +139,11 @@ def other_session_check(own_tags):
 
 
 # A userspace node hands every port without a Serve handler to its own loopback, so the filter the control server sent is the only gate.
-def inbound_problems(role, own):
+def inbound_problems(role, own, views):
     own_addresses = [ipaddress.ip_address(address) for address in own.get("TailscaleIPs") or []]
     grants = inbound_grants(tailscale_json("debug", "netmap"), own_addresses)
     login = read_operator_login(INSTALLED_SETTINGS)
-    trusted = trusted_addresses(tailscale_json("status", "--json"), login, other_session_check(own.get("Tags") or []))
+    trusted = agreed_addresses([tailscale_json("status", "--json"), *views], login, other_session_check(own.get("Tags") or []))
     problems = [] if login else [login_guidance(INSTALLED_SETTINGS)]
     problems += source_problems(grants, lambda ports: allowed_sources(role, ports), trusted)
     required = ROLES[role]["required"]
@@ -186,22 +187,23 @@ def outbound_problems(role, pot, named_targets):
     return [f"this node reaches {label} on port {port}" for (_, label, port), hit in zip(probes, reached) if hit]
 
 
-def exposure_problems(role, pot, named_targets):
+def exposure_problems(role, pot, named_targets, views):
     if node_state(role, pot) != "joined":
         fail("this node has not joined the tailnet; run bin/tailnet-up")
     own = daemon_status().get("Self") or {}
-    return inbound_problems(role, own) + capability_problems(own) + outbound_problems(role, pot, named_targets)
+    return inbound_problems(role, own, views) + capability_problems(own) + outbound_problems(role, pot, named_targets)
 
 
 def check(role, pot, *named_targets):
-    problems = exposure_problems(role, pot, named_targets)
+    problems = exposure_problems(role, pot, named_targets, [])
     if problems:
         fail("; ".join(problems) + ". " + POLICY_GUIDANCE)
     print(f"tailnet_node: {node_name(role, pot)} takes only what the pots policy grants and reaches nothing else")
 
 
 def verify(role, pot, *named_targets):
-    problems = exposure_problems(role, pot, named_targets)
+    view = operator_view("" if sys.stdin.isatty() else sys.stdin.read(), daemon_status())
+    problems = exposure_problems(role, pot, named_targets, [view] if view else []) + ([] if view else [OPERATOR_VIEW_PROBLEM])
     subprocess.run(["tailscale", "set", "--shields-up=" + ("true" if problems else "false")], check=True)
     if problems:
         fail("shields stay up: " + "; ".join(problems) + ". " + POLICY_GUIDANCE)
@@ -213,7 +215,7 @@ def guard_problems(role):
     if status.get("BackendState") in UNJOINED_STATES:
         return []
     own = status.get("Self") or {}
-    return inbound_problems(role, own) + capability_problems(own)
+    return inbound_problems(role, own, []) + capability_problems(own)
 
 
 # Run every minute from the VM: shields only go up here, also on any error reading or judging the node's filter, and only verify lowers them.

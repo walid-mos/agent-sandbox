@@ -5,6 +5,7 @@ set -eu
 NODE="$POTS_REPO/lib/tailnet_node.py"
 session=$(running_session)
 operator_node=$(tailscale status --json --peers=false | jq -er '.Self.DNSName | split(".")[0]')
+OPERATOR_VIEW='{CurrentTailnet: {Name: .CurrentTailnet.Name}, Self: (.Self | {TailscaleIPs, Tags, UserID}), Peer: ((.Peer // {}) | map_values({TailscaleIPs, Tags, UserID})), User: ((.User // {}) | map_values({LoginName}))}'
 
 on_host() {
 	run_trusted lib/tailnet_node.py "$@"
@@ -12,6 +13,10 @@ on_host() {
 
 on_session() {
 	session_exec --interactive "$session" "$POTS_SESSION_REPOSITORY/session/tailnet-node" "$@"
+}
+
+operator_view() {
+	tailscale status --json | jq -c "$OPERATOR_VIEW"
 }
 
 # A failed mint leaves the join without a key on its standard input, so the join fails and stops this script.
@@ -26,9 +31,10 @@ if [ "$host_state" = absent ]; then
 	join_node on_host host
 	sandbox_vm sudo systemctl restart pots-door.service
 fi
-on_host verify host "$SANDBOX" "$operator_node"
 session_state=$(on_session state session "$SANDBOX")
 if [ "$session_state" = absent ]; then
 	join_node on_session session
 fi
-on_session verify session "$SANDBOX" "$operator_node"
+# The operator's machine sees a session only once its shields are down, and a VM node's door admits other pots' sessions, so the session goes first and each check reads a fresh view.
+operator_view | on_session verify session "$SANDBOX" "$operator_node"
+operator_view | on_host verify host "$SANDBOX" "$operator_node"

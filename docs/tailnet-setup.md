@@ -53,6 +53,11 @@ SANDBOX=nextnode ./bin/tailnet-up
 
 `bin/session-bootstrap` runs `bin/tailnet-up` last. `bin/pots-doors` takes every pot of the mesh in one run, after each pot's nodes have joined, and installs each door's keys from the same `doors` as the policy.
 
+`bin/tailnet-up` checks the session node before the VM node, each against a fresh view from the operator's machine, which sees a session only once its shields are down. A session admits only the operator's devices, so its check needs no other pot. A VM node's door admits other pots' sessions, so its check passes only once each session it names is down, or its own shields already were and its own status shows them.
+
+- In a new mesh, run it pot by pot. Each VM node's door names only sessions already checked, so every pot passes on its first run.
+- After every node was shielded, by `vm/shields-up` or by the guard against a too-wide policy since fixed, run it once for every pot, then once more for each pot that stopped with `shields stay up: the policy lets [...] reach ports 2222-2222`. The first round lowers every session and the VM nodes whose door names only sessions already lowered; the second lowers the rest. A VM node that still fails on the second round names a source no session holds, which is the wide grant the table below describes.
+
 ## What fails without each step
 
 | Missing | Symptom |
@@ -61,6 +66,8 @@ SANDBOX=nextnode ./bin/tailnet-up
 | The policy's grants, or a wider grant left in place | `tailnet_node: shields stay up: ...` naming the port, source or peer; the node is joined and takes no connection |
 | A grant left in place that opens an allowed port to another source: another user, a pot tag, a tagged device, a range or a CIDR | `tailnet_node: shields stay up: the policy lets [...] reach ports 54321-54321, which only the operator's untagged devices may reach`, or `which only other pots' session nodes may reach` on the door port; the VM guard prints the same after `shields raised:` |
 | `~/.config/agent-sandbox/tailnet.json`, or `bin/vm-config` after writing it | `tailnet_policy: ... tailnet.json must hold {"operatorLogin": ...}`; on a node, `shields stay up:` with the same line |
+| Another pot's session node lowered before this pot's VM node is checked | `tailnet_node: shields stay up: the policy lets [...] reach ports 2222-2222, which only other pots' session nodes may reach` naming that session's addresses; run `bin/tailnet-up` for that pot, then for this one, as [Then, per pot](#then-per-pot) says |
+| The operator's machine on the pots tailnet, with `tailscale` and `jq`, when `bin/tailnet-up` runs | `tailnet_node: shields stay up: standard input held no operator view of this node's tailnet`; a node whose shields were down raises them |
 | The OAuth client, or its tag | `tailnet-key: Tailscale refused the OAuth client` or the key refusal above |
 | The vault entry, or Universal Auth in the shell | `tailnet-key: The vault did not return TAILSCALE_POTS_OAUTH_CLIENT_SECRET` |
 | `bin/pots-doors` | A door call ends with ssh's exit 255 (no key, unknown host key); `probe-boundary` reports the door attacks untestable |
