@@ -3,7 +3,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { acceptDiscordClick, closeDiscordQuestion, registerDiscordQuestion } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
-import { all, find } from './door-requests.mjs';
+import { all, ANSWERED, find, OPEN, RECEIVED } from './door-requests.mjs';
 import { prepareAsk, transmitAsk } from './doors.mjs';
 import { DIALOG_ID, discordMessageUrl, packet } from './human-contract.mjs';
 import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
@@ -44,12 +44,12 @@ async function posted(record) {
   const door = prepareAsk({ pot, need: JSON.stringify(need), served: request, key: `human-posted:${record.id}` });
   const delivered = transmitAsk(door);
   await store().patch(record.id, { postedRequest: delivered.id });
-  if (!['open', 'answered'].includes(delivered.state)) throw new Error('discord-human: posted context was not delivered. Keep the question disabled and retry register.');
+  if (![OPEN, ANSWERED].includes(delivered.state)) throw new Error('discord-human: posted context was not delivered. Keep the question disabled and retry register.');
 }
 
 async function register(registration) {
   const request = find(registration.request);
-  if (request?.direction !== 'received' || request.pot !== registration.pot) throw new Error('discord-human: no matching incoming door request.');
+  if (request?.direction !== RECEIVED || request.pot !== registration.pot) throw new Error('discord-human: no matching incoming door request.');
   const block = /```question\s*\n([\s\S]*?)\n```/.exec(request.need);
   if (!block || JSON.stringify(JSON.parse(block[1])) !== JSON.stringify(registration.question)) throw new Error('discord-human: question differs from the incoming request.');
   const record = await registerDiscordQuestion(registration, store(), sandbox.humanDiscord);
@@ -58,7 +58,7 @@ async function register(registration) {
 }
 
 async function completions(onError) {
-  for (const request of all().filter(item => item.direction === 'received')) {
+  for (const request of all().filter(item => item.direction === RECEIVED)) {
     let completion;
     try { completion = JSON.parse(request.need); } catch { continue; }
     if (completion?.type !== 'human.answered') continue;
@@ -77,7 +77,7 @@ async function deliverAnswer(record) {
   await store().patch(record.id, { attemptedAt: Date.now() });
   const request = find(record.registration.request);
   await replyReceived(request, JSON.stringify(record.outbox));
-  await store().patch(record.id, { replySent: find(request.id).state === 'answered' });
+  await store().patch(record.id, { replySent: find(request.id).state === ANSWERED });
 }
 
 export function startDiscordHuman({ onError = () => {} } = {}) {

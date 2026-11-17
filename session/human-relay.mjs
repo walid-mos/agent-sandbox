@@ -1,4 +1,4 @@
-import { all, find, RESENDABLE } from './door-requests.mjs';
+import { all, ANSWERED, find, RESENDABLE } from './door-requests.mjs';
 import { prepareAsk, transmitAsk } from './doors.mjs';
 import { deliverBotResult, syncBotDialogs } from './human-bot.mjs';
 import { packet } from './human-contract.mjs';
@@ -50,7 +50,7 @@ async function reconcileSecret(initial, options) {
 
 async function reconcileQuestion(dialog, options) {
   const request = dialog.delivery?.id && options.doors.find(dialog.delivery.id);
-  if (dialog.result || request?.state !== 'answered') return dialog;
+  if (dialog.result || request?.state !== ANSWERED) return dialog;
   try {
     await acceptDoorAnswer(dialog, request, options);
     return await options.store.patch(dialog.id, { issue: undefined });

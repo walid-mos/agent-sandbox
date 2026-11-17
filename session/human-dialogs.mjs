@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { answersOf, dialogSource, discordEvidence, discordMessage, onlyFor, packet, questionsOf, RELAYED_POLICIES, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
+import { ANSWERED, ASKED } from './door-requests.mjs';
 import { humanStore } from './human-store.mjs';
 
 export const dialogId = source => createHash('sha256').update(JSON.stringify(dialogSource(source))).digest('hex').slice(0, 32);
@@ -81,7 +82,7 @@ export async function cancelDialog(id, status = 'cancelled', store = humanStore(
 }
 
 export async function acceptDoorAnswer(dialog, request, options) {
-  if (request.pot !== 'mastermind' || request.direction !== 'asked' || request.id !== dialog.delivery?.id || request.state !== 'answered') throw new Error('human: answer is not a reply to this dialog from Mastermind.');
+  if (request.pot !== 'mastermind' || request.direction !== ASKED || request.id !== dialog.delivery?.id || request.state !== ANSWERED) throw new Error('human: answer is not a reply to this dialog from Mastermind.');
   let reply;
   try { reply = JSON.parse(request.reply); } catch { throw new Error('human: Mastermind reply is not an answer packet.'); }
   return answerQuestion(dialog.id, reply, { ...options, origin: 'discord' });
