@@ -22,7 +22,11 @@ function actions() {
 }
 
 function readInput() {
-  try { return JSON.parse(readFileSync(0, 'utf8')); }
+  try {
+    const input = JSON.parse(readFileSync(0, 'utf8'));
+    if (!input || Array.isArray(input) || typeof input !== 'object') throw new Error();
+    return input;
+  }
   catch { throw new Error('discord-admin: provide one JSON request on stdin.'); }
 }
 
