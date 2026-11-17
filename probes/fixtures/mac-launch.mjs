@@ -32,11 +32,12 @@ export function scenario(t) {
   const edits = [];
   const reports = [];
   const runs = [];
+  const told = [];
   const source = { shown: shownRequest(request, prompt, 'open'), config: structuredClone(settings), time: now, result: undefined, isReportBroken: false };
   const discord = { post: async (channel, payload, bytes) => {
     posted.push({ channel, payload, bytes });
     return { id: '444444444444444444', attachments: [{ id: '666666666666666666', filename: payload.attachments[0].filename, size: Buffer.byteLength(bytes) }] };
-  }, edit: async (...args) => edits.push(args) };
+  }, edit: async (...args) => edits.push(args), tell: async (event, content) => told.push(content) };
   const pots = { show: async () => structuredClone(source.shown), report: async (pot, packet) => {
     if (source.isReportBroken) throw new Error('offline');
     reports.push({ pot, packet });
@@ -53,5 +54,5 @@ export function scenario(t) {
       member: { user: { id: settings.humanDiscord.userId } }, data: { component_type: 2, custom_id: buttonId(request, action) },
       message: { id: offer.messageId, author: { id: application }, content: offer.content, edited_timestamp: null, attachments: [offer.attachment] } };
   };
-  return { service, dependencies, store, source, notice, request, posted, edits, reports, runs, press };
+  return { service, dependencies, store, source, notice, request, posted, edits, reports, runs, told, press };
 }

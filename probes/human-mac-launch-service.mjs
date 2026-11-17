@@ -104,6 +104,22 @@ test('an exclusive durable consumption survives a crash before the launch state 
   assert.throws(() => f.store.consume({ launch: f.request.launch }));
 });
 
+test('a pot that does not answer closes nothing, starts nothing and leaves the press unused', async t => {
+  const f = scenario(t);
+  await f.service.notice(f.notice, application);
+  const answer = f.dependencies.pots.show;
+  f.dependencies.pots.show = async () => { throw new Error('offline'); };
+  await f.service.tick();
+  await f.service.press(f.press());
+  assert.equal(f.runs.length, 0);
+  assert.equal(f.store.used(f.request.launch), false);
+  assert.equal(f.store.get(f.request.launch).state, 'offered');
+  assert.match(f.told[0], /did not answer/);
+  f.dependencies.pots.show = answer;
+  await f.service.press(f.press());
+  assert.deepEqual(f.runs, ['Reply ready.']);
+});
+
 test('refusal is final and failed report delivery retries without another launch', async t => {
   const f = scenario(t);
   await f.service.notice(f.notice, application);

@@ -6,6 +6,7 @@ const RECONNECT_MS = 5000;
 const FATAL_CLOSES = [4004, 4010, 4011, 4012, 4013, 4014];
 const INTENTS = 1 | 512 | 32768;
 const BOT_FLAG_CONTENT = (1 << 18) | (1 << 19);
+const PRIVATE_REPLY = 1 << 6;
 
 export function discordClient(token, { fetcher = fetch, connect = url => new WebSocket(url), timers = globalThis } = {}) {
   let serverTime;
@@ -30,6 +31,7 @@ export function discordClient(token, { fetcher = fetch, connect = url => new Web
   }
   const edit = (channel, message, payload) => api('PATCH', `/channels/${channel}/messages/${message}`, payload);
   const acknowledge = event => api('POST', `/interactions/${event.id}/${event.token}/callback`, { type: 6 });
+  const tell = (event, content) => api('POST', `/webhooks/${event.application_id}/${event.token}`, { content, flags: PRIVATE_REPLY, allowed_mentions: { parse: [] } });
   function listen(onEvent, onFatal) {
     let socket;
     let heartbeat;
@@ -83,5 +85,5 @@ export function discordClient(token, { fetcher = fetch, connect = url => new Web
     if (!Number.isFinite(serverTime) || Math.abs(Date.now() - serverTime) > CLOCK_SKEW_MS) throw new Error(`mac-launch: this Mac and Discord must agree on time within ${CLOCK_SKEW_MS / 1000} seconds.`);
   }
   const history = (channel, before) => api('GET', `/channels/${channel}/messages?limit=100${before ? `&before=${before}` : ''}`);
-  return { post, edit, acknowledge, listen, check, history };
+  return { post, edit, acknowledge, tell, listen, check, history };
 }

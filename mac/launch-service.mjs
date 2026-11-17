@@ -3,6 +3,8 @@ import { launchStatus, noticeOf, OFFERED } from '../session/launch-contract.mjs'
 import { BUTTON, pressedButton, verifyOffer, verifyPress } from './launch-approval.mjs';
 import { closedMessage, offerMessage } from './launch-messages.mjs';
 
+const SOURCE_SILENT = 'The requesting pot did not answer, so nothing started and this press is not used. Press again once the pot answers.';
+
 export function launchService({ store, discord, pots, runner, settings, warn, clock = Date.now }) {
   const messageUrl = offer => discordMessageUrl({ guildId: offer.guildId, channelId: offer.channelId, messageId: offer.messageId });
   const saveState = (offer, state, details = {}) => {
@@ -35,7 +37,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     if (clock() >= offer.request.expiresAt) { saveState(offer, 'expired'); return; }
     let shown;
     try { shown = await pots.show(offer.request.pot, offer.request.launch); }
-    catch { saveState(offer, 'failed', { detail: 'The source is unavailable. Ask for a new prompt.' }); return; }
+    catch { return; }
     if (shown.state !== 'open') { saveState(offer, ['cancelled', 'superseded', 'expired'].includes(shown.state) ? shown.state : 'failed'); return; }
     try { verifyOffer(shown, offer.request, settings(), clock()); }
     catch { saveState(offer, 'superseded', { detail: 'The source changed or this Mac now refuses the request.' }); }
@@ -50,7 +52,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     let approval = verifyPress(event, offer, settings(), clock(), action);
     let shown;
     try { shown = await pots.show(offer.request.pot, id); }
-    catch { saveState(offer, 'failed', { detail: 'The source is unavailable. Ask for a new prompt.' }); return; }
+    catch { await discord.tell(event, SOURCE_SILENT); return; }
     try { verifyOffer(shown, offer.request, settings(), clock()); }
     catch { saveState(offer, 'superseded'); return; }
     approval = verifyPress(event, offer, settings(), clock(), action);
