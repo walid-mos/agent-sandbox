@@ -23,7 +23,7 @@ def token_file(path):
     return Path(path).parent / TOKEN_FILE
 
 
-def serve(path, name, limit, answer, failure):
+def serve(path, name, limit, answer, guarantee):
     path = Path(path)
 
     class Handler(socketserver.StreamRequestHandler):
@@ -38,9 +38,9 @@ def serve(path, name, limit, answer, failure):
                     raise Refused(f"{name}: send one bounded JSON line.")
                 reply = {"ok": True, **answer(json.loads(line))}
             except Refused as error:
-                reply = {"ok": False, "error": str(error)}
+                reply = {"ok": False, "error": f"{name}: {error} {guarantee}"}
             except (ValueError, OSError, KeyError, subprocess.TimeoutExpired):
-                reply = {"ok": False, "error": failure}
+                reply = {"ok": False, "error": f"{name}: malformed request or unavailable state. {guarantee}"}
             self.wfile.write((json.dumps(reply) + "\n").encode())
 
     path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
@@ -58,7 +58,7 @@ def ask(path, request):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(CLIENT_SECONDS)
         connection.connect(str(path))
-        connection.sendall(token_file(path).read_bytes() + (json.dumps(request, ensure_ascii=False) + "\n").encode())
+        connection.sendall(token_file(path).read_bytes() + (json.dumps(request) + "\n").encode())
         connection.shutdown(socket.SHUT_WR)
         with connection.makefile("rb") as incoming:
             response = incoming.readline(RESPONSE_LIMIT + 1)

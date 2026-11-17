@@ -2,23 +2,34 @@
 import os
 from pathlib import Path
 import sys
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from factory_root import require_private_directory
 from factory_socket import serve
 from landing import Signer, created_key
 from launch import LAUNCH
 
 REQUEST_BYTES = 2048
+KEY_POLL_SECONDS = 10
+
+
+def key_home():
+    home = Path(LAUNCH["POTS_LANDING_KEY_HOME"])
+    if not home.is_dir():
+        return None
+    require_private_directory(home)
+    return home if created_key(home) else None
 
 
 def main():
     if os.geteuid() != 0:
         raise SystemExit("landing-signer: only VM root can open the signing key.")
-    if not created_key(Path(LAUNCH["POTS_LANDING_KEY_HOME"])):
-        print("landing-signer: no factory key. The operator creates it from the Mac.", flush=True)
-        return
-    serve(LAUNCH["POTS_LANDING_SOCKET"], "landing", REQUEST_BYTES, Signer().sign, "landing: malformed request or unavailable state. No signature was published.")
+    while key_home() is None:
+        print("landing-signer: waiting for the factory key. The operator creates it from the Mac with bin/landing-key create.", flush=True)
+        time.sleep(KEY_POLL_SECONDS)
+    serve(LAUNCH["POTS_LANDING_SOCKET"], "landing", REQUEST_BYTES, Signer().sign, "No signature was published.")
 
 
 if __name__ == "__main__":

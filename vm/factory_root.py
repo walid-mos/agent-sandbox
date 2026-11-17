@@ -22,6 +22,10 @@ def private_directory(path):
     if path.is_symlink():
         raise Refused(f"{path} must not be a symlink.")
     path.mkdir(parents=True, mode=0o700, exist_ok=True)
+    require_private_directory(path)
+
+
+def require_private_directory(path):
     status = path.stat()
     if status.st_uid != os.geteuid() or status.st_mode & 0o077:
         raise Refused(f"{path} must be owned by this user and mode 0700.")

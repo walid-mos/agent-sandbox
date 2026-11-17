@@ -73,6 +73,7 @@ def start_docker():
     lines = iter(daemon.stderr.readline, b"")
     for line in lines:
         sys.stderr.buffer.write(line)
+        sys.stderr.flush()
         if b"API listen on /var/run/docker.sock" in line:
             threading.Thread(target=forward, args=(lines,), daemon=True).start()
             wait_for_docker()

@@ -40,7 +40,7 @@ class Signer:
         self.store = self.state / "objects.git"
         self.receipt = self.state / "release.json"
         self.origin = LAUNCH["POTS_SOURCE_URL"]
-        self.repository = self.origin.removeprefix("https://github.com/").removesuffix(".git")
+        self.repository = LAUNCH["POTS_LANDING_REPOSITORY"]
         self.trust = Path(LAUNCH["POTS_TRUSTED_SIGNERS"])
         self.clone = Path(LAUNCH["POTS_SESSION_REPOSITORY"])
         private_directory(self.home)

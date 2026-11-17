@@ -33,4 +33,4 @@ def report(request):
 if __name__ == "__main__":
     if os.geteuid() != 0:
         raise SystemExit("factory-reports runs as VM root.")
-    serve(LAUNCH["POTS_FACTORY_REPORT_SOCKET"], "factory-reports", REQUEST_LIMIT, report, "factory-reports: report could not be delivered.")
+    serve(LAUNCH["POTS_FACTORY_REPORT_SOCKET"], "factory-reports", REQUEST_LIMIT, report, "The report was not delivered.")

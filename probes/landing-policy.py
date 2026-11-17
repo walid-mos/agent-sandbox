@@ -84,7 +84,7 @@ class LandingPolicy(unittest.TestCase):
             shutil.copytree(REPOSITORY / relative, source / relative, ignore=shutil.ignore_patterns("__pycache__"))
         trust = self.root / "public.asc"
         trust.write_text("\n".join(run("gpg", "--no-options", "--homedir", str(home), "--armor", "--export", key) for home, key in ((self.operator, self.operator_key), (self.factory, self.factory_key))))
-        settings = {"POTS_LANDING_KEY_HOME": str(self.factory), "POTS_LANDING_STATE": str(self.root / "state"), "POTS_SOURCE_URL": f"http://127.0.0.1:{self.server.server_port}/remote.git", "POTS_TRUSTED_SIGNERS": str(trust), "POTS_SESSION_REPOSITORY": str(self.clone)}
+        settings = {"POTS_LANDING_KEY_HOME": str(self.factory), "POTS_LANDING_STATE": str(self.root / "state"), "POTS_SOURCE_URL": f"http://127.0.0.1:{self.server.server_port}/remote.git", "POTS_LANDING_REPOSITORY": "probe/factory", "POTS_TRUSTED_SIGNERS": str(trust), "POTS_SESSION_REPOSITORY": str(self.clone)}
         (source / "session").mkdir()
         (source / "session/launch.env").write_text("".join(f"{name}={value}\n" for name, value in settings.items()))
         # Each case writes its own launch.env, which lib/launch.py reads once per import.

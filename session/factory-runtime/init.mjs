@@ -2,9 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { FACTORY_BOT } from '../factory-reports.mjs';
+import { FACTORY_BOT, factoryBotHome } from '../factory-identity.mjs';
 import { ROUTER_MODEL } from '../models.mjs';
-import { potsBotHome } from '../sandbox.mjs';
 
 const [routerApi] = process.argv.slice(2);
 if (!routerApi) throw new Error('factory init: expected the router API address, which initialize-bot passes.');
@@ -21,6 +20,6 @@ writeFileSync(join(directory, 'models.json'), JSON.stringify({
     },
   },
 }) + '\n', { mode: 0o600 });
-if (!existsSync(potsBotHome(FACTORY_BOT.id))) {
+if (!existsSync(factoryBotHome())) {
   execFileSync('pots', ['init', '--yes', '--name', FACTORY_BOT.name, '--model', ROUTER_MODEL, '--judge', 'off', '--no-chat', '--no-service'], { stdio: 'inherit' });
 }

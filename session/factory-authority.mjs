@@ -1,12 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { assignments } from './environment.mjs';
-import { repositoryOf } from './github-url.mjs';
 import { botId } from './sandbox.mjs';
 
 const launch = assignments(readFileSync(new URL('./launch.env', import.meta.url), 'utf8'));
 export const isIsolatedFactory = process.env.POTS_ISOLATED_FACTORY === '1';
 export const isRetiredSessionFactory = botId === launch.POTS_SIGNING_FACTORY_BOT && !isIsolatedFactory;
-export const landingRepository = repositoryOf(launch.POTS_SOURCE_URL);
+export const landingRepository = launch.POTS_LANDING_REPOSITORY;
 export const LANDING_BRANCH = 'main';
 export const isLandingPull = pull => pull.repository === landingRepository && pull.base === LANDING_BRANCH;
 
