@@ -1,4 +1,4 @@
-import { answersOf, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
+import { answerParts, answersOf, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
 
 const MESSAGE_LIMIT = 2000;
 
@@ -49,6 +49,13 @@ function disabled(components = []) {
   }));
 }
 
+const answered = answer => `Answered: ${answerParts(answer).join(', ')}`;
+
+function messageUpdate(message, content, components = message.components) {
+  return { channelId: message.channelId, messageId: message.messageId,
+    body: { content: content.slice(0, MESSAGE_LIMIT), components: disabled(components), allowed_mentions: { parse: [] } } };
+}
+
 export async function acceptDiscordClick(interaction, { store, identity, channelAccount, at = new Date().toISOString() }) {
   const parts = customIdParts(interaction);
   if (!parts) return { status: 'unhandled' };
@@ -68,10 +75,9 @@ export async function acceptDiscordClick(interaction, { store, identity, channel
     const outbox = isComplete ? packet('human.answer', { dialog: question.dialog, request: record.registration.request, digest: question.digest,
       answers: question.questions.map(item => picks[item.id].answer),
       clicks: question.questions.map(item => ({ question: item.id, ...picks[item.id].evidence })) }) : undefined;
-    const content = `Answered: ${[...answer.labels, answer.text].filter(Boolean).join(', ')}\nDelivery to the owning pot is pending.`.slice(0, MESSAGE_LIMIT);
-    const update = { content, components: disabled(message.components ?? interaction.message.components), allowed_mentions: { parse: [] } };
-    save({ ...record, picks, outbox, updates: { ...record.updates, [asked.id]: { channelId: message.channelId, messageId: message.messageId, body: update } } });
-    return { status: 'accepted', dialog: parts.dialog, update, channelId: message.channelId, messageId: message.messageId };
+    const update = messageUpdate(message, `${answered(answer)}\nDelivery to the owning pot is pending.`, message.components ?? interaction.message.components);
+    save({ ...record, picks, outbox, updates: { ...record.updates, [asked.id]: update } });
+    return { status: 'accepted', dialog: parts.dialog, update: update.body, channelId: message.channelId, messageId: message.messageId };
   }, parts.dialog);
 }
 
@@ -89,7 +95,7 @@ export async function closeDiscordQuestion(completion, store, originPot) {
     if (!record.registration) return save({ ...record, closed: completion });
     if (record.registration.question.digest !== completion.digest) throw new Error('discord-human: completion does not match the question scope.');
     const updates = Object.fromEntries(record.registration.messages.map((message, index) => [record.registration.question.questions[index].id,
-      { channelId: message.channelId, messageId: message.messageId, body: { content: (completion.status === 'answered' ? `Answered: ${[...completion.answers[index].labels, completion.answers[index].text].filter(Boolean).join(', ')}` : `Question ${completion.status}.`).slice(0, MESSAGE_LIMIT), components: disabled(message.components), allowed_mentions: { parse: [] } } }]));
+      messageUpdate(message, completion.status === 'answered' ? answered(completion.answers[index]) : `Question ${completion.status}.`)]));
     return save({ ...record, closed: completion, updates, outbox: undefined });
   }, completion.dialog);
 }

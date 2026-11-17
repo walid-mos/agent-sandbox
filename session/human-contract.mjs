@@ -106,5 +106,6 @@ export function discordEvidence(evidence, identity, policy = 'ordinary') {
   return { userId: evidence.userId, guildId: evidence.guildId, messageUrl: evidence.messageUrl, at: evidence.at };
 }
 
-export const answerText = answers => answers.map(answer => [...answer.labels, answer.text].filter(Boolean).join('\n')).join('\n');
+export const answerParts = answer => [...answer.labels, answer.text].filter(Boolean);
+export const answerText = answers => answers.map(answer => answerParts(answer).join('\n')).join('\n');
 export const packet = (type, fields) => ({ type, version: VERSION, ...fields });
