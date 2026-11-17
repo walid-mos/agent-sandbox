@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd)
+NODE="$repo/lib/tailnet_node.py"
+PUBLIC_KEY='^ssh-ed25519 [A-Za-z0-9+/]{68}$'
+
+[ "$#" -ge 2 ] || { echo 'usage: pots-doors POT POT... (every pot of the mesh, each run rewrites the whole mesh)' >&2; exit 2; }
+keys=$(mktemp -d)
+trap 'rm -rf "$keys"' EXIT INT TERM
+
+checked_public_key() {
+	key=$(cat)
+	printf '%s\n' "$key" | grep -Eqx "$PUBLIC_KEY" || { echo "pots-doors: $1 of $SANDBOX is not one ed25519 public key" >&2; return 1; }
+	printf '%s\n' "$key"
+}
+
+collect() (
+	SANDBOX=$1
+	. "$repo/lib/sandbox.sh"
+	session=$(running_session)
+	caller_key=$(session_exec "$session" "$POTS_SESSION_REPOSITORY/session/door-keys" key | checked_public_key "the caller key")
+	host_key=$(sandbox_vm sudo /usr/local/sbin/pots-door-keys host-key | checked_public_key "the door host key")
+	printf '%s %s\n' "$SANDBOX" "$caller_key" >> "$keys/callers"
+	printf '%s %s\n' "$(python3 "$NODE" name host "$SANDBOX")" "$host_key" >> "$keys/hosts"
+)
+
+install_keys() (
+	SANDBOX=$1
+	. "$repo/lib/sandbox.sh"
+	session=$(running_session)
+	host_name=$(python3 "$NODE" name host "$SANDBOX")
+	awk -v pot="$SANDBOX" '$1 != pot' "$keys/callers" | sandbox_vm sudo /usr/local/sbin/pots-door-keys install "$SANDBOX"
+	awk -v host="$host_name" '$1 != host' "$keys/hosts" | session_exec --interactive "$session" "$POTS_SESSION_REPOSITORY/session/door-keys" trust
+)
+
+for pot in "$@"; do
+	collect "$pot"
+done
+for pot in "$@"; do
+	install_keys "$pot"
+done
+echo "pots-doors: every pot among $* may knock at every other one" >&2

@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+CONFIG="$here/door.ssh_config"
+PROBE_HOST=probe-host
+KEY_LINE='^[a-z][a-z0-9-]{0,40}-host ssh-ed25519 [A-Za-z0-9+/]{68}$'
+
+configured_path() {
+	path=$(ssh -G -F "$CONFIG" "$PROBE_HOST" | awk -v keyword="$1" '$1 == keyword { print $2; exit }')
+	case "$path" in
+		"~/"*) echo "$HOME/${path#"~/"}" ;;
+		*) echo "$path" ;;
+	esac
+}
+
+print_public_key() {
+	identity=$(configured_path identityfile)
+	if [ ! -f "$identity" ]; then
+		install -d -m 0700 "$(dirname "$identity")"
+		ssh-keygen -q -t ed25519 -N '' -C '' -f "$identity"
+	fi
+	awk '{ print $1, $2 }' "$identity.pub"
+}
+
+trust_host_keys() {
+	known_hosts=$(configured_path userknownhostsfile)
+	install -d -m 0700 "$(dirname "$known_hosts")"
+	pending=$(mktemp "$known_hosts.XXXXXX")
+	trap 'rm -f "$pending"' EXIT
+	grep -Ev '^[[:space:]]*$' > "$pending" || true
+	if grep -Evq "$KEY_LINE" "$pending"; then
+		echo "door-keys: refused host keys: expected '<pot>-host ssh-ed25519 KEY' lines" >&2
+		exit 1
+	fi
+	mv "$pending" "$known_hosts"
+}
+
+case "${1:-}" in
+	key) print_public_key ;;
+	trust) trust_host_keys ;;
+	*) echo 'usage: door-keys key | trust < known_hosts lines' >&2; exit 2 ;;
+esac
