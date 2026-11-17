@@ -64,11 +64,14 @@ proxmox_sandbox_endpoints() {
 	done
 }
 
+# A pot VM routes the Mac's tailnet names through its own node, which the node check covers, so the VM reaches the Mac at its LAN address.
 vm_forbidden_endpoints() {
-	mac=$(jq -er .macHost "$POTS_RUNTIME/host.json")
-	peer=$(jq -er .peerHost "$POTS_RUNTIME/host.json")
+	mac=$(jq -er '.macLanAddress | strings | select(test("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"))' "$POTS_RUNTIME/host.json") || {
+		echo "$(basename "$0"): $POTS_RUNTIME/host.json needs macLanAddress, the Mac's IPv4 address on the Proxmox node's LAN, such as 192.168.1.138" >&2
+		return 1
+	}
 	node=$(proxmox_host ip -4 -o addr show "$(proxmox_setting bridge)" < /dev/null | awk '{ sub("/.*", "", $4); print $4; exit }')
 	gateway=$(proxmox_setting gateway)
 	pots=$(proxmox_sandbox_endpoints)
-	echo "$mac:$MAC_ROUTER_PORT $mac:22 $mac:443 $mac:5432 $peer:22 $node:22 $node:$PROXMOX_WEB_PORT $gateway:80 $pots"
+	echo "$mac:$MAC_ROUTER_PORT $mac:22 $mac:5432 $node:22 $node:$PROXMOX_WEB_PORT $gateway:80 $pots"
 }

@@ -51,15 +51,6 @@ def copy_sandboxes(source, sandbox_root):
     return digests
 
 
-def host_values(source):
-    host = {}
-    for field, name in (("macHost", "MAC"), ("peerHost", "PEER")):
-        value = literal(source / "bin/probe-boundary", name)
-        if value and not value.startswith("$("):
-            host[field] = value
-    return host
-
-
 def session_values(source):
     values = {}
     identity = {"name": literal(source / "session/bootstrap", "GIT_NAME"), "email": literal(source / "session/bootstrap", "GIT_EMAIL")}
@@ -84,7 +75,6 @@ def import_private(source, destination):
     sandbox_root.mkdir(exist_ok=True, mode=0o700)
     revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
     digests = copy_sandboxes(source, sandbox_root)
-    merge_missing(destination / "host.json", host_values(source))
     values = session_values(source)
     for directory in sandbox_root.iterdir():
         for name, content in values.items():

@@ -51,9 +51,7 @@ colima_sandbox_endpoints() {
 }
 
 vm_forbidden_endpoints() {
-	mac=$(jq -er .macHost "$POTS_RUNTIME/host.json")
-	peer=$(jq -er .peerHost "$POTS_RUNTIME/host.json")
 	lan_gateway=$(route -n get default | awk '/gateway:/ { print $2 }')
 	sandboxes=$(colima_sandbox_endpoints)
-	echo "$mac:$MAC_ROUTER_PORT $mac:22 $mac:443 $mac:5432 $COLIMA_HOST:$MAC_ROUTER_PORT $COLIMA_HOST:22 $peer:22 $lan_gateway:80 $sandboxes"
+	echo "$COLIMA_HOST:$MAC_ROUTER_PORT $COLIMA_HOST:22 $lan_gateway:80 $sandboxes"
 }
