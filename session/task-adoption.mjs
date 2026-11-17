@@ -5,7 +5,7 @@ import { isPublished, publication } from './worker-lifecycle.mjs';
 import { keepResult } from './worker-results.mjs';
 import { hasFinalReply } from './worker-runtime.mjs';
 import { botId } from './sandbox.mjs';
-import { acceptedTask, associatedWorker } from './tasks.mjs';
+import { acceptedTask, associatedWorker, isTaskText, TASK_TEXT_BYTES } from './tasks.mjs';
 import { taskLock } from './task-store.mjs';
 import { taskView } from './task-view.mjs';
 import { allTerminals, save, terminalName, terminalOf, workers } from './workers.mjs';
@@ -39,8 +39,8 @@ export function adoptTask({ id, terminal: address, ...unexpected }) {
 }
 
 export function recordAdoptedResult({ id, sessionDigest, summary, ...unexpected }) {
-  if (Object.keys(unexpected).length || typeof summary !== 'string' || !summary.trim() || summary.length > 16384) {
-    throw new Error('task: result accepts id, exact sessionDigest and a nonempty coordinator summary of at most 16384 characters.');
+  if (Object.keys(unexpected).length || !isTaskText(summary)) {
+    throw new Error(`task: result accepts id, exact sessionDigest and a nonempty coordinator summary of at most ${TASK_TEXT_BYTES} bytes without NUL.`);
   }
   return taskLock(() => {
     const record = acceptedTask(id);

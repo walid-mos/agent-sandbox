@@ -5,7 +5,7 @@ import { hasTask, saveTask, task, taskLock, taskPath } from './task-store.mjs';
 import { taskView } from './task-view.mjs';
 import { liveTerminals, save, workers } from './workers.mjs';
 
-const TEXT_LIMIT = 16384;
+export const TASK_TEXT_BYTES = 16384;
 const PROVENANCE_FIELDS = ['source', 'author', 'reference'];
 const SUBMISSION_FIELDS = ['id', 'target', 'text', 'provenance'];
 const DECISIONS = ['accepted', 'rejected', 'needs-information'];
@@ -16,17 +16,17 @@ function exactFields(input, fields) {
   }
 }
 
-function text(value) {
-  return typeof value === 'string' && value.trim().length > 0 && !value.includes('\0') && Buffer.byteLength(value) <= TEXT_LIMIT;
+export function isTaskText(value) {
+  return typeof value === 'string' && value.trim().length > 0 && !value.includes('\0') && Buffer.byteLength(value) <= TASK_TEXT_BYTES;
 }
 
 function submission(input) {
   exactFields(input, SUBMISSION_FIELDS);
   taskPath(input.id);
   if (input.target !== botId) throw new Error('task: target must be this pot\'s configured bot. Submit through the owning pot.');
-  if (!text(input.text)) throw new Error(`task: provide nonempty text of at most ${TEXT_LIMIT} bytes without NUL.`);
+  if (!isTaskText(input.text)) throw new Error(`task: provide nonempty text of at most ${TASK_TEXT_BYTES} bytes without NUL.`);
   exactFields(input.provenance, PROVENANCE_FIELDS);
-  if (!PROVENANCE_FIELDS.every(field => text(input.provenance[field]))) throw new Error('task: provide claimed source, author and reference as text.');
+  if (!PROVENANCE_FIELDS.every(field => isTaskText(input.provenance[field]))) throw new Error('task: provide claimed source, author and reference as text.');
   return { id: input.id, target: input.target, text: input.text,
     provenance: Object.fromEntries(PROVENANCE_FIELDS.map(field => [field, input.provenance[field]])) };
 }
@@ -65,7 +65,7 @@ const existingInput = record => Object.fromEntries(SUBMISSION_FIELDS.map(field =
 
 export function decideTask(input) {
   exactFields(input, ['id', 'state', 'reason']);
-  if (!DECISIONS.includes(input.state) || !text(input.reason)) throw new Error('task: decide accepted, rejected or needs-information with a nonempty reason.');
+  if (!DECISIONS.includes(input.state) || !isTaskText(input.reason)) throw new Error('task: decide accepted, rejected or needs-information with a nonempty reason.');
   return taskLock(() => {
     const record = task(input.id);
     const previous = record.acceptance;
@@ -96,7 +96,7 @@ export function associatedWorker(id) {
 
 export function resolveTaskDelivery(input) {
   exactFields(input, ['id', 'delivery', 'state', 'reason']);
-  if (!isRequestName(input.delivery) || !['received', 'retry'].includes(input.state) || !text(input.reason)) {
+  if (!isRequestName(input.delivery) || !['received', 'retry'].includes(input.state) || !isTaskText(input.reason)) {
     throw new Error('task: name the exact delivery, received or retry, and the coordinator inspection reason.');
   }
   return taskLock(() => {
