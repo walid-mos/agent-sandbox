@@ -2,13 +2,17 @@ from contextlib import contextmanager
 import fcntl
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
 from agent_sources import source_catalog
 from client_rules import (PRIVATE_FILE, SNAPSHOT_FILE, SNAPSHOT_MODE, STATE_FILE, apply_recipe,
                           approved_rules, digest, parse_json, read_json, refuse, regular_file,
-                          replace_file, require_hash, source_file, state_bytes)
+                          replace_file, require_hash, rules_target, source_file, state_bytes)
+
+LAUNCH_ENV = Path(__file__).resolve().parents[1] / "session/launch.env"
+SESSION_CONFIGURATION = Path(re.search(r"^POTS_SESSION_CONFIGURATION=(.+)$", LAUNCH_ENV.read_text(), re.MULTILINE).group(1))
 
 
 @contextmanager
@@ -41,9 +45,7 @@ def require_selected(directory, source):
     configuration = read_json(regular_file(directory / "sandbox.json"))
     if source not in configuration.get("sources", []):
         refuse("source is not selected in this sandbox's sources.")
-    target = configuration.get("rules")
-    if not isinstance(target, str) or Path(target).parent != Path("/etc/agent-sandbox") or Path(target).suffix != ".md":
-        refuse("sandbox.rules must name a Markdown file directly under /etc/agent-sandbox.")
+    rules_target(configuration.get("rules"), SESSION_CONFIGURATION)
 
 
 def import_rules(directory, checkout, source, original, relative, recipe_path, recipe_hash):

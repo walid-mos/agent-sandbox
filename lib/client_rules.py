@@ -141,6 +141,15 @@ def approved_rules(directory):
     return {"text": text, "sha256": state["sha256"], "previousSha256": state["previousSha256"]}
 
 
+def rules_target(name, directory):
+    if not isinstance(name, str):
+        refuse("sandbox.rules must name the installed rules file.")
+    target = Path(name)
+    if target.parent != directory or target.suffix != ".md" or target.name.startswith("."):
+        refuse("rules target must be Markdown directly in the configuration directory.")
+    return target
+
+
 def verified_rules(payload, target_name, directory):
     object_keys(payload, ("text", "sha256", "previousSha256"))
     text = payload["text"]
@@ -151,11 +160,7 @@ def verified_rules(payload, target_name, directory):
     previous = require_hash(payload["previousSha256"])
     if digest(content) != expected:
         refuse("rules content differs from the approved hash.")
-    if not isinstance(target_name, str):
-        refuse("sandbox.rules must name the installed rules file.")
-    target = Path(target_name)
-    if target.parent != directory or target.suffix != ".md" or target.name.startswith("."):
-        refuse("rules target must be Markdown directly in the configuration directory.")
+    target = rules_target(target_name, directory)
     if directory.resolve() != directory:
         refuse("configuration directory must not contain symlinks.")
     if target.exists() or target.is_symlink():
