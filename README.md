@@ -282,6 +282,7 @@ A recreated session, or a restarted VM, comes back as follows.
 | Unfinished worker | Queued once for a resume in a new terminal, then idle until the bot instructs it |
 | Completed or stopped worker | Stays closed |
 | Containers of a development stack | Kept but stopped. Start their Compose project again |
+| Desktop | Starts with the session, and stops after 60 seconds with no client attached |
 | Development tunnels on the Mac | Gone. Start them again |
 
 The desktop UI after a restart is unchecked. Rerun the boundary probe after lifecycle changes.
@@ -430,6 +431,12 @@ CPU wait is `cpu.iowaitPercent`, and `pressure.io.some.windowPercent` is the sha
 
 The pane's requests, the bot and the session's Herdr keep the default CPU priority, and worker jobs run behind them. A worker, a clean pass and the processes they start run at niceness 10, set where [their terminal opens](session/workers.mjs). The session user can lower a priority and cannot raise one, so the workers step down. Inner containers, the PR factory's check containers among them, all run under one cgroup. [The Docker service](session/services.d/docker) gives that cgroup a CPU weight of 10 against the session's 100 when it starts, so a running session takes a changed weight at its next restart. A weight on one container, such as `--cpu-shares`, only ranks it among the other containers. Neither setting caps a job: a worker alone on idle vCPUs runs at full speed.
 
+### Desktop
+
+The session's desktop, XFCE with every window opened in it, Herdr's among them, runs only while a client watches its stream. [The desktop service](session/services.d/pots-desktop), which s6 runs as root, reads the kernel's TCP table every two seconds for an established socket on 127.0.0.1:8082, where nginx hands the stream to Selkies. A check starts no process. A client that attaches starts the desktop at the next check, and its autostart entries run again. Sixty seconds with no client stops it: s6 ends the desktop and every process under it, and the service ends the session bus and accessibility bus the desktop leaves behind. Save your work in a desktop window before you leave it.
+
+Xvfb, Selkies and nginx keep running, so a client connects at once and sees the desktop a few seconds later. The hc core leaves the process tree of whatever starts it, the desktop included, so the bot, the workers and the Pots pane, which reaches the session through hc over ssh, keep running while the desktop is down. The X display stays up for a worker's browser or test runner.
+
 ### Memory
 
 The VM never gives memory back to the Mac. Apple's balloon device does not offer free-page reporting and Lima never inflates the balloon. The Mac footprint of the virtualization process grows until it reaches the VM's memory cap, then stays there. Memory that Linux reports as free or cached is not memory the Mac recovered.
@@ -442,7 +449,7 @@ The only lever is a lower `vm.memoryGiB` in the sandbox's file. Apply it with `c
 colima ssh -p "$SANDBOX" -- python3 /opt/agent-sandbox/vm/memory.py
 ```
 
-Size the cap from your own workload, measured with the memory command. Take three figures: the session alone, with its desktop, gateway and Docker daemon, then one worker with no development stack, then the stack a worker starts, both at rest and at its peak. The cap must hold the session plus every worker with its stack at peak whenever the stacks can peak together. Stacks at rest let more workers fit under the same cap. A sandbox whose `vm.swapGiB` is 0 has no swap, so exceeding the cap there ends with the kernel killing a process.
+Size the cap from your own workload, measured with the memory command. Take three figures: the session alone, with a client attached so its desktop runs, its gateway and Docker daemon, then one worker with no development stack, then the stack a worker starts, both at rest and at its peak. The cap must hold the session plus every worker with its stack at peak whenever the stacks can peak together. Stacks at rest let more workers fit under the same cap. A sandbox whose `vm.swapGiB` is 0 has no swap, so exceeding the cap there ends with the kernel killing a process.
 
 `vm.swapGiB` gives the VM a swap file of that size, `/swapfile` on its root disk. The file takes Mac disk space and no Mac memory, so the memory cap and the Mac's margin stay as they are. [The VM setup](vm/setup.sh) creates, resizes or removes the file to match the setting, and turns it on at every `./bin/vm-up`. The file has no boot entry, so a VM that starts without `vm-up`, such as one that reboots on its own, runs without swap until the next `vm-up`.
 
