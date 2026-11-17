@@ -9,7 +9,7 @@ export const SETTINGS = join(homedir(), '.config/agent-sandbox/mac-launch.json')
 export const STATE_HOME = join(homedir(), '.config/agent-sandbox/mac-launch');
 export const KEYCHAIN_SERVICE = 'agent-sandbox-mac-launch';
 
-export function checkedSettings(settings) {
+function checkedSettings(settings) {
   const hasLists = ['announcers', 'pots', 'refusedActs', 'path', 'piArguments'].every(key => Array.isArray(settings[key]));
   if (!hasLists) throw new Error('mac-launch: settings need announcers, pots, refusedActs, path and piArguments lists. Run configure.');
   const hasNames = isTarget(settings.name) && typeof settings.label === 'string' && /^[A-Za-z0-9 -]{1,50}$/.test(settings.label)

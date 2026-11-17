@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { command } from '../session/run.mjs';
 import { REPORT_CHARACTERS } from '../session/launch-contract.mjs';
 
-const FINAL_STOPS = ['stop', 'endTurn'];
+const FINAL_STOP = 'stop';
 const IDLE = ['idle', 'done'];
 const LAST_ERROR_CHARACTERS = 300;
 
@@ -34,13 +34,13 @@ export function herdrRunner(store, program = [process.execPath, fileURLToPath(ne
   return { start, result };
 }
 
-export function finalReply(path) {
+function finalReply(path) {
   if (!existsSync(path)) return undefined;
   const messages = readFileSync(path, 'utf8').split('\n').filter(Boolean).flatMap(line => {
     try { return [JSON.parse(line)]; } catch { return []; }
   });
   const last = messages.findLast(entry => entry.type === 'message' && entry.message?.role === 'assistant')?.message;
-  if (!last || !FINAL_STOPS.includes(last.stopReason)) return undefined;
+  if (!last || last.stopReason !== FINAL_STOP) return undefined;
   const reply = last.content.filter(part => part.type === 'text').map(part => part.text).join('\n');
   return reply.slice(0, REPORT_CHARACTERS) || last.errorMessage?.slice(0, LAST_ERROR_CHARACTERS);
 }

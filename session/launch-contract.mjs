@@ -5,7 +5,7 @@ import { DIALOG_ID, DIGEST, discordMessage, packet, text, VERSION } from './huma
 import { isPotName } from './door-messages.mjs';
 
 export const LAUNCH_TTL_MS = 30 * 60 * 1000;
-export const PROMPT_BYTES = 12_000;
+const PROMPT_BYTES = 12_000;
 export const REPORT_CHARACTERS = 8000;
 const LINE_CHARACTERS = 100;
 const DETAIL_CHARACTERS = 500;
@@ -34,8 +34,8 @@ const STATUS_FIELDS = ['launch', 'target', 'digest', 'status', 'detail', 'messag
 const NOTICE_BLOCK = /\n\n```mac-launch\n([^\n]+)\n```$/;
 
 const isAct = act => Object.hasOwn(ACTS, act);
-export const promptDigest = prompt => createHash('sha256').update(prompt, 'utf8').digest('hex');
-export const namedActs = prompt => Object.keys(ACTS).filter(act => ACTS[act].marks.test(prompt));
+const promptDigest = prompt => createHash('sha256').update(prompt, 'utf8').digest('hex');
+const namedActs = prompt => Object.keys(ACTS).filter(act => ACTS[act].marks.test(prompt));
 const isLine = value => typeof value === 'string' && value.length <= LINE_CHARACTERS && value === value.trim() && !UNSEEN.test(value) && !/[\n\t]/.test(value);
 
 function exactFields(candidate, type, fields) {

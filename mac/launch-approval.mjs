@@ -4,7 +4,7 @@ import { fetchedRequest, OPEN } from '../session/launch-contract.mjs';
 export const PRESS_MAX_AGE_MS = 30_000;
 const DISCORD_EPOCH = 1420070400000n;
 const TIMESTAMP_SHIFT = 22n;
-export const pressedAt = id => Number((BigInt(id) >> TIMESTAMP_SHIFT) + DISCORD_EPOCH);
+const pressedAt = id => Number((BigInt(id) >> TIMESTAMP_SHIFT) + DISCORD_EPOCH);
 export const BUTTON = { launch: 'ml', refuse: 'mx' };
 export const buttonId = (request, action) => `${action}:${request.launch}:${request.digest}`;
 
