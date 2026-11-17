@@ -118,9 +118,9 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(self.original.read_bytes(), EXPECTED)
         self.assertEqual(bundle(self.host, self.root)["client-rules"]["sha256"], digest(EXPECTED))
         with self.assertRaises(RulesRefused):
-            approve_rules(self.host, self.source, "0" * 64)
+            approve_rules(self.host, lambda source: self.source, "0" * 64)
         self.assertEqual(self.original.read_bytes(), EXPECTED)
-        updated = approve_rules(self.host, self.source, digest(candidate))
+        updated = approve_rules(self.host, lambda source: self.source, digest(candidate))
         self.assertEqual(self.original.read_bytes(), candidate)
         self.assertEqual(updated["previousSha256"], digest(EXPECTED))
 

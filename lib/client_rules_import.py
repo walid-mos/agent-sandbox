@@ -8,8 +8,8 @@ import tempfile
 
 from agent_sources import source_catalog
 from client_rules import (PRIVATE_FILE, SNAPSHOT_FILE, SNAPSHOT_MODE, STATE_FILE, apply_recipe,
-                          approved_rules, digest, parse_json, read_json, refuse, regular_file,
-                          replace_file, require_hash, rules_target, source_file, state_bytes)
+                          approved_state, digest, parse_json, read_json, refuse, regular_file,
+                          replace_file, require_hash, rules_target, rules_text, source_file, state_bytes)
 
 LAUNCH_ENV = Path(__file__).resolve().parents[1] / "session/launch.env"
 SESSION_CONFIGURATION = Path(re.search(r"^POTS_SESSION_CONFIGURATION=(.+)$", LAUNCH_ENV.read_text(), re.MULTILINE).group(1))
@@ -57,7 +57,7 @@ def import_rules(directory, checkout, source, original, relative, recipe_path, r
         if digest(plan) != require_hash(recipe_hash):
             refuse("recipe differs from the explicitly reviewed hash.")
         after = apply_recipe(before, parse_json(plan))
-        after.decode("utf-8")
+        rules_text(after)
         target = source_file(checkout, relative)
         if target.suffix != ".md" or not target.parent.is_dir():
             refuse("canonical target must be Markdown inside an existing source directory.")
@@ -98,24 +98,26 @@ def replace_original(original, before, snapshot):
         link.replace(original)
 
 
-def approve_rules(directory, checkout, expected):
+def approve_rules(directory, checkout_for, expected):
     with locked(directory):
-        approved_rules(directory)
-        state = read_json(directory / STATE_FILE)
+        approved = approved_state(directory)
+        if approved is None:
+            refuse("no imported rules in this sandbox. Run client-rules import first.")
+        state, text = approved
         require_selected(directory, state["source"])
+        checkout = checkout_for(state["source"])
         candidate = regular_file(source_file(checkout, state["file"])).read_bytes()
-        candidate.decode("utf-8")
+        rules_text(candidate)
         if digest(candidate) != require_hash(expected):
             refuse("source hash differs from the explicitly approved hash.")
         if expected == state["sha256"]:
             return state
         updated = {**state, "previousSha256": state["sha256"], "sha256": expected}
         snapshot = directory / SNAPSHOT_FILE
-        previous = snapshot.read_bytes()
         replace_file(snapshot, candidate, SNAPSHOT_MODE)
         try:
             replace_file(directory / STATE_FILE, state_bytes(updated))
         except BaseException:
-            replace_file(snapshot, previous, SNAPSHOT_MODE)
+            replace_file(snapshot, text.encode("utf-8"), SNAPSHOT_MODE)
             raise
         return updated

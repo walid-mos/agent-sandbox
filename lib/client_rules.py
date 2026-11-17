@@ -121,10 +121,17 @@ def state_bytes(state):
     return (json.dumps(state, indent=2) + "\n").encode()
 
 
-def approved_rules(directory):
+def rules_text(content):
+    try:
+        return content.decode("utf-8")
+    except UnicodeError:
+        refuse("rules must be UTF-8. Input text is withheld.")
+
+
+def approved_state(directory):
     state_path = directory / STATE_FILE
     if not state_path.exists() and not state_path.is_symlink():
-        return {}
+        return None
     state = read_json(regular_file(state_path))
     object_keys(state, ("source", "file", "sha256", "previousSha256", "original"))
     snapshot = regular_file(directory / SNAPSHOT_FILE).read_bytes()
@@ -134,10 +141,14 @@ def approved_rules(directory):
     if not original.is_symlink() or original.readlink() != directory / SNAPSHOT_FILE:
         refuse("original path no longer links to the approved snapshot.")
     require_hash(state["previousSha256"])
-    try:
-        text = snapshot.decode("utf-8")
-    except UnicodeError:
-        refuse("rules must be UTF-8. Input text is withheld.")
+    return state, rules_text(snapshot)
+
+
+def approved_rules(directory):
+    approved = approved_state(directory)
+    if approved is None:
+        return {}
+    state, text = approved
     return {"text": text, "sha256": state["sha256"], "previousSha256": state["previousSha256"]}
 
 
