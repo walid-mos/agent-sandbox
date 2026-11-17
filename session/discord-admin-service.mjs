@@ -1,5 +1,6 @@
 import { isThread, operationOf } from './discord-admin-operations.mjs';
-import { guardChannels, guardRoles, isApplicationRole, protectedIds, requirePermission, requireProtection, requiresApproval } from './discord-admin-policy.mjs';
+import { guardChannels, guardRoles, requirePermission, requiresApproval } from './discord-admin-policy.mjs';
+import { isApplicationRole, protectedIds, requireProtection, withThreadParents } from './discord-admin-protection.mjs';
 
 async function guildChannel(id, guildId, api) {
   const channel = await api('GET', `/channels/${id}`);
@@ -11,8 +12,7 @@ async function protectedChannels(channels, protection, api) {
   const ids = [...new Set(protectedIds(protection))];
   const missing = ids.filter(id => !channels.some(channel => channel.id === id));
   const tracked = [...channels, ...await Promise.all(missing.map(id => guildChannel(id, protection.guildId, api)))];
-  const parents = tracked.filter(channel => ids.includes(channel.id) && isThread(channel)).map(channel => channel.parent_id);
-  return { channels: tracked, protection: { ...protection, channelIds: [...new Set([...protection.channelIds, ...parents])] } };
+  return { channels: tracked, protection: withThreadParents(protection, tracked) };
 }
 
 async function snapshotOf(request, operation, { api, protection }) {
