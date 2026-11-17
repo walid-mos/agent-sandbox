@@ -6,10 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { link, linkFolder } from './link.mjs';
 import { main } from './main.mjs';
 import { ROUTER_MODEL } from './models.mjs';
-import { botHome, sandbox } from './sandbox.mjs';
+import { botHome, potsHome, sandbox } from './sandbox.mjs';
 
-const VERSIONED = join(dirname(fileURLToPath(import.meta.url)), 'bot');
-// Pi loads the instructions of every folder above its own, so this file reaches the bot and every worker of the session.
+const SESSION = dirname(fileURLToPath(import.meta.url));
+const VERSIONED = join(SESSION, 'bot');
+// Pi loads the instructions of every folder above its own: the pot's rules reach every bot and no worker, the sandbox's rules the bot and every worker.
+const POT_RULES = { source: join(SESSION, 'pot/AGENTS.md'), target: join(potsHome, 'AGENTS.md') };
 const SESSION_RULES = join(homedir(), 'AGENTS.md');
 
 function removeLink(target) {
@@ -24,7 +26,8 @@ function create() {
 main(import.meta, () => {
   if (!existsSync(botHome)) create();
   linkFolder(VERSIONED, botHome);
+  link(POT_RULES.source, POT_RULES.target);
   if (sandbox.rules) link(sandbox.rules, SESSION_RULES);
   else removeLink(SESSION_RULES);
-  process.stdout.write(`bot: ${sandbox.bot} follows ${VERSIONED}${sandbox.rules ? ` and ${sandbox.rules}` : ''}\n`);
+  process.stdout.write(`bot: ${sandbox.bot} follows ${VERSIONED} and ${POT_RULES.source}${sandbox.rules ? ` and ${sandbox.rules}` : ''}\n`);
 });

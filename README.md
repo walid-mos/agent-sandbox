@@ -56,7 +56,7 @@ The VM's keeper launches the session within a minute of `vm-up`. To have it at o
 2. It installs the session tools and the Pi harness. Versions and steps live in [the bootstrap script](session/bootstrap).
 3. It adds the sandbox to the Mac's Herdr machines, which copies `hc` into the session, or updates that copy when the entry exists.
 4. It restarts the router and seeds it, as [Model router](#model-router) describes.
-5. It creates the sandbox's bot when it has none, then links [the bot's instructions](session/bot) and the sandbox's `rules` into the session.
+5. It creates the sandbox's bot when it has none, then links [its instructions](#the-bot-and-its-pi-workers), [the pot rules](session/pot/AGENTS.md) and the sandbox's `rules` into the session.
 6. It restarts the gateway, the worker watcher and the source watcher.
 
 Bootstrap needs access to the private harness repository and the configured vault paths, and the Mac's Magpie as the source of the seed.
@@ -201,7 +201,7 @@ The conversation reads in one centered column: your messages are bubbles on the 
 
 The composer also runs `/model` and `/route`, typed alone on one line with no file. Without a target they act on the bot: `/model MODEL` writes the `model` of its `bot.json`, which pots applies within seconds, `/route GROUP` sets it to that Magpie group, and `/route auto` puts it back on `magpie/group/router`. `/model @BRANCH MODEL` and `/route @BRANCH GROUP` type the command into that worker's Pi with `hc send`, and Pi runs it at once, also in the middle of a turn. `@` takes a worker's branch, title or name, or any part of one that no other worker shares. While the draft holds a command, the line beside the send button says what Enter runs and for whom, and once it ran, the line above the composer says what changed. `/model` takes the `enabledModels` of the harness's `settings.json`, because Pi opens its picker for any other model; `/route` takes the members of `magpie-routing.json`, and `auto`. A short name such as `max` stands for the only choice that ends with it, and either command with no argument lists its choices. A command runs at once and does not wait behind messages on their way. Any other text, a command the pane does not know included, goes to the bot as a message. A worker's `/route` pin stays in its session, while its `/model` lasts until its terminal restarts on the model its record names.
 
-A reply that carries a `question` block, written as [the bot's instructions](session/bot/AGENTS.md#questions) say, shows its options as buttons under it, and `control.mjs` keeps the block out of the reply's text. A click on an option sends its label as your message. When the question lets you pick several, each option has a box, and Send sends the picked labels one per line. You can answer in the composer instead. Once you answer, the question shows as answered with your picks checked and takes no more clicks: at once when you click, and as soon as a typed message is on its way. A message that fails answers nothing, and a click whose message fails stays answered, with Retry and Edit under it. Saving secrets the bot asked for answers no question.
+A reply that carries a `question` block, written as [the pot rules](session/pot/AGENTS.md#questions) say, shows its options as buttons under it, and `control.mjs` keeps the block out of the reply's text. A click on an option sends its label as your message. When the question lets you pick several, each option has a box, and Send sends the picked labels one per line. You can answer in the composer instead. Once you answer, the question shows as answered with your picks checked and takes no more clicks: at once when you click, and as soon as a typed message is on its way. A message that fails answers nothing, and a click whose message fails stays answered, with Retry and Edit under it. Saving secrets the bot asked for answers no question.
 
 A layout shows the pane with a `{"mod": "pots"}` block. `command-center-pots` is the Command Center layout with that block where the Principal terminal sits, and Command Center's navigation knows that layout by this name. Derive it on each Mac from that Mac's own layout, give it the same keys, then switch to it:
 
@@ -303,7 +303,7 @@ On every check, the VM's keeper compares both the installed Magpie and the runni
 
 Each sandbox has one bot, named by its `bot` key. It uses `magpie/group/router` for coordination, and the Pots gateway runs it through the session's service supervisor. Pi workers start on `magpie/group/router`, or `magpie/group/max` when the person asks for it, and use the installed Pi harness and separate Git worktrees under the session's `/config/Development`.
 
-[The bot's instructions](session/bot) are the same in every sandbox. Bootstrap links them into the bot's folder, so the bot reads them and cannot edit them. Change them in this repository. What differs between sandboxes is data. `owners` limits the repositories, and `rules` names an instruction file that bootstrap links at `/config/AGENTS.md`, where Pi loads it for the bot and for every worker.
+[The bot's instructions](session/bot) and [the pot rules](session/pot/AGENTS.md) are the same in every sandbox. Every bot of a pot loads the pot rules, which bootstrap links at `~/.pots/AGENTS.md`, above the bots' folders and outside the workers' `/config/Development`: questions, doors and reports from a Mac. Bootstrap links the bot's instructions into its folder, so the bot reads them and cannot edit them. Change them in this repository. What differs between sandboxes is data. `owners` limits the repositories, and `rules` names an instruction file that bootstrap links at `/config/AGENTS.md`, where Pi loads it for the bot and for every worker.
 
 A sandbox for a client uses `rules` for the client's own instruction file, which can make every push wait for the person's yes. The yes is a rule that the bot and the worker follow, and the sandbox's token can push without it. The bot asks before a start, because the start pushes the branch to open the draft PR. It asks again when a worker stops with unpushed commits, then sends the worker the yes for that one push.
 
@@ -330,7 +330,7 @@ hc exec --on "$SANDBOX" pots wake --from mac-thread --note "$thread_title: $repo
 
 ## Pots and doors
 
-A pot reaches another pot only through that pot's door: one ssh key per calling pot, which the called pot's VM binds to a single forced command, `pots wake --from pot:CALLER --note-file -`. `doors` in `sandbox.json` names the pots this one may ask.
+A pot reaches another pot only through that pot's door: one ssh key per calling pot, which the called pot's VM binds to a single forced command, `pots wake --from pot:CALLER --note-file -`. `doors` in `sandbox.json` names the pots this one may ask. [The pot rules](session/pot/AGENTS.md) tell each bot how to ask, how to reply, and that a neighbour's note is a request it may refuse, never an order from the person.
 
 ```sh
 pots ask POT --need "TEXT"

@@ -15,5 +15,6 @@ function load() {
 export const sandbox = load();
 export const botId = sandbox.bot.toLowerCase();
 export const owners = Object.keys(sandbox.owners);
-export const potsBotHome = id => join(homedir(), '.pots/bots', id);
+export const potsHome = join(homedir(), '.pots');
+export const potsBotHome = id => join(potsHome, 'bots', id);
 export const botHome = potsBotHome(botId);
