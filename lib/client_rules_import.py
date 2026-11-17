@@ -92,7 +92,7 @@ def install_import(directory, original, target, before, after, state):
 
 def replace_original(original, before, snapshot):
     with tempfile.TemporaryDirectory(dir=original.parent, prefix=".client-rules-") as staging:
-        link = Path(staging) / "AGENTS.md"
+        link = Path(staging) / original.name
         link.symlink_to(snapshot)
         if regular_file(original).read_bytes() != before:
             refuse("original changed during import. Existing content was preserved.")
