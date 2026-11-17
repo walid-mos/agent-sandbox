@@ -20,6 +20,7 @@ LABEL = f"{LABEL_KEY}={LABEL_VALUE}"
 STATE = Path(LAUNCH["POTS_FACTORY_STATE"])
 DOCKER_ENVIRONMENT = {**ENVIRONMENT, "DOCKER_CONFIG": str(STATE / "docker")}
 RECORD = STATE / "runtime.json"
+ROOT_SOCKETS = ("POTS_VAULT_SOCKET", "POTS_LANDING_SOCKET", "POTS_FACTORY_REPORT_SOCKET")
 
 
 def docker(*arguments):
@@ -61,8 +62,9 @@ def ensure_volumes():
 # The image carries one revision of the clone: its tools, its session code and its lib, never a worker write.
 def build_image(revision):
     tag = f"agent-sandbox-isolated-factory:{revision}"
-    if inspect("image", tag):
-        require_owned(inspect("image", tag))
+    existing = inspect("image", tag)
+    if existing:
+        require_owned(existing)
         return tag
     with tempfile.TemporaryDirectory(prefix="build-", dir=STATE) as staging:
         context = Path(staging) / "source"
@@ -84,10 +86,8 @@ def arguments(image):
             "--mount", f"type=volume,src={LAUNCH['POTS_FACTORY_HOME_VOLUME']},dst=/config",
             "--mount", f"type=volume,src={LAUNCH['POTS_FACTORY_DOCKER_VOLUME']},dst=/var/lib/docker",
             "--mount", f"type=bind,src={configuration},dst={configuration},readonly",
-            "--mount", f"type=bind,src={str(Path(LAUNCH['POTS_VAULT_SOCKET']).parent)},dst={str(Path(LAUNCH['POTS_VAULT_SOCKET']).parent)},readonly",
-            "--mount", f"type=bind,src={str(Path(LAUNCH['POTS_LANDING_SOCKET']).parent)},dst={str(Path(LAUNCH['POTS_LANDING_SOCKET']).parent)},readonly",
-            "--mount", f"type=bind,src={str(Path(LAUNCH['POTS_FACTORY_REPORT_SOCKET']).parent)},dst={str(Path(LAUNCH['POTS_FACTORY_REPORT_SOCKET']).parent)},readonly",
-            "--mount", f"type=bind,src={STATE / 'bootstrap'},dst=/run/pots-factory/bootstrap,readonly", image]
+            *(part for name in ROOT_SOCKETS for part in ("--mount", f"type=bind,src={Path(LAUNCH[name]).parent},dst={Path(LAUNCH[name]).parent},readonly")),
+            "--mount", f"type=bind,src={STATE / 'bootstrap'},dst={LAUNCH['POTS_FACTORY_BOOTSTRAP']},readonly", image]
 
 
 def stop_owned(name):

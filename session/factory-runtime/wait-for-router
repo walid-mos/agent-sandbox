@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+. /opt/agent-sandbox/session/lib.sh
+exec curl --silent --fail --output /dev/null --max-time 1 --retry 60 --retry-delay 1 --retry-connrefused --retry-max-time 60 "$POTS_ROUTER_API/models"

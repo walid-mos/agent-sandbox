@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 . /opt/agent-sandbox/session/lib.sh
+node /opt/agent-sandbox/session/factory-runtime/init.mjs "$POTS_ROUTER_API"
 if [ ! -d "$HOME/.pots/bots/factory" ]; then
     pots init --yes --name Factory --model magpie/group/router --judge off --no-chat --no-service
 fi

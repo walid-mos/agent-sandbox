@@ -8,13 +8,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 from launch import LAUNCH
 
-HOME = Path("/config")
-SESSION = Path("/opt/agent-sandbox/session")
-TOOLCHAIN = "/opt/factory-tools/.local"
-ENVIRONMENT = {"PATH": f"{TOOLCHAIN}/bin:/usr/local/bin:/usr/bin:/bin", "HOME": str(HOME), "POTS_TOOLCHAIN": TOOLCHAIN, "POTS_ISOLATED_FACTORY": "1", "MAGPIE_API_KEY": "magpie", "LANG": "C.UTF-8"}
+SESSION = Path(__file__).resolve().parents[1]
+ENVIRONMENT = {**{name: os.environ[name] for name in ("PATH", "HOME", "POTS_TOOLCHAIN")}, "POTS_ISOLATED_FACTORY": "1", "MAGPIE_API_KEY": "magpie", "LANG": "C.UTF-8"}
+HOME = Path(ENVIRONMENT["HOME"])
 FACTORY_UID = int(LAUNCH["POTS_FACTORY_UID"])
 CHILDREN = []
-BOOTSTRAP = Path("/run/pots-factory/bootstrap")
+BOOTSTRAP = Path(LAUNCH["POTS_FACTORY_BOOTSTRAP"])
 
 
 def spawn(arguments, *, privilege, stdout=None):
@@ -30,16 +29,11 @@ def command(arguments, *, input=None):
         raise RuntimeError(f"factory: {Path(arguments[0]).name} failed. Check the isolated factory's bootstrap and credentials.")
 
 
-def wait_for_router():
-    command(["/usr/bin/curl", "--silent", "--fail", "--max-time", "1", "--retry", "60", "--retry-delay", "1", "--retry-connrefused", "--retry-max-time", "60", "http://127.0.0.1:3425/v1/models"])
-
-
 def prepare_home():
     if HOME.is_symlink():
         raise RuntimeError("factory: the private home must not be a symlink.")
     os.chown(HOME, FACTORY_UID, FACTORY_UID)
     os.chmod(HOME, 0o700)
-    command(["node", str(SESSION / "factory-runtime/init.mjs")])
 
 
 def seed_router():
@@ -95,7 +89,7 @@ def main():
         prepare_home()
         start_docker()
         spawn([str(SESSION / "router")], privilege="factory")
-        wait_for_router()
+        command([str(SESSION / "factory-runtime/wait-for-router")])
         seed_router()
         command([str(SESSION / "factory-runtime/initialize-bot")])
         gateway = spawn([str(SESSION / "with-vault"), "pots", "start"], privilege="factory")
