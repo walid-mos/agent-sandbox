@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { handOffBrowserSecret } from './human-browser.mjs';
 import { BROWSER_KEY, targetKeys } from './human-contract.mjs';
+import { requireSecretKeys } from './human-secret-values.mjs';
 import { storeSecrets } from './pots-secrets.mjs';
 import { humanStore } from './human-store.mjs';
 import { commandWithInput } from './run.mjs';
@@ -20,7 +21,8 @@ function writeInfisical(target, value) {
 function checkedValues(target, values) {
   const keys = targetKeys(target);
   if (!values || typeof values !== 'object' || Array.isArray(values) || Object.keys(values).some(key => !keys.includes(key))) throw new Error('human: enter only the requested secret keys.');
-  if (keys.some(key => typeof values[key] !== 'string' || !values[key].trim() || values[key].length > VALUE_LIMIT || /[\r\n\0]/.test(values[key]))) throw new Error(`human: each secret needs a single line of at most ${VALUE_LIMIT} characters.`);
+  requireSecretKeys(keys, values);
+  if (keys.some(key => values[key].length > VALUE_LIMIT || /[\r\n\0]/.test(values[key]))) throw new Error(`human: each secret needs a single line of at most ${VALUE_LIMIT} characters.`);
   return Object.fromEntries(keys.map(key => [key, values[key]]));
 }
 
