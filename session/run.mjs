@@ -15,10 +15,9 @@ export async function commandOutput(binary, arguments_, options = {}) {
   return (await runFile(binary, arguments_, { ...OUTPUT_LIMIT, ...options })).stdout.trim();
 }
 
-/** Runs a command with `input` on its stdin, and resolves once it exits cleanly. */
 export function commandWithInput(binary, arguments_, input, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = execFile(binary, arguments_, options, error => (error ? reject(error) : resolve()));
+    const child = execFile(binary, arguments_, { ...OUTPUT_LIMIT, ...options }, (error, stdout) => (error ? reject(error) : resolve(`${stdout ?? ''}`.trim())));
     child.stdin.on('error', () => {});
     child.stdin.end(input);
   });
