@@ -1,16 +1,15 @@
-import { answersOf, checkDiscordPolicy, discordEvidence, packet, questionsOf, VERSION } from './human-contract.mjs';
+import { answersOf, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
 
 const MESSAGE_LIMIT = 2000;
-const snowflake = value => /^\d{17,20}$/.test(value);
 
 export async function registerDiscordQuestion(registration, store, identity) {
   const { question, request, pot, channelAccount, guildId, messages } = registration;
-  if (question?.type !== 'human.question' || question.version !== VERSION || !/^[a-f0-9]{32}$/.test(question.dialog) || !/^[a-f0-9]{64}$/.test(question.digest)) throw new Error('discord-human: invalid question packet.');
-  if (!/^[a-z][a-z0-9-]*\.[a-z0-9]{8,32}$/.test(request) || !/^[a-z][a-z0-9-]*$/.test(pot) || !channelAccount || !snowflake(guildId)) throw new Error('discord-human: register the originating door and channel account.');
+  if (question?.type !== 'human.question' || question.version !== VERSION || !DIALOG_ID.test(question.dialog) || !DIGEST.test(question.digest)) throw new Error('discord-human: invalid question packet.');
+  if (!/^[a-z][a-z0-9-]*\.[a-z0-9]{8,32}$/.test(request) || !/^[a-z][a-z0-9-]*$/.test(pot) || !channelAccount || !isSnowflake(guildId)) throw new Error('discord-human: register the originating door and channel account.');
   questionsOf(question.questions);
-  if (!['ordinary', 'push'].includes(question.policy)) throw new Error('discord-human: this question is local only.');
+  if (!RELAYED_POLICIES.includes(question.policy)) throw new Error('discord-human: this question is local only.');
   checkDiscordPolicy(question.policy, identity);
-  if (!Array.isArray(messages) || messages.length !== question.questions.length || !messages.every(message => snowflake(message.channelId) && snowflake(message.messageId))) throw new Error('discord-human: register one Discord message per question.');
+  if (!Array.isArray(messages) || messages.length !== question.questions.length || !messages.every(message => isSnowflake(message.channelId) && isSnowflake(message.messageId))) throw new Error('discord-human: register one Discord message per question.');
   if (new Set(messages.map(message => `${message.channelId}/${message.messageId}`)).size !== messages.length) throw new Error('discord-human: question messages must be distinct.');
   return store.locked(({ get, save }) => {
     const existing = get(question.dialog);
@@ -61,7 +60,7 @@ export async function acceptDiscordClick(interaction, { store, identity, channel
     const asked = question.questions[parts.index];
     if (!message || !asked || channelAccount !== record.registration.channelAccount || interaction.guild_id !== record.registration.guildId || interaction.channel_id !== message.channelId || interaction.message?.id !== message.messageId) throw new Error('discord-human: click does not belong to the registered message.');
     const evidence = discordEvidence({ userId: interaction.member?.user?.id ?? interaction.user?.id, guildId: interaction.guild_id,
-      messageUrl: `https://discord.com/channels/${interaction.guild_id}/${message.channelId}/${message.messageId}`, at }, identity, question.policy);
+      messageUrl: discordMessageUrl({ guildId: interaction.guild_id, ...message }), at }, identity, question.policy);
     if (record.closed || Object.hasOwn(record.picks, asked.id)) return { status: 'duplicate' };
     const [answer] = answersOf([asked], [chosenAnswer(asked, interaction, parts)]);
     const picks = { ...record.picks, [asked.id]: { answer, evidence } };

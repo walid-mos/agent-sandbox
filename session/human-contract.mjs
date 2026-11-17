@@ -1,5 +1,8 @@
 const KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SNOWFLAKE = /^\d{17,20}$/;
+export const DIALOG_ID = /^[a-f0-9]{32}$/;
+export const DIGEST = /^[a-f0-9]{64}$/;
+export const RELAYED_POLICIES = ['ordinary', 'push'];
 const NAME = /^[\w-]+$/;
 const CAPABILITY = /^[\w-]{43,256}$/;
 // Linux Unix socket addresses hold at most 107 path bytes.
@@ -79,6 +82,10 @@ function answerOf(question, answers) {
   if (count < 1 || (!question.multiple && count !== 1)) throw new Error('human: choose the permitted number of answers.');
   return { id: question.id, labels, text: answer.text };
 }
+
+export const isSnowflake = value => SNOWFLAKE.test(value);
+
+export const discordMessageUrl = ({ guildId, channelId, messageId }) => `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
 
 export function discordMessage(messageUrl) {
   const link = /^https:\/\/discord\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})$/.exec(messageUrl ?? '');

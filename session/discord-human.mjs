@@ -5,7 +5,7 @@ import { acceptDiscordClick, closeDiscordQuestion, registerDiscordQuestion } fro
 import { discordInbox } from './discord-inbox.mjs';
 import { all, find } from './door-requests.mjs';
 import { prepareAsk, transmitAsk } from './doors.mjs';
-import { packet } from './human-contract.mjs';
+import { DIALOG_ID, discordMessageUrl, packet } from './human-contract.mjs';
 import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
 import { main } from './main.mjs';
@@ -40,7 +40,7 @@ async function posted(record) {
   const { question, request, pot, guildId, messages } = record.registration;
   const need = packet('human.posted', { dialog: record.id, request, digest: question.digest, guildId, at: new Date().toISOString(),
     messages: messages.map((message, index) => ({ question: question.questions[index].id,
-      messageUrl: `https://discord.com/channels/${guildId}/${message.channelId}/${message.messageId}` })) });
+      messageUrl: discordMessageUrl({ guildId, ...message }) })) });
   const door = prepareAsk({ pot, need: JSON.stringify(need), served: request, key: `human-posted:${record.id}` });
   const delivered = transmitAsk(door);
   await store().patch(record.id, { postedRequest: delivered.id });
@@ -62,7 +62,7 @@ async function completions(onError) {
     let completion;
     try { completion = JSON.parse(request.need); } catch { continue; }
     if (completion?.type !== 'human.answered') continue;
-    if (!/^[a-f0-9]{32}$/.test(completion.dialog) || !completion.request?.startsWith(`${request.pot}.`)) continue;
+    if (!DIALOG_ID.test(completion.dialog) || !completion.request?.startsWith(`${request.pot}.`)) continue;
     const record = store().get(completion.dialog);
     if (record?.registration && record.registration.pot !== request.pot) continue;
     try {

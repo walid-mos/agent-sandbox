@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { answersOf, dialogSource, discordEvidence, discordMessage, packet, questionsOf, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
+import { answersOf, dialogSource, discordEvidence, discordMessage, packet, questionsOf, RELAYED_POLICIES, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
 import { humanStore } from './human-store.mjs';
 
 export const dialogId = source => createHash('sha256').update(JSON.stringify(dialogSource(source))).digest('hex').slice(0, 32);
@@ -49,7 +49,7 @@ export async function openDialog(input, store = humanStore()) {
 
 function newDialog(input, id) {
   const common = { id, version: VERSION, kind: input.kind, source: dialogSource(input.source), context: `${input.context ?? ''}`,
-    served: input.served, createdAt: Date.now(), policy: ['ordinary', 'push'].includes(input.policy) ? input.policy : 'local', scope: input.scope };
+    served: input.served, createdAt: Date.now(), policy: RELAYED_POLICIES.includes(input.policy) ? input.policy : 'local', scope: input.scope };
   if (common.policy === 'push' && (typeof input.scope !== 'string' || !input.scope.trim())) throw new Error('human: an approval needs its exact scope.');
   if (input.kind === 'question') return { ...common, questions: questionsOf(input.questions) };
   if (typeof input.purpose !== 'string' || !input.purpose.trim()) throw new Error('human: a secret needs a purpose.');
