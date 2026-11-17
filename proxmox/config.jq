@@ -10,8 +10,8 @@ def check(key; valid; expected):
 def settings: ["host", "vmid", "storage", "bridge", "address", "gateway", "cpuUnits"];
 
 (if (.launcher // "docker") == "docker" then empty
-  else "launcher must be docker: the SealSkin server, its tailnet ssh port and forward-dev exist only on Colima" end),
-(if has("serverPort") or has("tailnetSshPort") then "serverPort and tailnetSshPort exist only on Colima; remove them" else empty end),
+  else "launcher must be docker: the SealSkin server exists only on Colima" end),
+(if has("serverPort") then "serverPort exists only on Colima; remove it" else empty end),
 (if ($sandbox | matches("[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")) then empty
   else "the sandbox directory name \($sandbox | tojson) names the VM, so it must be a lowercase host name" end),
 (.proxmox

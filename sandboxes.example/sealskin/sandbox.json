@@ -7,7 +7,6 @@
     "diskGiB": 200
   },
   "serverPort": 8443,
-  "tailnetSshPort": 2223,
   "bot": "Principal",
   "owners": {
     "NextNodeSolutions": "GITHUB_TOKEN",

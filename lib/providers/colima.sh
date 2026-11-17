@@ -39,7 +39,6 @@ vm_start() {
 
 # The Colima VMs share one network and the Mac publishes each SealSkin server, so a session is checked against every Colima sandbox, its own included.
 colima_sandbox_endpoints() {
-	mac=$1
 	for config in "$POTS_SANDBOX_ROOT"/*/sandbox.json; do
 		[ "$(sandbox_provider "$config")" = colima ] || continue
 		profile=$(basename "$(dirname "$config")")
@@ -47,8 +46,6 @@ colima_sandbox_endpoints() {
 		printf '%s:22 ' "$address"
 		server_port=$(jq -r '.serverPort // empty' "$config")
 		[ -z "$server_port" ] || printf '%s:%s ' "$COLIMA_HOST" "$server_port"
-		ssh_port=$(jq -r '.tailnetSshPort // empty' "$config")
-		[ -z "$ssh_port" ] || printf '%s:%s ' "$mac" "$ssh_port"
 	done
 }
 
@@ -56,6 +53,6 @@ vm_forbidden_endpoints() {
 	mac=$(jq -er .macHost "$POTS_RUNTIME/host.json")
 	peer=$(jq -er .peerHost "$POTS_RUNTIME/host.json")
 	lan_gateway=$(route -n get default | awk '/gateway:/ { print $2 }')
-	sandboxes=$(colima_sandbox_endpoints "$mac")
+	sandboxes=$(colima_sandbox_endpoints)
 	echo "$mac:$MAC_ROUTER_PORT $mac:22 $mac:443 $mac:5432 $COLIMA_HOST:$MAC_ROUTER_PORT $COLIMA_HOST:22 $peer:22 $lan_gateway:80 $sandboxes"
 }

@@ -53,11 +53,6 @@ def copy_sandboxes(source, sandbox_root):
 
 def host_values(source):
     host = {}
-    connector = (source / "mac/sealskin-connect").read_text() if (source / "mac/sealskin-connect").is_file() else ""
-    remote = re.search(r'SANDBOX_EXEC = "([^"]+)/bin/sandbox-exec"', connector)
-    alias = re.search(r'"BatchMode=yes", "([^"]+)"', connector)
-    if remote and alias:
-        host.update(remoteSandboxRepository=remote.group(1), connectHost=alias.group(1))
     for field, name in (("macHost", "MAC"), ("peerHost", "PEER")):
         value = literal(source / "bin/probe-boundary", name)
         if value and not value.startswith("$("):

@@ -10,6 +10,7 @@ if [ -z "${SANDBOX:-}" ]; then
 	status=0
 	# The update runs before the VMs and apart from them, so a merge that breaks their checks still arrives, and so does the merge that repairs it.
 	"$repo/mac/update" || status=1
+	"$repo/mac/retire-forwards" || status=1
 	for config in "$HOME"/.config/agent-sandbox/sandboxes/*/sandbox.json; do
 		SANDBOX=$(basename "$(dirname "$config")") "$0" || status=1
 	done
@@ -26,4 +27,3 @@ fi
 if [ "$POTS_LAUNCHER" = sealskin ] && ! sandbox_docker inspect --format '{{.State.Running}}' "$POTS_SERVER_CONTAINER" 2> /dev/null | grep -qx true; then
 	"$POTS_REPO/bin/sealskin-up"
 fi
-"$POTS_REPO/mac/tailnet-ssh"
