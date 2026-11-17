@@ -3,7 +3,8 @@ import { homedir, userInfo } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { ACTS, DEFAULT_REFUSED_ACTS, isTarget } from '../session/launch-contract.mjs';
 import { isSnowflake } from '../session/human-contract.mjs';
-import { readPrivate, privateDirectory, writePrivate } from './launch-store.mjs';
+import { writePrivateJson } from '../session/private-json.mjs';
+import { readPrivate, privateDirectory } from './launch-store.mjs';
 
 const SETTINGS = join(homedir(), '.config/agent-sandbox/mac-launch.json');
 export const STATE_HOME = join(homedir(), '.config/agent-sandbox/mac-launch');
@@ -28,12 +29,12 @@ export function configure(values) {
     humanDiscord: { userId: values.operator, macLaunchEnabled: false }, announcers: values.announcer?.split(','), pots: values.pots?.split(','),
     refusedActs: DEFAULT_REFUSED_ACTS, directory: values.directory ?? homedir(), path: ['/opt/homebrew/bin', '/usr/local/bin', join(homedir(), '.local/bin')], piArguments: [] });
   privateDirectory(join(homedir(), '.config/agent-sandbox'));
-  writePrivate(SETTINGS, settings);
+  writePrivateJson(SETTINGS, settings);
 }
 
 export function setEnabled(isEnabled) {
   const settings = loadSettings();
-  writePrivate(SETTINGS, { ...settings, humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: isEnabled } });
+  writePrivateJson(SETTINGS, { ...settings, humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: isEnabled } });
 }
 
 export function storeToken() {
