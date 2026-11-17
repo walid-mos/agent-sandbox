@@ -2,14 +2,14 @@ import { consumePush } from './human-consume.mjs';
 import { humanStore } from './human-store.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { PUBLICATION, recordPublication, workers } from './workers.mjs';
+import { ownedWorker, PUBLICATION, recordPublication } from './workers.mjs';
 
 const AFFIRMATIVE_LABEL = 'Push once';
 const DECLINE_LABEL = 'Keep local';
 
 function repositoryWorker(name) {
-  const worker = workers().find(candidate => candidate.name === name && candidate.owner === botId);
-  if (!worker || worker.kind === 'task' || !worker.repository) throw new Error('dispatch: publication requires an owned repository worker.');
+  const worker = ownedWorker(name, botId);
+  if (!worker?.repository) throw new Error('dispatch: publication requires an owned repository worker.');
   return worker;
 }
 

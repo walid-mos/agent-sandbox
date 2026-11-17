@@ -31,6 +31,8 @@ export function workers() {
     .map(withPublication);
 }
 
+export const ownedWorker = (name, owner) => workers().find(worker => worker.name === name && worker.owner === owner);
+
 export function save(worker) {
   writePrivateJson(join(WORKERS, `${worker.name}.json`), worker);
 }
