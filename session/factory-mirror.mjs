@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { FACTORY_HOME } from './factory-records.mjs';
+import { remoteUrl } from './github-url.mjs';
 import { command } from './run.mjs';
 
 // The mirror is only ever written by git fetching from GitHub: no checked code runs in it and no checkout of it is mounted anywhere.
 const MIRRORS = join(FACTORY_HOME, 'mirrors');
 
-export const remoteUrl = repository => `https://github.com/${repository}.git`;
 const mirrorPath = repository => join(MIRRORS, `${repository}.git`);
 const inMirror = (repository, arguments_, options) => command('git', ['-C', mirrorPath(repository), ...arguments_], options);
 

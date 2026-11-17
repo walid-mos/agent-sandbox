@@ -1,7 +1,8 @@
 import { probe, runChecks } from './factory-checks.mjs';
 import { FACTORY_TOPIC, openPulls, watchedRepositories } from './factory-github.mjs';
 import { branchTip, mergeBase, refreshMirror } from './factory-mirror.mjs';
-import { logDirectory, pullUrl, readRecord, recordedHeads, writeRecord } from './factory-records.mjs';
+import { logDirectory, readRecord, recordedHeads, writeRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { flushReports, handToFactory, reportToPrincipal } from './factory-reports.mjs';
 import { isLandingPull, isRetiredSessionFactory, LANDING_BRANCH, requireLandingAuthority } from './factory-authority.mjs';

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { pullUrl } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { checkSteps } from './factory-repositories.mjs';
 import { command } from './run.mjs';
 import { owners } from './sandbox.mjs';

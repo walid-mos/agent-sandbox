@@ -1,7 +1,8 @@
 import { askFactory } from './factory-channel.mjs';
 import { isLandingPull, LANDING_BRANCH, requireLandingAuthority } from './factory-authority.mjs';
 import { branchTip, pushCommit, refreshMirror, writeCommit } from './factory-mirror.mjs';
-import { pullUrl, writeRecord } from './factory-records.mjs';
+import { writeRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { reportToPrincipal } from './factory-reports.mjs';
 
 function publishLanding(repository, release) {

@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { comment, pullFacts, requireActionable, squashMerge } from './factory-github.mjs';
-import { logDirectory, pullArguments, pullUrl, requireRecord, writeRecord } from './factory-records.mjs';
+import { logDirectory, pullArguments, requireRecord, writeRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { reportToPrincipal } from './factory-reports.mjs';
 import { signPublication } from './factory-publication.mjs';
 import { isLandingPull, LANDING_BRANCH } from './factory-authority.mjs';
