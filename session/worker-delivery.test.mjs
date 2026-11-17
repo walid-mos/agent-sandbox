@@ -18,7 +18,7 @@ const { acknowledgeResult } = await import('./worker-results.mjs');
 const { enqueue, queued, QUEUE } = await import('./queue.mjs');
 const { receiptPath, statePath, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
 const { writePrivateJson } = await import('./private-json.mjs');
-const { save, workers, WORKERS } = await import('./workers.mjs');
+const { allTerminals, save, workers, WORKERS } = await import('./workers.mjs');
 const sessionFile = join(scratch, 'task', 'exact.jsonl');
 mkdirSync(join(scratch, 'task'));
 writeFileSync(sessionFile, '{"type":"session","id":"exact"}\n');
@@ -40,6 +40,11 @@ if (binary === 'git') {
   process.stdout.write(answers[args[0]]);
 } else if (binary === 'hc') {
   if (args[0] === 'ls') process.stdout.write(JSON.stringify({ terminals: boundary.terminals }));
+  else if (args[0] === 'get' && boundary.vanishing === args.at(-1)) {
+    boundary.terminals = boundary.terminals.filter(terminal => terminal.address !== args.at(-1));
+    fs.writeFileSync(file, JSON.stringify(boundary));
+    process.exit(1);
+  } else if (args[0] === 'get' && boundary.failing === args.at(-1)) process.exit(1);
   else if (args[0] === 'get') process.stdout.write(JSON.stringify(boundary.terminals.find(terminal => [terminal.name, terminal.address].includes(args.at(-1)))));
   else if (args[0] === 'read') process.stdout.write('Finished task report.');
   else if (args[0] === 'run') boundary.terminals = [{ ...boundary.template, address: 't-resumed' }];
@@ -135,6 +140,14 @@ test('a stopped worker whose terminal already ended is not closed again', () => 
   setTerminals([{ ...terminal, state: 'finished' }]);
   inspect();
   assert.deepEqual(boundary().calls, []);
+});
+
+test('a terminal removed while the list is read is left out, and one still listed fails the read', () => {
+  const helper = { address: 'helper', cwd: worker.worktree, state: 'finished' };
+  writeFileSync(boundaryPath, JSON.stringify({ ...boundary(), terminals: [terminal, helper], vanishing: 'helper' }));
+  assert.deepEqual(allTerminals().map(listed => listed.address), ['t-owned']);
+  writeFileSync(boundaryPath, JSON.stringify({ ...boundary(), terminals: [terminal, { ...helper, address: 'stuck' }], vanishing: undefined, failing: 'stuck' }));
+  assert.throws(allTerminals);
 });
 
 test('startup without an agent status stays live regardless of age', () => {

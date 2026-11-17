@@ -66,9 +66,20 @@ export function recordPass(worker, pass, commit) {
 
 export const isLive = terminal => terminal.state === 'live';
 
+const listedTerminals = () => JSON.parse(command('hc', ['ls', '--all', '--json'])).terminals;
+
+// A terminal removed between the list and its details is gone, and one still listed whose details fail stops the caller, which never decides on a partial list.
+function details(terminal) {
+  try {
+    return { ...JSON.parse(command('hc', ['get', '--json', terminal.address])), agent: terminal.agent };
+  } catch (error) {
+    if (listedTerminals().some(listed => listed.address === terminal.address)) throw error;
+    return undefined;
+  }
+}
+
 export function allTerminals() {
-  return JSON.parse(command('hc', ['ls', '--all', '--json'])).terminals
-    .map(terminal => ({ ...JSON.parse(command('hc', ['get', '--json', terminal.address])), agent: terminal.agent }))
+  return listedTerminals().map(details).filter(Boolean)
     .map(terminal => ({ ...terminal, status: terminal.status?.state ?? terminal.status }));
 }
 
