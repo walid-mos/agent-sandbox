@@ -8,7 +8,8 @@ status=0
 /usr/bin/tailscale set --shields-up=true || status=1
 session=$(/usr/bin/docker ps --filter "label=$POTS_SESSION_LABEL" --filter status=running --format '{{.Names}}' | head -n 1)
 session_tailscale="$POTS_SESSION_HOME/.local/bin/tailscale"
-if [ -n "$session" ] && /usr/bin/docker exec --user root "$session" test -x "$session_tailscale"; then
+# A session whose init has not finished runs no tailscaled yet and must run nothing as the session user; the guard's next failure raises its shields.
+if [ -n "$session" ] && /usr/bin/docker exec --user root "$session" sh -c 's6-rc -a list 2> /dev/null | grep -qx "$1" && test -x "$2"' shields-up "$POTS_SESSION_INIT_SERVICE" "$session_tailscale"; then
 	/usr/bin/docker exec --user root "$session" s6-setuidgid "$POTS_SESSION_USER" "$session_tailscale" set --shields-up=true || status=1
 fi
 echo "pots-shields-up: the trusted launcher refuses $POTS_SESSION_REPOSITORY, so the tailnet guard cannot run. The shields stay up until bin/vm-up restores the clone and bin/tailnet-up checks both nodes." >&2
