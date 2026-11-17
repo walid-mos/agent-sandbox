@@ -36,26 +36,30 @@ const guildPath = request => `/guilds/${request.guildId}`;
 const channelPath = request => `/channels/${request.channelId}`;
 const memberPath = request => `${guildPath(request)}/members/${request.userId}`;
 const rolePath = request => `${guildPath(request)}/roles/${request.roleId}`;
-const route = (method, path, permission, fields = {}, required = [], targets = []) => ({ method, path, permission, fields, required, targets });
+const payloadBody = request => Object.keys(request.payload).length ? request.payload : undefined;
+const route = (method, path, permission, fields = {}, required = [], targets = [], { body = payloadBody, approval = false, member = false } = {}) =>
+  ({ method, path, permission, fields, required, targets, body, approval, loadsMember: member });
+const ALWAYS_APPROVED = { approval: true };
 
 export const ADMIN_OPERATIONS = {
   'channel.create': route('POST', request => `${guildPath(request)}/channels`, 'ManageChannels', { ...channelFields, type: channelType }, ['name', 'type']),
   'channel.edit': route('PATCH', channelPath, 'ManageChannels', channelFields, [], ['channelId']),
-  'channel.delete': route('DELETE', channelPath, 'ManageChannels', {}, [], ['channelId']),
+  'channel.delete': route('DELETE', channelPath, 'ManageChannels', {}, [], ['channelId'], ALWAYS_APPROVED),
   'thread.create': route('POST', request => `${channelPath(request)}${request.messageId ? `/messages/${request.messageId}` : ''}/threads`, 'CreatePublicThreads',
     { name: string(100), type: threadType, auto_archive_duration: duration, invitable: boolean, rate_limit_per_user: integer(0, 21600) }, ['name'], ['channelId']),
   'thread.edit': route('PATCH', channelPath, 'ManageThreads', { name: string(100), archived: boolean, locked: boolean, auto_archive_duration: duration, rate_limit_per_user: integer(0, 21600) }, [], ['channelId']),
-  'thread.delete': route('DELETE', channelPath, 'ManageThreads', {}, [], ['channelId']),
+  'thread.delete': route('DELETE', channelPath, 'ManageThreads', {}, [], ['channelId'], ALWAYS_APPROVED),
   'role.create': route('POST', request => `${guildPath(request)}/roles`, 'ManageRoles', roleFields, ['name']),
   'role.edit': route('PATCH', rolePath, 'ManageRoles', roleFields, [], ['roleId']),
-  'role.position': route('PATCH', request => `${guildPath(request)}/roles`, 'ManageRoles', { position: integer(1, 10000) }, ['position'], ['roleId']),
-  'role.delete': route('DELETE', rolePath, 'ManageRoles', {}, [], ['roleId']),
+  'role.position': route('PATCH', request => `${guildPath(request)}/roles`, 'ManageRoles', { position: integer(1, 10000) }, ['position'], ['roleId'],
+    { body: request => [{ id: request.roleId, position: request.payload.position }] }),
+  'role.delete': route('DELETE', rolePath, 'ManageRoles', {}, [], ['roleId'], ALWAYS_APPROVED),
   'role.grant': route('PUT', request => `${memberPath(request)}/roles/${request.roleId}`, 'ManageRoles', {}, [], ['userId', 'roleId']),
   'role.revoke': route('DELETE', request => `${memberPath(request)}/roles/${request.roleId}`, 'ManageRoles', {}, [], ['userId', 'roleId']),
-  'member.nickname': route('PATCH', memberPath, 'ManageNicknames', { nick: value => value === null || string(32)(value) }, ['nick'], ['userId']),
-  'member.timeout': route('PATCH', memberPath, 'ModerateMembers', { communication_disabled_until: timestamp }, ['communication_disabled_until'], ['userId']),
-  'member.kick': route('DELETE', memberPath, 'KickMembers', {}, [], ['userId']),
-  'member.ban': route('PUT', request => `${guildPath(request)}/bans/${request.userId}`, 'BanMembers', { delete_message_seconds: integer(0, 604800) }, [], ['userId']),
+  'member.nickname': route('PATCH', memberPath, 'ManageNicknames', { nick: value => value === null || string(32)(value) }, ['nick'], ['userId'], { member: true }),
+  'member.timeout': route('PATCH', memberPath, 'ModerateMembers', { communication_disabled_until: timestamp }, ['communication_disabled_until'], ['userId'], { member: true }),
+  'member.kick': route('DELETE', memberPath, 'KickMembers', {}, [], ['userId'], { ...ALWAYS_APPROVED, member: true }),
+  'member.ban': route('PUT', request => `${guildPath(request)}/bans/${request.userId}`, 'BanMembers', { delete_message_seconds: integer(0, 604800) }, [], ['userId'], ALWAYS_APPROVED),
   'member.unban': route('DELETE', request => `${guildPath(request)}/bans/${request.userId}`, 'BanMembers', {}, [], ['userId']),
   'invite.create': route('POST', request => `${channelPath(request)}/invites`, 'CreateInstantInvite', { max_age: integer(0, 604800), max_uses: integer(0, 100), temporary: boolean, unique: boolean }, [], ['channelId']),
   'invite.delete': route('DELETE', request => `/invites/${request.code}`, 'ManageChannels'),

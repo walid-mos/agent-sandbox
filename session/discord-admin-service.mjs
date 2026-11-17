@@ -15,7 +15,7 @@ async function protectedChannels(channels, protection, api) {
   return { channels: tracked, protection: { ...protection, channelIds: [...new Set([...protection.channelIds, ...parents])] } };
 }
 
-async function snapshotOf(request, { api, protection }) {
+async function snapshotOf(request, operation, { api, protection }) {
   requireProtection(protection, request.guildId);
   const bot = await api('GET', '/users/@me');
   const guild = await api('GET', `/guilds/${request.guildId}`);
@@ -26,7 +26,7 @@ async function snapshotOf(request, { api, protection }) {
   const channel = await optionalChannel(request.channelId, guild.id, api);
   const parent = await optionalChannel(request.payload.parent_id, guild.id, api);
   const threadParent = await parentOfThread(channel, guild.id, api);
-  const targetMember = await memberOf(request, api);
+  const targetMember = await memberOf(request, operation, api);
   return { bot, guild, roles, botMember, channel, parent, threadParent, targetMember, ...owned };
 }
 
@@ -46,15 +46,8 @@ function parentOfThread(channel, guildId, api) {
   if (channel && isThread(channel)) return guildChannel(channel.parent_id, guildId, api);
 }
 
-function memberOf(request, api) {
-  if (!request.action.startsWith('member.')) return;
-  if (['member.unban', 'member.ban'].includes(request.action)) return;
-  return api('GET', `/guilds/${request.guildId}/members/${request.userId}`);
-}
-
-function mutationBody(request) {
-  if (request.action === 'role.position') return [{ id: request.roleId, position: request.payload.position }];
-  return Object.keys(request.payload).length ? request.payload : undefined;
+function memberOf(request, operation, api) {
+  if (operation.loadsMember) return api('GET', `/guilds/${request.guildId}/members/${request.userId}`);
 }
 
 async function guardInvite(request, api) {
@@ -71,14 +64,14 @@ function requireGuildInvite(invite, guildId) {
 export async function administerDiscord(input, dependencies) {
   const operation = operationOf(input);
   const request = (await guardInvite(operation.request, dependencies.api)) ?? operation.request;
-  const snapshot = await snapshotOf(request, dependencies);
+  const snapshot = await snapshotOf(request, operation, dependencies);
   guardChannels(request, snapshot);
   guardRoles(request, snapshot);
   requirePermission(request, operation, snapshot);
-  if (requiresApproval(request, snapshot)) {
+  if (requiresApproval(request, operation, snapshot)) {
     const approval = await dependencies.approvals.authorize(request, { ownerId: snapshot.guild.owner_id });
     if (approval.status !== 'authorized') return approval;
   }
-  const result = await dependencies.api(operation.method, operation.path, mutationBody(request), request.reason);
+  const result = await dependencies.api(operation.method, operation.path, operation.body(request), request.reason);
   return { status: 'completed', action: request.action, result };
 }

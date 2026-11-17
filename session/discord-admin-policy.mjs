@@ -95,7 +95,6 @@ function requireRolePosition(role, guild, botPosition) {
 
 function guardMemberHierarchy(request, snapshot, botPosition) {
   if (!snapshot.targetMember) return;
-  if (request.action === 'member.unban') return;
   const targetPosition = Math.max(0, ...snapshot.roles.filter(item => snapshot.targetMember.roles.includes(item.id)).map(item => item.position));
   if ([request.userId === snapshot.guild.owner_id, targetPosition >= botPosition].some(Boolean)) throw new Error('discord-admin: guild owner or member hierarchy prevents this operation.');
   guardTimeout(request, snapshot);
@@ -135,8 +134,8 @@ function changesEveryone(request, snapshot) {
   return overwrites.some(item => item.type === OVERWRITE.role && item.id === request.guildId);
 }
 
-export function requiresApproval(request, snapshot) {
-  if (['channel.delete', 'thread.delete', 'role.delete', 'member.kick', 'member.ban'].includes(request.action)) return true;
+export function requiresApproval(request, operation, snapshot) {
+  if (operation.approval) return true;
   if (request.action === 'role.revoke' && request.userId === snapshot.guild.owner_id) return true;
   return changesEveryone(request, snapshot);
 }
