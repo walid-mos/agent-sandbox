@@ -340,7 +340,7 @@ The Mastermind is the pot whose `sandbox.json` sets `role` to `mastermind`, as [
 A pot reaches another pot only through that pot's door: one ssh key per calling pot, which the called pot's VM binds to a single forced command, `pots wake --from pot:CALLER --note-file -`. `doors` in `sandbox.json` names the pots this one may ask. [The pot rules](session/pot/AGENTS.md) tell each bot how to ask, how to reply, and that a neighbour's note is a request it may refuse, never an order from the person.
 
 ```sh
-pots ask POT --need "TEXT"
+pots ask POT --need "TEXT" [--for REQUEST_ID]
 pots reply REQUEST_ID --text "TEXT"
 pots resend REQUEST_ID
 pots requests [--all]
@@ -348,7 +348,9 @@ pots requests [--all]
 
 [The session's `pots`](session/pots) runs these four and the door's exact `wake`, through [`doors.mjs`](session/doors.mjs), and hands every other command, `wake --from mac-thread` included, to the installed `pi-durable-bot`. `ask` signs its request ID with this pot's tailnet name, saves the request as `unknown`, then knocks on the neighbour's door, and `reply` does the same with its reply. Only a door exit that keeps nothing (64, 65, 69, 75, 77) makes it `undelivered`. A timeout, a cut line, a failed wake and any other exit leave it `unknown`, because the neighbour may hold it. `resend` sends either again under the same ID, byte for byte, and the neighbour takes a message it already holds as a no-op, so a resend never starts the work twice. The record keeps a fixed reason for each exit, never what the door or the neighbour printed.
 
-Each request is a JSON file under `~/.config/agent-sandbox/requests`. A delivery wakes the bot with a JSON note only once it is saved, and a delivery whose wake fails is removed again. The session refuses a request in another pot's name, a reply to a request this pot never asked, a second different reply, a 21st unanswered request from the same pot, and a message over 16 KiB, empty, holding a NUL byte or not UTF-8. A reply only closes a request, so it can never open one. Deliveries, and the changes `ask`, `reply` and `resend` make, run one at a time under `flock` on that folder, so parallel knocks cannot pass the cap or save two texts under one ID. [`probes/door-deliveries.sh`](probes/door-deliveries.sh), which `./bin/probe-boundary` runs in the session, sends those forged deliveries through the command the door runs and checks each is refused and leaves the requests unchanged.
+A request carries a hop count. `ask --for` a received request sends the new one a hop further, and both `ask` and the receiving pot refuse a request beyond two hops, so pots asking each other in a loop stop at the third door. How often a pot may knock is the door's limit, in the VM, where a compromised caller cannot skip it.
+
+Each request is a JSON file under `~/.config/agent-sandbox/requests`. A delivery wakes the bot with a JSON note only once it is saved, and a delivery whose wake fails is removed again. The session refuses a request in another pot's name, a reply to a request this pot never asked, a second different reply, a 21st unanswered request from the same pot, a request beyond two hops, and a message over 16 KiB, empty, holding a NUL byte or not UTF-8. A reply only closes a request, so it can never open one. Deliveries, and the changes `ask`, `reply` and `resend` make, run one at a time under `flock` on that folder, so parallel knocks cannot pass the cap or save two texts under one ID. [`probes/door-deliveries.sh`](probes/door-deliveries.sh), which `./bin/probe-boundary` runs in the session, sends those forged deliveries through the command the door runs and checks each is refused and leaves the requests unchanged.
 
 ## Pot cloud
 

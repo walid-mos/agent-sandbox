@@ -26,16 +26,18 @@ refused() {
 
 refused reply-to-a-request-never-asked "$CALLER" <<< "reply $CALLER.$NONCE
 boundary probe: a reply to a request this pot never opened"
-refused request-in-another-pots-name "$CALLER" <<< "request other.$NONCE
+refused request-in-another-pots-name "$CALLER" <<< "request other.$NONCE 0
 boundary probe: a request in another pot's name"
 refused malformed-header "$CALLER" <<< "order $CALLER.$NONCE
 boundary probe: a header that names no kind"
-refused path-shaped-request-id "$CALLER" <<< "request ../../$CALLER.$NONCE
+refused path-shaped-request-id "$CALLER" <<< "request ../../$CALLER.$NONCE 0
 boundary probe: a request ID shaped like a path"
-refused empty-note "$CALLER" <<< "request $CALLER.$NONCE"
-refused oversized-message "$CALLER" < <(printf 'request %s.%s\n' "$CALLER" "$NONCE"; head -c 17000 /dev/zero | tr '\0' a)
-refused nul-byte "$CALLER" < <(printf 'request %s.%s\nboundary\0probe' "$CALLER" "$NONCE")
-refused text-that-is-not-utf8 "$CALLER" < <(printf 'request %s.%s\n\xff\xfe' "$CALLER" "$NONCE")
-refused caller-that-is-not-a-pot-name ../probe <<< "request $CALLER.$NONCE
+refused request-past-the-hop-limit "$CALLER" <<< "request $CALLER.$NONCE 3
+boundary probe: a request forwarded once more than a pot takes"
+refused empty-note "$CALLER" <<< "request $CALLER.$NONCE 0"
+refused oversized-message "$CALLER" < <(printf 'request %s.%s 0\n' "$CALLER" "$NONCE"; head -c 17000 /dev/zero | tr '\0' a)
+refused nul-byte "$CALLER" < <(printf 'request %s.%s 0\nboundary\0probe' "$CALLER" "$NONCE")
+refused text-that-is-not-utf8 "$CALLER" < <(printf 'request %s.%s 0\n\xff\xfe' "$CALLER" "$NONCE")
+refused caller-that-is-not-a-pot-name ../probe <<< "request $CALLER.$NONCE 0
 boundary probe: a caller name shaped like a path"
 exit $((failures > 0))

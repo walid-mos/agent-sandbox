@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import { knock } from './door-knock.mjs';
-import { isPotName, MESSAGE_BYTES, message, newRequestId, parse, REPLY, REQUEST } from './door-messages.mjs';
+import { HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, parse, REPLY, replyMessage, REQUEST, requestMessage } from './door-messages.mjs';
 import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, remove, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, failureReason } from './run.mjs';
@@ -11,7 +11,7 @@ const CONNECTED = 'Running';
 const UNANSWERED_REQUESTS_PER_POT = 20;
 const RESENDABLE = [UNKNOWN, UNDELIVERED];
 const DELIVERED_STATE = { [ASKED]: OPEN, [RECEIVED]: ANSWERED };
-const USAGE = 'usage: pots ask POT --need TEXT | pots reply REQUEST_ID --text TEXT | pots resend REQUEST_ID | pots requests [--all]';
+const USAGE = 'usage: pots ask POT --need TEXT [--for REQUEST_ID] | pots reply REQUEST_ID --text TEXT | pots resend REQUEST_ID | pots requests [--all]';
 
 const doors = () => sandbox.doors ?? {};
 
@@ -33,6 +33,13 @@ function ownName() {
   throw new Error('pots: this pot\'s tailnet node is not connected, so it has no name to ask under. Check tailscale status, then ask again.');
 }
 
+function forwardedHop(servedId) {
+  const served = find(servedId);
+  if (served?.direction !== RECEIVED || served.state !== OPEN) throw new Error(`pots: --for names a request this pot received and has not answered, and ${servedId} is none. pots requests lists them.`);
+  if (served.hop >= HOP_LIMIT) throw new Error(`pots: ${servedId} already came through ${served.hop + 1} doors, the most a chain of requests takes. Reply to it with what this pot can do.`);
+  return served.hop + 1;
+}
+
 // A knock's result changes a request only while it still waits on a knock, so a reply that came back meanwhile stays.
 function settle(id, outcome) {
   const current = find(id);
@@ -52,12 +59,14 @@ function send(request, wire, done) {
 }
 
 function ask(arguments_) {
-  const { values, positionals: [pot] } = parseArgs({ args: arguments_, options: { need: { type: 'string' } }, allowPositionals: true });
+  const options = { need: { type: 'string' }, for: { type: 'string' } };
+  const { values, positionals: [pot] } = parseArgs({ args: arguments_, options, allowPositionals: true });
   if (!pot || values.need === undefined) throw new Error(USAGE);
   const target = neighbour(pot);
+  const hop = values.for === undefined ? 0 : forwardedHop(values.for);
   const id = newRequestId(ownName());
-  const wire = message(REQUEST, id, values.need);
-  const request = { id, direction: ASKED, pot: target, need: values.need, state: UNKNOWN, at: Date.now() };
+  const wire = requestMessage(id, hop, values.need);
+  const request = { id, direction: ASKED, pot: target, need: values.need, hop, for: values.for, state: UNKNOWN, at: Date.now() };
   underLock(() => save(request));
   send(request, wire, 'asked');
 }
@@ -75,7 +84,7 @@ function recordReply(id, text) {
 function reply(arguments_) {
   const { values, positionals: [id] } = parseArgs({ args: arguments_, options: { text: { type: 'string' } }, allowPositionals: true });
   if (!id || values.text === undefined) throw new Error(USAGE);
-  const wire = message(REPLY, id, values.text);
+  const wire = replyMessage(id, values.text);
   send(underLock(() => recordReply(id, values.text)), wire, 'replied');
 }
 
@@ -90,7 +99,7 @@ function recordResend(id) {
 function resend([id, ...extra]) {
   if (!id || extra.length > 0) throw new Error(USAGE);
   const request = underLock(() => recordResend(id));
-  const wire = request.direction === ASKED ? message(REQUEST, id, request.need) : message(REPLY, id, request.reply);
+  const wire = request.direction === ASKED ? requestMessage(id, request.hop, request.need) : replyMessage(id, request.reply);
   send(request, wire, 'resent');
 }
 
@@ -113,14 +122,15 @@ async function standardInput(limit) {
 
 // Each returns the record to keep, or nothing when the door already delivered this very message and a resend brings it again.
 const ACCEPTED = {
-  [REQUEST]({ caller, id, origin, text }) {
+  [REQUEST]({ caller, id, origin, hop, text }) {
     if (origin !== caller) throw new Error(`pots: request ${id} is in the name of ${origin}, and ${caller} sent it.`);
+    if (hop > HOP_LIMIT) throw new Error(`pots: request ${id} comes ${hop} hops down a chain of requests, and a pot takes ${HOP_LIMIT} at most.`);
     const known = find(id);
-    if (known?.direction === RECEIVED && known.need === text) return undefined;
+    if (known?.direction === RECEIVED && known.need === text && known.hop === hop) return undefined;
     if (known) throw new Error(`pots: ${id} already names another message.`);
     const unanswered = all().filter(request => request.direction === RECEIVED && request.pot === caller && request.state !== ANSWERED);
     if (unanswered.length >= UNANSWERED_REQUESTS_PER_POT) throw new Error(`pots: ${caller} has ${unanswered.length} requests here that wait for their reply.`);
-    return { id, direction: RECEIVED, pot: caller, need: text, state: OPEN, at: Date.now() };
+    return { id, direction: RECEIVED, pot: caller, need: text, hop, state: OPEN, at: Date.now() };
   },
   [REPLY]({ caller, id, text }) {
     const asked = find(id);
@@ -132,8 +142,8 @@ const ACCEPTED = {
 };
 
 // The note is JSON, so a neighbour's text is one string in it and never reads as a flag or as a second header.
-function wake({ caller, kind, id, text }) {
-  const note = JSON.stringify({ kind, id, pot: caller, text });
+function wake({ caller, kind, id, text }, record) {
+  const note = JSON.stringify({ kind, id, pot: caller, text, for: record.for });
   command('pots', ['wake', '--bot', botId, '--from', `pot-${caller}`, '--id', `door-${kind}-${id.replace('.', '-')}`, '--note', note]);
 }
 
@@ -143,7 +153,7 @@ function keep(delivery) {
   const previous = find(record.id);
   save(record);
   try {
-    wake(delivery);
+    wake(delivery, record);
   } catch (error) {
     if (previous) save(previous);
     else remove(record.id);
