@@ -56,7 +56,7 @@ knock() {
 	[ "$?" -eq "$exit_code" ]
 }
 
-# Only malformed knocks, so no probe message reaches the peer's bot; they spend this pot's knock budget at the peer all the same.
+# Only malformed knocks, so no probe message reaches the peer's bot; they spend this pot's refusal budget at the peer and leave its deliveries whole.
 door_limits_the_rate() {
 	for _ in $(seq "$RATE_PROBE_KNOCKS"); do
 		knock "$RATE_REFUSAL" "$peer_host" <<< "request intruder.$NONCE 0

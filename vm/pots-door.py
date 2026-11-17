@@ -20,6 +20,8 @@ WHOIS_SECONDS = 5
 DELIVERY_SECONDS = 45
 KNOCK_BURST = 10
 KNOCK_REFILL_SECONDS = 120
+DELIVERIES = "deliveries"
+REFUSALS = "refusals"
 POT = re.compile(r"[a-z][a-z0-9-]{0,30}")
 ACCESS = ("ask", "reply")
 REPLIES_ONLY = "reply"
@@ -31,6 +33,13 @@ DELIVERY_FAILED = 70
 TRY_LATER = 75
 SESSION_REFUSED = 76
 NOT_ALLOWED = 77
+
+
+class Refusal(Exception):
+    def __init__(self, status, reason):
+        super().__init__(reason)
+        self.status = status
+        self.reason = reason
 
 
 def refuse(status, reason):
@@ -81,9 +90,9 @@ def remaining_tokens(bucket_path, now):
         return float(KNOCK_BURST)
 
 
-# Every knock that passed the caller check spends a token, refused messages included, under the caller's lock.
-def spend_token(caller):
-    bucket_path = STATE / (caller + ".json")
+# Under the caller's lock, a knock the door refuses spends from its own bucket, so refused knocks never use up the caller's deliveries.
+def spend_token(caller, bucket):
+    bucket_path = STATE / f"{caller}.{bucket}.json"
     now = time.time()
     tokens = remaining_tokens(bucket_path, now)
     if tokens < 1:
@@ -96,29 +105,34 @@ def spend_token(caller):
 def read_message():
     raw = sys.stdin.buffer.read(MESSAGE_LIMIT_BYTES + 1)
     if len(raw) > MESSAGE_LIMIT_BYTES:
-        refuse(TOO_LARGE, f"the message is over {MESSAGE_LIMIT_BYTES} bytes")
+        raise Refusal(TOO_LARGE, f"the message is over {MESSAGE_LIMIT_BYTES} bytes")
     if b"\0" in raw:
-        refuse(MALFORMED, "the message holds a NUL byte")
+        raise Refusal(MALFORMED, "the message holds a NUL byte")
     try:
         return raw, raw.decode("utf-8")
     except UnicodeDecodeError:
-        refuse(MALFORMED, "the message is not UTF-8")
+        raise Refusal(MALFORMED, "the message is not UTF-8") from None
 
 
 def request_id(text, caller, receiver, access):
     header, separator, note = text.partition("\n")
     match = HEADER.fullmatch(header)
     if not separator or not match:
-        refuse(MALFORMED, "the first line must be 'request <origin>.<nonce> <hop>' or 'reply <origin>.<nonce>', ended by LF")
+        raise Refusal(MALFORMED, "the first line must be 'request <origin>.<nonce> <hop>' or 'reply <origin>.<nonce>', ended by LF")
     if not note.strip():
-        refuse(MALFORMED, "the note is empty")
+        raise Refusal(MALFORMED, "the note is empty")
     kind, origin, nonce = [part for part in match.groups() if part is not None]
     if kind == "request" and access == REPLIES_ONLY:
-        refuse(NOT_ALLOWED, f"{caller} may only reply to {receiver}, since the doors of {caller} do not name {receiver}")
+        raise Refusal(NOT_ALLOWED, f"{caller} may only reply to {receiver}, since the doors of {caller} do not name {receiver}")
     expected = caller if kind == "request" else receiver
     if origin != expected:
-        refuse(MALFORMED, f"a {kind} from {caller} must carry the origin {expected}, not {origin}")
+        raise Refusal(MALFORMED, f"a {kind} from {caller} must carry the origin {expected}, not {origin}")
     return origin + "." + nonce
+
+
+def checked_message(caller, receiver, access):
+    raw, text = read_message()
+    return raw, request_id(text, caller, receiver, access)
 
 
 def session_label():
@@ -155,8 +169,11 @@ def deliver(raw, caller, container):
 caller, receiver, access = bound_access()
 check_caller_node(caller)
 lock = hold_caller_lock(caller)
-spend_token(caller)
-raw, text = read_message()
-identifier = request_id(text, caller, receiver, access)
+try:
+    raw, identifier = checked_message(caller, receiver, access)
+except Refusal as refusal:
+    spend_token(caller, REFUSALS)
+    refuse(refusal.status, refusal.reason)
+spend_token(caller, DELIVERIES)
 deliver(raw, caller, session_container())
 print("delivered " + identifier)

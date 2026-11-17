@@ -138,10 +138,10 @@ On the target VM, [a dedicated sshd](vm/door-sshd.conf), run by [its unit](vm/po
 | --- | --- |
 | `tailscale whois` of the connecting address shows `tag:pot-<caller>` | 77 |
 | The caller's lock is free, taken without waiting | 75, `pots-door: busy` |
-| The caller's bucket holds a token: 10 at most, one back every 120 s, spent by every knock that passed the two steps above | 75, `pots-door: rate` |
 | At most 16384 bytes | 65 |
 | Strict UTF-8 without NUL; first line `request <caller>.<nonce> <hop>` or `reply <receiver>.<nonce>`, ended by LF, nonce of 8 to 32 lowercase letters and digits, hop one digit; a note that is not blank | 64 |
 | A `request` comes only on a key bound to `ask` | 77 |
+| The caller's delivery bucket holds a token: 10 at most, one back every 120 s. A knock the three steps above refuse spends from a refusal bucket of the same size instead, and gets this exit in place of its own when that bucket is empty, so refused knocks never use up the caller's deliveries | 75, `pots-door: rate` |
 | The pot has a running session | 69 |
 | `pots wake --from pot:<caller> --note-file -` in the session, as the session user, does not refuse the message: its status 76 means it kept nothing and would refuse the same bytes again | 76, `pots-door: refused` |
 | That command ends with status 0 within 45 s | 70 |
