@@ -83,7 +83,7 @@ export class WorkerRuntime {
 
   finish(context) {
     try {
-      this.#finishWhenDue(context);
+      this.#closeWhenFinished(context);
     } catch (error) {
       process.stderr.write(`pots lifecycle: close deferred: ${error instanceof Error ? error.message : 'inspection failed'}\n`);
     }
@@ -94,7 +94,7 @@ export class WorkerRuntime {
     return this.#state && receipt?.id === resultId(this.#state);
   }
 
-  #finishWhenDue(context) {
+  #closeWhenFinished(context) {
     if (!this.#hasReceipt() || !this.#canClose(context)) return;
     this.#publish(context, 'closing');
     context.shutdown();
