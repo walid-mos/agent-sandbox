@@ -1,0 +1,14 @@
+[Unit]
+Description=Pots door: sshd for other pots on the tailnet address
+Requires=tailscaled.service
+After=tailscaled.service pots-firewall.service
+
+[Service]
+ExecStart=/usr/local/sbin/pots-door-serve
+Restart=on-failure
+RestartSec=10
+# A restart replaces the listener and leaves deliveries under way to finish.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

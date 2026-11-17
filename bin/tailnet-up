@@ -25,6 +25,7 @@ join_node() {
 host_state=$(on_host state host "$SANDBOX")
 if [ "$host_state" = absent ]; then
 	join_node on_host host
+	sandbox_vm sudo systemctl restart pots-door.service
 fi
 on_host verify host "$SANDBOX" "$operator_node"
 session_state=$(on_session state session "$SANDBOX")

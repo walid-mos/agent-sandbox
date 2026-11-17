@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/lib.sh"
+. "$here/../vm/network.env"
+exec tailscale nc "$1" "$DOOR_PORT"

@@ -79,6 +79,26 @@ install_tailscale() {
 	systemctl restart tailscaled.service
 }
 
+# The door account has no Docker access: it runs only the forced command bound to each key, and that command only through its one sudo rule.
+install_door() {
+	id door > /dev/null 2>&1 || useradd --system --no-create-home --home-dir / --shell /bin/sh door
+	usermod --password '*' door
+	install -d -m 0755 /etc/pots-door
+	install -d -m 0700 /var/lib/pots-door
+	visudo --check --quiet --file "$here/pots-door.sudoers"
+	install -m 0440 "$here/pots-door.sudoers" /etc/sudoers.d/pots-door
+	install -m 0644 "$here/door-sshd.conf" /etc/pots-door/sshd_config
+	install -m 0644 "$here/../session/launch.env" /etc/pots-door/launch.env
+	install -m 0755 "$here/pots-door.py" /usr/local/sbin/pots-door
+	install -m 0755 "$here/door-keys.py" /usr/local/sbin/pots-door-keys
+	install -m 0755 "$here/door.sh" /usr/local/sbin/pots-door-serve
+	/usr/local/sbin/pots-door-keys prepare
+	install -m 0644 "$here/pots-door.service" /etc/systemd/system/
+	systemctl daemon-reload
+	systemctl enable pots-door.service
+	systemctl restart pots-door.service
+}
+
 swap_file_gib() {
 	[ -f "$SWAP_FILE" ] || { echo 0; return; }
 	bytes=$(stat -c %s "$SWAP_FILE")
@@ -119,5 +139,6 @@ install_docker
 install_sysbox
 install_firewall
 install_tailscale
+install_door
 configure_swap "$swap_gib"
 install_timers

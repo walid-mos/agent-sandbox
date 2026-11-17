@@ -12,7 +12,7 @@ for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/pr
 	case "$interpreter" in
 		'#!/bin/sh') sh -n "$path" ;;
 		'#!/bin/bash') bash -n "$path" ;;
-		'#!/usr/bin/env python3') compile_python "$path" ;;
+		'#!/usr/bin/env python3' | '#!/usr/bin/python3 -I') compile_python "$path" ;;
 		'#!'*) echo "check: no syntax check for $interpreter in $path" >&2; exit 1 ;;
 		*) case "$path" in
 			*.sh) sh -n "$path" ;;

@@ -1,0 +1,2 @@
+Defaults:door env_keep += "SSH_CLIENT"
+door ALL=(root) NOPASSWD: /usr/local/sbin/pots-door
