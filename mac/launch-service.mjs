@@ -1,11 +1,10 @@
 import { discordMessageUrl } from '../session/human-contract.mjs';
-import { launchStatus, noticeOf, OFFERED, OPEN } from '../session/launch-contract.mjs';
+import { EXPIRED, launchStatus, noticeOf, OFFERED, OPEN, STARTED } from '../session/launch-contract.mjs';
 import { boundRequest, BUTTON, CLAIMED, pressedButton, verifyOffer, verifyPress } from './launch-approval.mjs';
 import { closedMessage, offerMessage } from './launch-messages.mjs';
 
-const STARTED = 'started';
 const LIVE = [OFFERED, STARTED];
-const SOURCE_CLOSURES = ['cancelled', 'superseded', 'expired'];
+const SOURCE_CLOSURES = ['cancelled', 'superseded', EXPIRED];
 const UNACCOUNTED_CLAIM = 'The gate stopped after it claimed this approval and before it recorded a start. A Pi may be running: inspect the ml- terminals in Herdr. The gate never launches this approval again.';
 const SOURCE_SILENT = 'The requesting pot did not answer, so nothing started and this press is not used. Press again once the pot answers.';
 
@@ -18,7 +17,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
   // A launch leaves the offered state once, through the Mac's decision file. A claim and a closure race for that file, and the loser changes nothing.
   const decide = (offer, state, evidence = {}) => store.decide(offer.request.launch, { state, decidedAt: clock(), ...evidence });
   function close(offer, state, { details, evidence } = {}) {
-    decide(offer, state, evidence);
+    decide(offer, state, { ...evidence, ...details });
     return saveState(offer, state, details);
   }
 
@@ -27,7 +26,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     const decided = store.decision(offer.request.launch);
     if (!decided) return false;
     if (decided.state === CLAIMED) saveState(offer, 'failed', { detail: UNACCOUNTED_CLAIM });
-    else saveState(offer, decided.state);
+    else saveState(offer, decided.state, { detail: decided.detail });
     return true;
   }
 
@@ -41,9 +40,11 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
   }
 
   // A pot may close a launch this Mac never offered. The Mac records that too, so the closure the pot hears is one the Mac holds to.
-  function closeUnoffered(shown, proposed) {
+  function closeUnoffered(shown, proposed, closure) {
     const { request, state } = boundRequest(shown, proposed, settings());
-    close({ request, pending: [] }, state);
+    // Keep a recoverable record before the decision even when Discord never showed an offer.
+    const offer = store.save({ request, state: OFFERED, pending: [] });
+    close(offer, closure?.state ?? state, closure);
   }
 
   async function notice(message, applicationId) {
@@ -58,7 +59,13 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     if (store.decision(proposed.launch)) return;
     const shown = await pots.show(proposed.pot, proposed.launch);
     if (SOURCE_CLOSURES.includes(shown.state)) return closeUnoffered(shown, proposed);
-    const verified = verifyOffer(shown, proposed, settings(), clock());
+    let verified;
+    try { verified = verifyOffer(shown, proposed, settings(), clock()); }
+    catch (error) {
+      try { boundRequest(shown, proposed, settings()); } catch { return; }
+      closeUnoffered(shown, proposed, { state: 'refused', details: { detail: error.message } });
+      return;
+    }
     const payload = offerMessage(verified, config, discordMessageUrl({ guildId: message.guild_id, channelId: message.channel_id, messageId: message.id }));
     const posted = await discord.post(config.channelId, payload, verified.prompt);
     const offer = { ...verified, content: payload.content, guildId: config.guildId, channelId: config.channelId, applicationId,
@@ -68,7 +75,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
 
   async function refresh(offer) {
     if (offer.state !== OFFERED || recover(offer)) return;
-    if (clock() >= offer.request.expiresAt) { close(offer, 'expired'); return; }
+    if (clock() >= offer.request.expiresAt) { close(offer, EXPIRED); return; }
     let closure;
     try { closure = await sourceClosure(offer); } catch { return; }
     if (closure) close(offer, closure.state, closure);
@@ -97,13 +104,13 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
   }
 
   async function deliver(offer) {
-    if (offer.needsEdit) {
-      await discord.edit(offer.channelId, offer.messageId, closedMessage(offer));
-      offer = store.save({ ...offer, needsEdit: false });
-    }
     while (offer.pending.length) {
       await pots.report(offer.request.pot, offer.pending[0]);
       offer = store.save({ ...offer, pending: offer.pending.slice(1) });
+    }
+    if (offer.needsEdit) {
+      await discord.edit(offer.channelId, offer.messageId, closedMessage(offer));
+      offer = store.save({ ...offer, needsEdit: false });
     }
     if (!LIVE.includes(offer.state)) store.shelve(offer.request.launch);
   }
@@ -119,7 +126,10 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
   }
 
   async function tick() {
-    for (const offer of store.all()) {
+    let offers;
+    try { offers = store.all(id => warn(`mac-launch: launch ${id} could not be read. Inspect its record.`)); }
+    catch { warn('mac-launch: the records directory could not be read. No pass ran.'); return; }
+    for (const offer of offers) {
       try { await advance(offer); }
       catch { warn('A launch refresh or delivery failed. It will retry.'); }
     }

@@ -29,7 +29,13 @@ export function gateStore(folder) {
   const read = (id, suffix) => existsSync(path(id, suffix)) ? readPrivate(path(id, suffix)) : undefined;
   const get = id => read(id, RECORD);
   const save = offer => { writePrivateJson(path(offer.request.launch, RECORD), offer); return offer; };
-  const all = () => readdirSync(folder).filter(name => name.endsWith(RECORD) && DIALOG_ID.test(name.slice(0, -RECORD.length))).map(name => get(name.slice(0, -RECORD.length)));
+  function all(onUnreadable = (id, error) => { throw error; }) {
+    const names = readdirSync(folder).filter(name => name.endsWith(RECORD) && DIALOG_ID.test(name.slice(0, -RECORD.length)));
+    return names.flatMap(name => {
+      const id = name.slice(0, -RECORD.length);
+      try { return [get(id)]; } catch (error) { onUnreadable(id, error); return []; }
+    });
+  }
   const decision = id => read(id, DECISION);
   // The first decision written for a launch is its only one: the exclusive create refuses a second, and the file and its name reach the disk before anything acts on it.
   function decide(id, decided) {
