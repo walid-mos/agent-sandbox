@@ -4,11 +4,10 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from factory_socket import ask
+from factory_socket import REQUEST_LIMIT, ask
 from launch import LAUNCH
 
 SOCKETS = {"landing": LAUNCH["POTS_LANDING_SOCKET"], "reports": LAUNCH["POTS_FACTORY_REPORT_SOCKET"]}
-REQUEST_LIMIT = 16384
 
 
 def main():
