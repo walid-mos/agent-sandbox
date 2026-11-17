@@ -135,10 +135,10 @@ function changesEveryone(request, snapshot) {
   return overwrites.some(item => item.type === OVERWRITE.role && item.id === request.guildId);
 }
 
+const removesOwnerRole = (request, snapshot) => request.action === 'role.revoke' && request.userId === snapshot.guild.owner_id;
+
 export function requiresApproval(request, operation, snapshot) {
-  if (operation.approval) return true;
-  if (request.action === 'role.revoke' && request.userId === snapshot.guild.owner_id) return true;
-  return changesEveryone(request, snapshot);
+  return [Object.hasOwn(request, 'approval'), operation.approval, removesOwnerRole(request, snapshot), changesEveryone(request, snapshot)].some(Boolean);
 }
 
 export function guildPermissions(roles, memberRoles, guildId) {

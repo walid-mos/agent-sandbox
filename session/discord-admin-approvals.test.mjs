@@ -11,14 +11,14 @@ import { fixture, guildId, channelId, ownerId, userId, request } from '../probes
 
 const messageId = '100000000000000020';
 
-async function setup(t) {
+async function setup(t, input = request('channel.delete', { channelId })) {
   const folder = mkdtempSync(join(tmpdir(), 'discord-admin-approval-'));
   t.after(() => rmSync(folder, { recursive: true, force: true }));
   const clicks = humanStore(join(folder, 'clicks'));
   const pending = humanStore(join(folder, 'pending'));
   const approvals = discordAdminApprovals({ clicks, pending, channelAccount: 'discord', guildId });
   const dependencies = { ...fixture(), approvals };
-  const input = request('channel.delete', { channelId });
+  dependencies.channels.find(channel => channel.id === channelId).permission_overwrites = [{ id: guildId, type: 0, allow: '1024', deny: '0' }];
   const prepared = await administerDiscord(input, dependencies);
   const id = prepared.approval;
   const buttons = [APPROVE, DECLINE].map((label, index) => ({ type: 2, style: 1, label, custom_id: `human:${id}:0:${index}` }));
@@ -82,6 +82,20 @@ test('unknown, expired and unregistered prose approvals are refused', async t =>
   await proof.pending.patch(id, { expiresAt: 0 });
   await assert.rejects(administerDiscord(proof.input, proof.dependencies), /expired/);
   assert.equal(proof.dependencies.mutations.length, 0);
+});
+
+test('consumed approvals cannot replay after the current state no longer requires approval', async t => {
+  const proof = await setup(t, request('channel.edit', { channelId, payload: { permission_overwrites: [] } }));
+  await proof.approvals.register(proof.registration);
+  await proof.click();
+  const api = proof.dependencies.api;
+  proof.dependencies.api = (method, path, body, reason) => {
+    if (method === 'PATCH') proof.dependencies.channels.find(channel => channel.id === channelId).permission_overwrites = body.permission_overwrites;
+    return api(method, path, body, reason);
+  };
+  assert.equal((await administerDiscord(proof.approvals.approvedRequest(proof.input.approval), proof.dependencies)).status, 'completed');
+  await assert.rejects(administerDiscord(proof.approvals.approvedRequest(proof.input.approval), proof.dependencies), /already used/);
+  assert.equal(proof.dependencies.mutations.length, 1);
 });
 
 test('failed mutation consumes approval and cannot be retried with it', async t => {
