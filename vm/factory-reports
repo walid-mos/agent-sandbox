@@ -12,7 +12,6 @@ from factory_socket import REQUEST_LIMIT, Refused, serve
 from launch import LAUNCH
 
 
-
 def report(request):
     if not isinstance(request, dict) or set(request) != {"id", "text"}:
         raise Refused("factory-reports: expected a report ID and plain text only.")
@@ -27,7 +26,7 @@ def report(request):
     containers = execute(["/usr/bin/docker", "ps", "--filter", f"label={LAUNCH['POTS_SESSION_LABEL']}", "--format", "{{.ID}}"], environment=ENVIRONMENT).decode().split()
     if len(containers) != 1:
         raise Refused("factory-reports: expected one running worker session.")
-    execute(["/usr/bin/docker", "exec", "--user", LAUNCH["POTS_SESSION_USER"], "--env", f"HOME={LAUNCH['POTS_SESSION_HOME']}", containers[0], f"{LAUNCH['POTS_SESSION_REPOSITORY']}/session/with-vault", "pots", "wake", "--bot", bot, "--from", "pr-factory", "--id", request["id"], "--note", request["text"]])
+    execute(["/usr/bin/docker", "exec", "--user", LAUNCH["POTS_SESSION_USER"], "--env", f"HOME={LAUNCH['POTS_SESSION_HOME']}", containers[0], f"{LAUNCH['POTS_SESSION_REPOSITORY']}/session/with-vault", "pots", "wake", "--bot", bot, "--from", LAUNCH["POTS_FACTORY_REPORT_SOURCE"], "--id", request["id"], "--note", request["text"]])
     return {}
 
 
