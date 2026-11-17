@@ -68,7 +68,7 @@ export async function serve() {
   const store = gateStore(STATE_HOME);
   const release = lockService();
   const client = discordClient(keychainToken());
-  const service = launchService({ store, discord: client, pots: potTransport(), runner: herdrRunner(STATE_HOME), settings: loadSettings });
+  const service = launchService({ store, discord: client, pots: potTransport(), runner: herdrRunner(store), settings: loadSettings });
   let applicationId;
   let pending = Promise.resolve();
   const enqueue = operation => { pending = pending.then(operation).catch(() => client.warn('mac-launch: event refused or unavailable. No approval was inferred.')); };

@@ -53,9 +53,9 @@ test('the last process before Pi rechecks sleep, identity, expiry and exact byte
   const approved = { ...request(), at: new Date(now).toISOString(), userId: '111111111111111111' };
   const settings = { name: 'mac-studio', pots: ['alpha'], refusedActs: ['sign-tip', 'launch-gate'], label: 'Mac Studio', piArguments: [], humanDiscord: { userId: approved.userId, macLaunchEnabled: true } };
   const offer = { request: request(), prompt: input.prompt };
-  assert.equal(piArguments(offer, settings, approved, now).at(-1), 'Reply ready.');
-  assert.throws(() => piArguments(offer, settings, approved, now + 30_001));
-  assert.throws(() => piArguments({ ...offer, prompt: 'Other bytes' }, settings, approved, now));
-  assert.throws(() => piArguments(offer, settings, { ...approved, userId: '777777777777777777' }, now));
-  assert.throws(() => piArguments(offer, { ...settings, humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: false } }, approved, now));
+  assert.equal(piArguments(offer, settings, approved, 'session.jsonl', now).at(-1), 'Reply ready.');
+  assert.throws(() => piArguments(offer, settings, approved, 'session.jsonl', now + 30_001));
+  assert.throws(() => piArguments({ ...offer, prompt: 'Other bytes' }, settings, approved, 'session.jsonl', now));
+  assert.throws(() => piArguments(offer, settings, { ...approved, userId: '777777777777777777' }, 'session.jsonl', now));
+  assert.throws(() => piArguments(offer, { ...settings, humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: false } }, approved, 'session.jsonl', now));
 });
