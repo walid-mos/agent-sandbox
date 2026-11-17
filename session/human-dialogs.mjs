@@ -84,7 +84,6 @@ export async function acceptDoorAnswer(dialog, request, options) {
   if (request.pot !== 'mastermind' || request.direction !== 'asked' || request.id !== dialog.delivery?.id || request.state !== 'answered') throw new Error('human: answer is not a reply to this dialog from Mastermind.');
   let reply;
   try { reply = JSON.parse(request.reply); } catch { throw new Error('human: Mastermind reply is not an answer packet.'); }
-  checkedReply(dialog, reply);
   return answerQuestion(dialog.id, reply, { ...options, origin: 'discord' });
 }
 
