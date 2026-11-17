@@ -67,9 +67,9 @@ async function deliverAnswer(record) {
   const isWaiting = !record.outbox || record.replySent || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS;
   if (isWaiting) return;
   await store.patch(record.id, { attemptedAt: Date.now() });
-  const { id } = record.registration;
-  await dialogDoors.reply(id, JSON.stringify(record.outbox));
-  await store.patch(record.id, { replySent: dialogDoors.find(id).state === ANSWERED });
+  const { request } = record.registration;
+  await dialogDoors.reply(request, JSON.stringify(record.outbox));
+  await store.patch(record.id, { replySent: dialogDoors.find(request).state === ANSWERED });
 }
 
 function startDiscordHuman({ onError = () => {} } = {}) {
