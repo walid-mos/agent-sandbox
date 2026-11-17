@@ -166,10 +166,10 @@ def rules_target(name, directory):
 
 def verified_rules(payload, target_name, directory):
     object_keys(payload, ("text", "sha256", "previousSha256"))
-    text = payload["text"]
-    if not isinstance(text, str) or not text:
-        refuse("rules text must be nonempty UTF-8.")
-    content = text.encode("utf-8")
+    if not isinstance(payload["text"], str):
+        refuse("rules text must be a string.")
+    content = payload["text"].encode("utf-8")
+    rules_text(content)
     expected = require_hash(payload["sha256"])
     previous = require_hash(payload["previousSha256"])
     if digest(content) != expected:
