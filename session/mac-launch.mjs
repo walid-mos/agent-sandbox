@@ -4,7 +4,7 @@ import { DOOR_COMMAND } from './door-command.mjs';
 import { find as findDoorRequest, OPEN as WAITING, RECEIVED } from './door-requests.mjs';
 import { ownName } from './doors.mjs';
 import { isSnowflake, MASTERMIND_POT, text } from './human-contract.mjs';
-import { launchNotice, noticeOf, noticeText } from './launch-contract.mjs';
+import { launchNotice, noticeOf, noticeText, OPEN } from './launch-contract.mjs';
 import { botWake, launchSettings, launchStore, listedLaunches, openLaunch, recordStatus, retireLaunch, shownLaunch } from './launch-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, commandWithInput } from './run.mjs';
@@ -35,6 +35,7 @@ async function request(arguments_) {
   const { values, positionals: [file] } = parseArgs({ args: arguments_, options: REQUEST_OPTIONS, allowPositionals: true });
   if (!values.target || !values.title || !file) throw new Error(USAGE);
   const store = launchStore();
+  if (values.replaces && shownLaunch(values.replaces, store).state !== OPEN) throw new Error(`mac-launch: launch ${values.replaces} is no longer open, so a new launch cannot replace it.`);
   const opened = await openLaunch({ target: values.target, title: values.title, acts: values.acts ? values.acts.split(',') : [], cost: values.cost ?? '', prompt: readFileSync(file, 'utf8') },
     { store, settings: launchSettings(sandbox), pot: ownName() });
   if (values.replaces) await retireAndTell(values.replaces, 'superseded', store);
