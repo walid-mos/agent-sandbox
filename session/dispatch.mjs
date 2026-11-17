@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { main, runOperation } from './main.mjs';
-import { maxWorkers } from './limits.mjs';
+import { idleStackMinutes, maxWorkers } from './limits.mjs';
 import { MAX_MODEL } from './models.mjs';
 import { enqueue, queued } from './queue.mjs';
 import { command } from './run.mjs';
@@ -49,7 +49,7 @@ function start(arguments_) {
   const worktree = workspace(repository, branch, base);
   const title = `${branch.split('/')[0]}: ${branch.split('/')[1].replaceAll('-', ' ')}`;
   const pullRequest = command('bash', [DRAFT_PR, worktree, title, base], { cwd: worktree });
-  const brief = writeBrief(name, `${request}\n\nWork only in ${worktree}, branch ${branch}. Draft PR: ${pullRequest}. Use the installed Pi harness and its skills. This checkout already is this task's worktree; do not hand it off again. The only agents you start are the passes of the clean pass. Commit atomic Conventional Commits. Push this branch only as the rules loaded in this session allow. When a push waits for the person's yes, end your turn naming the branch, the remote and the waiting commits; ${sandbox.bot} brings the yes back as a message, and it covers that one push. Before your final response, read ${CLEAN_PASS_GUIDE}: run the clean pass when the task owes one, then mark the pull request ready or keep it in draft as it says. Report the PR, checks, commit, unpushed commits and uncommitted paths in your final response. The Pots watcher will relay your completion to ${sandbox.bot}.\n`);
+  const brief = writeBrief(name, `${request}\n\nWork only in ${worktree}, branch ${branch}. Draft PR: ${pullRequest}. Use the installed Pi harness and its skills. This checkout already is this task's worktree; do not hand it off again. The only agents you start are the passes of the clean pass. Commit atomic Conventional Commits. When no terminal runs in this worktree for ${idleStackMinutes} minutes, the Pots watcher stops its Compose projects with docker compose stop and keeps their volumes: start a stopped one again with docker compose start. Push this branch only as the rules loaded in this session allow. When a push waits for the person's yes, end your turn naming the branch, the remote and the waiting commits; ${sandbox.bot} brings the yes back as a message, and it covers that one push. Before your final response, read ${CLEAN_PASS_GUIDE}: run the clean pass when the task owes one, then mark the pull request ready or keep it in draft as it says. Report the PR, checks, commit, unpushed commits and uncommitted paths in your final response. The Pots watcher will relay your completion to ${sandbox.bot}.\n`);
   const worker = { name, repository, branch, worktree, brief, pullRequest, request, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }) };
   // The record comes first: the watcher drops a request that names no worker.
   save(worker);

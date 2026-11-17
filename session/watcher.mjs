@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, watch } from 'node:fs';
 import { createInterface } from 'node:readline';
+import { stopIdleStacks } from './idle-stacks.mjs';
 import { inspectWorker } from './inspect-worker.mjs';
 import { main } from './main.mjs';
 import { isRequest, QUEUE, queued } from './queue.mjs';
@@ -48,8 +49,10 @@ function pass() {
     const view = { terminals: terminals.filter(isLive), now: Date.now(), pending: new Set(queued().map(request => request.worker)) };
     const times = records.map(worker => logged(worker.name, () => inspectWorker(worker, view)));
     // Inspection ends terminals, so the queue is served from a fresh list where their slots are free.
-    serveQueue(liveTerminals(), logFailure);
-    lookAgainAt(times);
+    const live = liveTerminals();
+    serveQueue(live, logFailure);
+    const idleStackDue = logged('idle stacks', () => stopIdleStacks(records.map(worker => worker.worktree), live, logFailure));
+    lookAgainAt([...times, idleStackDue]);
   } catch (error) {
     logFailure('workers', error);
   }
