@@ -90,10 +90,13 @@ function answerOf(question, answers) {
 
 export const isSnowflake = value => SNOWFLAKE.test(value);
 
+export const capture = pattern => `(${pattern.source.slice(1, -1)})`;
+const MESSAGE_URL = new RegExp(`^https://discord\\.com/channels/${capture(SNOWFLAKE)}/${capture(SNOWFLAKE)}/${capture(SNOWFLAKE)}$`);
+
 export const discordMessageUrl = ({ guildId, channelId, messageId }) => `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
 
 export function discordMessage(messageUrl) {
-  const link = /^https:\/\/discord\.com\/channels\/(\d{17,20})\/(\d{17,20})\/(\d{17,20})$/.exec(messageUrl ?? '');
+  const link = MESSAGE_URL.exec(messageUrl ?? '');
   if (!link) throw new Error('human: provide the originating Discord message link.');
   return { guildId: link[1], channelId: link[2], messageId: link[3] };
 }

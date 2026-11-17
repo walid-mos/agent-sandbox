@@ -1,6 +1,7 @@
-import { answerParts, answersOf, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
+import { answerParts, answersOf, capture, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
 
 const MESSAGE_LIMIT = 2000;
+const CUSTOM_ID = new RegExp(`^(?:human|form:human-answer):${capture(DIALOG_ID)}:(\\d+)(?::(\\d+|select))?$`);
 
 export async function registerDiscordQuestion(registration, store, identity) {
   const { question, request, pot, channelAccount, guildId, messages } = registration;
@@ -24,7 +25,7 @@ export async function registerDiscordQuestion(registration, store, identity) {
 
 function customIdParts(interaction) {
   const custom = interaction.data?.custom_id ?? '';
-  const match = /^(?:human|form:human-answer):([a-f0-9]{32}):(\d+)(?::(\d+|select))?$/.exec(custom);
+  const match = CUSTOM_ID.exec(custom);
   return match && { dialog: match[1], index: Number(match[2]), option: match[3], isForm: custom.startsWith('form:') };
 }
 
