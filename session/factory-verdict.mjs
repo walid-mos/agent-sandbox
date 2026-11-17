@@ -29,11 +29,11 @@ function land(record) {
   if (isLandingPull(record) && before.baseRefOid !== record.releaseBase) {
     throw new Error(`factory: ${LANDING_BRANCH} moved after the checks. A new checked head is required before merging.`);
   }
-  const merge = squashMerge(record);
+  const mergeOutput = squashMerge(record);
   const after = pullFacts(record);
   if (after.state !== MERGED) {
-    return reportToPrincipal({ ...record, stage: 'refused', mergeOutput: merge.output },
-      `PR factory could not merge ${pullUrl(record)} at head ${record.head} after its ${record.verdict} verdict. GitHub answered: ${merge.output || after.state}. The factory does not retry this head.`);
+    return reportToPrincipal({ ...record, stage: 'refused', mergeOutput },
+      `PR factory could not merge ${pullUrl(record)} at head ${record.head} after its ${record.verdict} verdict. GitHub answered: ${mergeOutput || after.state}. The factory does not retry this head.`);
   }
   return signPublication(record, after);
 }

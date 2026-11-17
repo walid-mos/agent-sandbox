@@ -27,13 +27,9 @@ function topicRepositories(owner) {
 
 export const watchedRepositories = () => owners.flatMap(topicRepositories);
 
-function openPulls(repository) {
+export function openPulls(repository) {
   return JSON.parse(gh(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', LIST_FIELDS]));
 }
-
-export const readyPulls = repository => openPulls(repository).filter(pull => !pull.isDraft);
-
-export const draftPulls = repository => openPulls(repository).filter(pull => pull.isDraft);
 
 export function pullFacts({ repository, number }) {
   return JSON.parse(gh(['pr', 'view', String(number), '--repo', repository, '--json', VIEW_FIELDS]));
@@ -63,5 +59,5 @@ export function comment({ repository, number }, bodyFile) {
 // GitHub refuses the merge when the head moved since the verdict, or when the pull request went back to draft, so a merge never lands code the verdict did not cover.
 export function squashMerge({ repository, number, head }) {
   const merge = spawnSync('gh', ['pr', 'merge', String(number), '--repo', repository, '--squash', '--match-head-commit', head], { encoding: 'utf8' });
-  return { isAccepted: merge.status === 0, output: `${merge.stdout ?? ''}${merge.stderr ?? ''}`.trim() };
+  return `${merge.stdout ?? ''}${merge.stderr ?? ''}`.trim();
 }
