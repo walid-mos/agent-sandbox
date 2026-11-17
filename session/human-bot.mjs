@@ -30,7 +30,7 @@ function replyTo(index, records, inputs) {
 }
 
 export async function syncBotDialogs(store = humanStore(), snapshot = conversation()) {
-  const records = snapshot.filter(record => record.type === 'message');
+  const records = snapshot.filter(record => record.type === 'message' && !record.humanDialog);
   const inputs = records.map(record => (isFromBot(record) ? inputOf(record) : undefined));
   for (const [index, input] of inputs.entries()) {
     if (!input) continue;
@@ -71,7 +71,7 @@ export async function deliverBotResult(id, store = humanStore()) {
     if (!conversation().some(record => record.id === messageId || record.answers === dialog.source.message)) {
       const text = dialog.result.status === 'stored' ? SECRET_STORED
         : dialog.result.status === 'answered' ? answerText(dialog.result.answers) : closedDialogText(dialog);
-      say({ id: messageId, text, ...(dialog.kind === 'secret' && { answers: dialog.source.message }), humanDialog: id, humanStatus: dialog.result.status,
+      say({ id: messageId, text, answers: dialog.source.message, humanDialog: id, humanStatus: dialog.result.status,
         neighbourReport: dialog.result.evidence ? { pot: MASTERMIND_POT, ...dialog.result.evidence, approval: dialog.policy === 'push', scope: dialog.scope, dialog: dialog.id, digest: dialog.result.digest } : undefined });
     }
     save({ ...dialog, deliveredToBot: true });
@@ -86,7 +86,7 @@ export async function answerBotQuestion(message, text, replyId, store = humanSto
   await deliverBotResult(dialog.id, store);
   if (answered.result.messageId === replyId) return botResultMessageId(answered);
   return store.locked(() => {
-    if (!conversation().some(record => record.id === replyId)) say({ id: replyId, text });
+    if (!conversation().some(record => record.id === replyId)) say({ id: replyId, text, answers: message, humanDialog: dialog.id });
     return replyId;
   }, dialog.id);
 }
