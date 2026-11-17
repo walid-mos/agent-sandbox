@@ -21,6 +21,8 @@ DELIVERY_SECONDS = 45
 KNOCK_BURST = 10
 KNOCK_REFILL_SECONDS = 120
 POT = re.compile(r"[a-z][a-z0-9-]{0,30}")
+ACCESS = ("ask", "reply")
+REPLIES_ONLY = "reply"
 HEADER = re.compile(r"(?:(request) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32}) [0-9]|(reply) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32}))")
 MALFORMED = 64
 TOO_LARGE = 65
@@ -35,11 +37,11 @@ def refuse(status, reason):
     sys.exit(status)
 
 
-def bound_names():
-    names = sys.argv[1:]
-    if len(names) != 2 or not all(POT.fullmatch(name) for name in names) or names[0] == names[1]:
+def bound_access():
+    bound = sys.argv[1:]
+    if len(bound) != 3 or not all(POT.fullmatch(name) for name in bound[:2]) or bound[0] == bound[1] or bound[2] not in ACCESS:
         refuse(NOT_ALLOWED, "this key is not bound to a caller")
-    return names
+    return bound
 
 
 def connecting_node_tags():
@@ -102,7 +104,7 @@ def read_message():
         refuse(MALFORMED, "the message is not UTF-8")
 
 
-def request_id(text, caller, receiver):
+def request_id(text, caller, receiver, access):
     header, separator, note = text.partition("\n")
     match = HEADER.fullmatch(header)
     if not separator or not match:
@@ -110,6 +112,8 @@ def request_id(text, caller, receiver):
     if not note.strip():
         refuse(MALFORMED, "the note is empty")
     kind, origin, nonce = [part for part in match.groups() if part is not None]
+    if kind == "request" and access == REPLIES_ONLY:
+        refuse(NOT_ALLOWED, f"{caller} may only reply to {receiver}, since the doors of {caller} do not name {receiver}")
     expected = caller if kind == "request" else receiver
     if origin != expected:
         refuse(MALFORMED, f"a {kind} from {caller} must carry the origin {expected}, not {origin}")
@@ -145,11 +149,11 @@ def deliver(raw, caller, container):
         refuse(DELIVERY_FAILED, "the session refused the message")
 
 
-caller, receiver = bound_names()
+caller, receiver, access = bound_access()
 check_caller_node(caller)
 lock = hold_caller_lock(caller)
 spend_token(caller)
 raw, text = read_message()
-identifier = request_id(text, caller, receiver)
+identifier = request_id(text, caller, receiver, access)
 deliver(raw, caller, session_container())
 print("delivered " + identifier)

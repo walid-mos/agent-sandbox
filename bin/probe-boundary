@@ -128,7 +128,7 @@ in_session bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKI
 in_session_as_root bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_CONFIGURATION" || status=1
 door_files_before=$(door_files_digest)
 peer_host=$(in_session awk 'NR == 1 { print $1 }' "$DOOR_KNOWN_HOSTS" 2> /dev/null || true)
-in_session bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" || status=1
-in_session_as_root bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" || status=1
+in_session bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" "$DOOR_KNOWN_HOSTS" || status=1
+in_session_as_root bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" "$DOOR_KNOWN_HOSTS" || status=1
 judge door-files-unchanged-by-session [ "$door_files_before" = "$(door_files_digest)" ] || status=1
 exit "$status"

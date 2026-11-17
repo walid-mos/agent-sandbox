@@ -39,12 +39,18 @@ for path in "$root"/sandboxes.example/*/sandbox.json; do
 	problems=$(jq -r --arg sandbox "$(basename "$(dirname "$path")")" -f "$root/proxmox/config.jq" "$path")
 	[ -z "$problems" ] || { printf 'check: %s is not a valid Proxmox sandbox:\n%s\n' "$path" "$problems" >&2; exit 1; }
 done
-for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json "$root"/docs/tailnet-policy.json; do
+for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
 	jq empty "$path"
 done
-# The pots policy grants only the ports lib/tailnet_node.py accepts, and no Funnel, auto-approval or Tailscale SSH rule.
+for path in "$root"/sandboxes.example/*/sandbox.json; do
+	jq -e '.doors == null or (.doors | type == "object" and all(.[]; type == "string"))' "$path" > /dev/null || { echo "check: $path needs doors as an object of pot names to one-line descriptions" >&2; exit 1; }
+done
+# The generated pots policy grants only the ports lib/tailnet_node.py accepts, a door only along doors and their replies, and no Funnel, auto-approval or Tailscale SSH rule.
 . "$root/vm/network.env"
-jq -e --arg door "tcp:$DOOR_PORT" '([.grants[].ip[]] - ["tcp:443", "tcp:10001-18790", "tcp:18792-65535", "tcp:22", $door] | length == 0) and ([.grants[].src[]] | index("*") == null) and (has("nodeAttrs") or has("autoApprovers") or has("ssh") | not)' "$root/docs/tailnet-policy.json" > /dev/null || { echo "check: docs/tailnet-policy.json grants more than the Serve, admin and door ports, or holds nodeAttrs, autoApprovers or ssh" >&2; exit 1; }
+policy=$(printf '%s\n' 'alpha beta' beta gamma | python3 "$root/lib/tailnet_policy.py" policy)
+printf '%s\n' "$policy" | jq -e --arg door "tcp:$DOOR_PORT" '([.grants[].ip[]] - ["tcp:443", "tcp:10001-18790", "tcp:18792-65535", "tcp:22", $door] | length == 0) and ([.grants[].src[]] | index("*") == null) and (has("nodeAttrs") or has("autoApprovers") or has("ssh") | not) and ([.grants[] | select(.ip == [$door]) | .src + .dst] == [["tag:pot-alpha", "tag:pot-beta-host"], ["tag:pot-beta", "tag:pot-alpha-host"]])' > /dev/null || { echo "check: lib/tailnet_policy.py grants more than the Serve, admin and door ports, a door off the doors, or nodeAttrs, autoApprovers or ssh" >&2; exit 1; }
+! printf '%s\n' 'alpha alpha' | python3 "$root/lib/tailnet_policy.py" policy > /dev/null 2>&1 || { echo "check: lib/tailnet_policy.py accepts a pot whose doors name itself" >&2; exit 1; }
+! printf '%s\n' 'alpha beta' | python3 "$root/lib/tailnet_policy.py" policy > /dev/null 2>&1 || { echo "check: lib/tailnet_policy.py accepts a door to a pot outside the mesh" >&2; exit 1; }
 # The operator's config sync carries the installed pane to their other Mac and leaves out a file named like a credential, so the pane fails there on the missing module.
 skipped=$(cd "$root/herdr" && find . -type f | grep -iE 'credential|secret|token|password|cookie|auth|\.old-|\.reset-|\.corrupt-|\.(pem|key|p12|pfx|log|sqlite|db)$' || true)
 if [ -n "$skipped" ]; then

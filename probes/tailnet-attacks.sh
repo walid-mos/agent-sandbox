@@ -6,12 +6,14 @@ peer_host=$2
 tailscale=$3
 door_config=$4
 door_port=$5
+door_known_hosts=$6
 DIAL_SECONDS=6
 DOOR_STATE=/etc/pots-door
 SOCKETS="/run/tailscale/tailscaled.sock /var/run/tailscale/tailscaled.sock"
 NONCE=probe0000000000
 RATE_PROBE_KNOCKS=64
 RATE_REFUSAL=75
+SSH_REFUSAL=255
 failures=0
 
 expect() {
@@ -63,6 +65,19 @@ probe" && return 0
 	return 1
 }
 
+doors_outside_known_hosts() {
+	"$tailscale" status --json | jq -r --arg own "$own_pot-host" '.Peer[]? | .DNSName | split(".")[0] | select(endswith("-host") and . != $own)' |
+		grep -vxF -f <(awk '{ print $1 }' "$door_known_hosts") || true
+}
+
+# The host key check is off so the knock reaches the door; a foreign origin keeps any message from a bot, and only ssh's own refusal of the key passes.
+every_other_door_refuses_the_key() {
+	for host in $(doors_outside_known_hosts); do
+		knock "$SSH_REFUSAL" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$host" <<< "request intruder.$NONCE 0
+probe" || return 1
+	done
+}
+
 door_attacks() {
 	request="request $own_pot.$NONCE 0"
 	expect fail door-runs-the-ssh-command knock 0 "$peer_host" id < /dev/null
@@ -77,6 +92,7 @@ probe"
 	expect succeed door-refuses-an-oversize-message knock 65 "$peer_host" < <(printf '%s\n' "$request"; head -c 20000 /dev/zero | tr '\0' a)
 	expect fail door-forwards-to-the-peer-sshd knock 0 -W 127.0.0.1:22 "$peer_host" < /dev/null
 	expect succeed door-limits-the-rate door_limits_the_rate
+	expect succeed doors-outside-doors-refuse-the-key every_other_door_refuses_the_key
 }
 
 echo "as $(id -un)"

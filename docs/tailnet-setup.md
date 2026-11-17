@@ -4,7 +4,13 @@ The pots join the human's tailnet through two one-time human steps in the Tailsc
 
 ## 1. Apply the pots policy
 
-Merge [`tailnet-policy.json`](tailnet-policy.json) into the tailnet policy file (Access controls, JSON editor): add its `tagOwners` entries and its `grants` entries to the existing ones.
+On the operator's machine, print the pots entries from every pot's `doors`:
+
+```sh
+./bin/tailnet-policy mastermind nextnode accor personal
+```
+
+Merge what it prints into the tailnet policy file (Access controls, JSON editor): add its `tagOwners` entries and its `grants` entries to the existing ones.
 
 | Entry | Effect |
 | --- | --- |
@@ -12,7 +18,7 @@ Merge [`tailnet-policy.json`](tailnet-policy.json) into the tailnet policy file 
 | `tag:pot-<pot>` and `tag:pot-<pot>-host`, owned by `tag:pot-keys` | The client can mint keys for these tags and no other |
 | `autogroup:member` to every `tag:pot-<pot>`, tcp 443, 10001-18790 and 18792-65535 | The human's devices open the session's Serve links and tailnet-link previews. 18791 stays out: tailnet-link's file server listens there and trusts the login header Serve adds, and a userspace node hands a port without a Serve handler to its loopback, so a direct grant would let a device forge that header |
 | `autogroup:member` to every `tag:pot-<pot>-host`, tcp 22 | The human's devices enter a session through the VM's forced ssh command |
-| `tag:pot-<x>` to every other `tag:pot-<y>-host`, tcp 2222 | A session node knocks at another pot's door. Never at its own VM, never at another session |
+| `tag:pot-<x>` to `tag:pot-<y>-host`, tcp 2222, when the `doors` of x name y or the `doors` of y name x | A session node knocks at a door its `doors` name, or at the door of a pot that asked it, to reply. Never at its own VM, never at another session |
 
 The rest of the policy must not widen these grants. `bin/tailnet-up` keeps a node's shields up and stops when the filter the node receives:
 
@@ -21,9 +27,9 @@ The rest of the policy must not widen these grants. `bin/tailnet-up` keeps a nod
 - lets the node use Funnel through `nodeAttrs`;
 - lets the node reach any other service of any peer.
 
-`bin/check` refuses a `tailnet-policy.json` that grants another port, uses the source `*`, or holds `nodeAttrs`, `autoApprovers` or `ssh`. `autogroup:member` covers every user of the tailnet. On a tailnet shared with other people, replace it with the operator's own user in both member grants.
+`bin/check` refuses a generator that grants another port, a door off the `doors`, uses the source `*`, or prints `nodeAttrs`, `autoApprovers` or `ssh`. `autogroup:member` covers every user of the tailnet. On a tailnet shared with other people, replace it with the operator's own user in both member grants.
 
-Adding a pot means adding its two tags to `tagOwners`, the session tag to the first member grant, the host tag to the second, a door grant for the new session tag, and the new host tag to every other door grant.
+Adding a pot or changing a pot's `doors` means running `bin/tailnet-policy` again and replacing the earlier pots entries with what it prints, then running `bin/pots-doors`.
 
 ## 2. Create the OAuth client
 
@@ -42,7 +48,7 @@ SANDBOX=nextnode ./bin/tailnet-up
 ./bin/pots-doors mastermind nextnode accor personal
 ```
 
-`bin/session-bootstrap` runs `bin/tailnet-up` last. `bin/pots-doors` takes every pot of the mesh in one run, after each pot's nodes have joined.
+`bin/session-bootstrap` runs `bin/tailnet-up` last. `bin/pots-doors` takes every pot of the mesh in one run, after each pot's nodes have joined, and installs each door's keys from the same `doors` as the policy.
 
 ## What fails without each step
 

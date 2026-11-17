@@ -34,7 +34,7 @@ JOIN_TIMEOUT = "60s"
 DAEMON_ATTEMPTS = 30
 DAEMON_RETRY_SECONDS = 1
 UNJOINED_STATES = {"NeedsLogin", "NoState"}
-POLICY_GUIDANCE = "Apply docs/tailnet-policy.json as docs/tailnet-setup.md says, then run bin/tailnet-up again."
+POLICY_GUIDANCE = "Apply the policy bin/tailnet-policy prints, as docs/tailnet-setup.md says, then run bin/tailnet-up again."
 USAGE = "usage: tailnet_node.py name|tag|state|join|check|verify host|session POT [TARGET...]"
 
 
@@ -197,7 +197,8 @@ ACTIONS = {
 }
 TARGETED_ACTIONS = {"check", "verify"}
 
-if len(sys.argv) < 4 or sys.argv[1] not in ACTIONS or sys.argv[2] not in ROLES or (
-        len(sys.argv) > 4 and sys.argv[1] not in TARGETED_ACTIONS):
-    fail(USAGE)
-ACTIONS[sys.argv[1]](*sys.argv[2:])
+if __name__ == "__main__":
+    if len(sys.argv) < 4 or sys.argv[1] not in ACTIONS or sys.argv[2] not in ROLES or (
+            len(sys.argv) > 4 and sys.argv[1] not in TARGETED_ACTIONS):
+        fail(USAGE)
+    ACTIONS[sys.argv[1]](*sys.argv[2:])

@@ -28,6 +28,10 @@ sandbox_provider() {
 	jq -r '.provider // "colima"' "$1"
 }
 
+sandbox_doors() {
+	jq -r '.doors // {} | keys | if all(test("^[a-z0-9-]+$")) then join(" ") else error("doors must name pots") end' "$POTS_CONFIG"
+}
+
 POTS_PROVIDER=$(sandbox_provider "$POTS_CONFIG")
 case "$POTS_PROVIDER" in
 	colima | proxmox) ;;

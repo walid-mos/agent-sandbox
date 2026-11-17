@@ -11,9 +11,10 @@ SSHD_CONFIG = Path("/etc/pots-door/sshd_config")
 FORCED_COMMAND = "/usr/bin/sudo -n /usr/local/sbin/pots-door"
 POT = re.compile(r"[a-z][a-z0-9-]{0,30}")
 KEY_TYPE = "ssh-ed25519"
+ACCESS = ("ask", "reply")
 ED25519_BLOB_PREFIX = b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20"
 ED25519_BLOB_BYTES = len(ED25519_BLOB_PREFIX) + 32
-USAGE = "usage: door-keys.py prepare | host-key | install SELF < 'CALLER ssh-ed25519 KEY' lines"
+USAGE = "usage: door-keys.py prepare | host-key | install SELF < 'CALLER ask|reply ssh-ed25519 KEY' lines"
 
 
 def fail(message):
@@ -63,13 +64,13 @@ def host_key():
 
 def caller_line(row, receiver, seen):
     words = row.split()
-    if len(words) != 3 or not POT.fullmatch(words[0]) or words[1] != KEY_TYPE or not checked_key(words[2]):
-        fail(f"refused line {row!r}: expected 'CALLER ssh-ed25519 KEY'")
-    caller = words[0]
+    if len(words) != 4 or not POT.fullmatch(words[0]) or words[1] not in ACCESS or words[2] != KEY_TYPE or not checked_key(words[3]):
+        fail(f"refused line {row!r}: expected 'CALLER ask|reply ssh-ed25519 KEY'")
+    caller, access, key = words[0], words[1], words[3]
     if caller == receiver or caller in seen:
         fail(f"refused caller {caller}: it is this pot or it appears twice")
     seen.add(caller)
-    return f'restrict,command="{FORCED_COMMAND} {caller} {receiver}" {KEY_TYPE} {words[2]} door:{caller}\n'
+    return f'restrict,command="{FORCED_COMMAND} {caller} {receiver} {access}" {KEY_TYPE} {key} door:{caller}\n'
 
 
 def install(receiver):

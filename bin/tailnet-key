@@ -25,7 +25,7 @@ NO_CLIENT_SECRET = (f"The vault did not return {CLIENT_SECRET_NAME}. Check docs/
                     f"INFISICAL_UNIVERSAL_AUTH_CLIENT_ID and its secret, and the path {BINDING} names as tools.tailscale.path.")
 NO_ANSWER = "Tailscale did not answer the key request. Run it again."
 CLIENT_REFUSED = f"Tailscale refused the OAuth client (HTTP {{status}}). Check that {CLIENT_SECRET_NAME} belongs to a client that still exists."
-KEY_REFUSED = ("Tailscale refused a key for {tags} (HTTP {status}). Check that the tailnet policy of docs/tailnet-policy.json "
+KEY_REFUSED = ("Tailscale refused a key for {tags} (HTTP {status}). Check that the policy bin/tailnet-policy prints "
                "is applied and that the OAuth client holds tag:pot-keys with the auth_keys scope.")
 
 
