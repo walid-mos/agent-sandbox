@@ -29,6 +29,7 @@ TOO_LARGE = 65
 NO_SESSION = 69
 DELIVERY_FAILED = 70
 TRY_LATER = 75
+SESSION_REFUSED = 76
 NOT_ALLOWED = 77
 
 
@@ -145,8 +146,10 @@ def deliver(raw, caller, container):
                                 timeout=DELIVERY_SECONDS)
     except subprocess.TimeoutExpired:
         refuse(DELIVERY_FAILED, f"the session did not take the message within {DELIVERY_SECONDS} seconds")
+    if result.returncode == SESSION_REFUSED:
+        refuse(SESSION_REFUSED, "refused")
     if result.returncode:
-        refuse(DELIVERY_FAILED, "the session refused the message")
+        refuse(DELIVERY_FAILED, "the session did not take the message")
 
 
 caller, receiver, access = bound_access()

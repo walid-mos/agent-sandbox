@@ -143,9 +143,10 @@ On the target VM, [a dedicated sshd](vm/door-sshd.conf), run by [its unit](vm/po
 | Strict UTF-8 without NUL; first line `request <caller>.<nonce> <hop>` or `reply <receiver>.<nonce>`, ended by LF, nonce of 8 to 32 lowercase letters and digits, hop one digit; a note that is not blank | 64 |
 | A `request` comes only on a key bound to `ask` | 77 |
 | The pot has a running session | 69 |
-| `pots wake --from pot:<caller> --note-file -` in the session, as the session user, ends with status 0 within 45 s | 70 |
+| `pots wake --from pot:<caller> --note-file -` in the session, as the session user, does not refuse the message: its status 76 means it kept nothing and would refuse the same bytes again | 76, `pots-door: refused` |
+| That command ends with status 0 within 45 s | 70 |
 
-On success it prints `delivered <origin>.<nonce>` and exits 0. Every exit before the last step keeps nothing; after a 70 the session may hold the message, so the caller resends the same bytes under the same id. The session's output never reaches the caller. Exit 255 is ssh's own: no route, policy, connection limit, host key, key or forwarding refused.
+On success it prints `delivered <origin>.<nonce>` and exits 0. Every exit but 70 keeps nothing, and a 76 is final; after a 70 the session may hold the message, so the caller resends the same bytes under the same id. The session's output never reaches the caller. Exit 255 is ssh's own: no route, policy, connection limit, host key, key or forwarding refused.
 
 `./bin/pots-doors POT...`, run from the operator's machine with every pot of the mesh, makes each session's caller key when absent and copies out only its public key. It installs on each VM the caller keys of the pots whose `doors` name that pot, bound to `ask`, and of the pots that pot's `doors` name, bound to `reply`; each session trusts the host keys of those same doors. A pot's key is on no other VM, so its knock at any other door ends with ssh's exit 255. Each run rewrites the whole mesh and refuses `doors` that name a pot outside the list or the pot itself, so a pot left out of the list loses its doors.
 
