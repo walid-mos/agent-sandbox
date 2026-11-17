@@ -73,6 +73,24 @@ test('overwrites cannot target any role the bot holds', async () => {
   assert.equal(dependencies.mutations.length, 0);
 });
 
+test('non-Administrator channel role denies prevent a mutation', async () => {
+  const dependencies = fixture();
+  dependencies.roles.find(role => role.id === managedRoleId).permissions = '1040';
+  dependencies.channels.find(channel => channel.id === channelId).permission_overwrites = [{ id: managedRoleId, type: 0, allow: '0', deny: '16' }];
+  await assert.rejects(administerDiscord(request('channel.edit', { channelId, payload: { name: 'new' } }), dependencies), /missing ManageChannels/);
+  assert.equal(dependencies.mutations.length, 0);
+});
+
+test('non-Administrator member allow overrides the channel role deny', async () => {
+  const dependencies = fixture();
+  dependencies.roles.find(role => role.id === managedRoleId).permissions = '1040';
+  dependencies.channels.find(channel => channel.id === channelId).permission_overwrites = [
+    { id: managedRoleId, type: 0, allow: '0', deny: '16' }, { id: botId, type: 1, allow: '16', deny: '0' },
+  ];
+  await administerDiscord(request('channel.edit', { channelId, payload: { name: 'new' } }), dependencies);
+  assert.deepEqual(dependencies.mutations, [{ method: 'PATCH', path: `/channels/${channelId}`, body: { name: 'new' }, reason: 'Requested server maintenance' }]);
+});
+
 test('arbitrary routes and hidden payload fields never reach Discord', async () => {
   const dependencies = fixture();
   for (const input of [request('webhook.delete'), request('channel.edit', { channelId, payload: { name: 'new', webhook_id: managedRoleId } }), request('channel.delete', { channelId, path: '/webhooks/anything' })]) {

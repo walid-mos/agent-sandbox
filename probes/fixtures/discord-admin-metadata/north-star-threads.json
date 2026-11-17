@@ -1,0 +1,14 @@
+{
+  "type": "north-star.threads",
+  "version": 1,
+  "overview": "https://discord.com/channels/100000000000000001/100000000000000002/100000000000000092",
+  "threads": [
+    {
+      "topic": "north-stars/example",
+      "revision": 2,
+      "starter": "https://discord.com/channels/100000000000000001/100000000000000002/100000000000000010",
+      "thread": "https://discord.com/channels/100000000000000001/100000000000000010"
+    }
+  ],
+  "posts": { "overview": "100000000000000092", "north-stars/example": "100000000000000010" }
+}
