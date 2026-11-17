@@ -33,7 +33,7 @@ function report(worker, terminal, status, wake, state, isSettled) {
 // A resume gets a new launch ID, so the guard holds the worker's name: a launch that crashes as it starts is resumed once, not in a loop.
 function recover(worker, state, pending) {
   if (state?.phase === 'closing') {
-    save({ ...worker, isClosed: true });
+    if (!worker.isClosed) save({ ...worker, isClosed: true });
     return;
   }
   if ([!worker.terminal, worker.isClosed, pending.has(worker.name), resumed.has(worker.name)].some(Boolean)) return;
