@@ -1,16 +1,22 @@
-import { discordEvidence, discordMessageUrl, isSnowflake, LAUNCH_POLICY } from '../session/human-contract.mjs';
-import { fetchedRequest, OPEN } from '../session/launch-contract.mjs';
+import { DIALOG_ID, discordEvidence, discordMessageUrl, isSnowflake, LAUNCH_POLICY } from '../session/human-contract.mjs';
+import { fetchedRequest, OPEN, sameRequest } from '../session/launch-contract.mjs';
 
 export const PRESS_MAX_AGE_MS = 30_000;
 const DISCORD_EPOCH = 1420070400000n;
 const TIMESTAMP_SHIFT = 22n;
-export const pressedAt = id => Number((BigInt(id) >> TIMESTAMP_SHIFT) + DISCORD_EPOCH);
+const pressedAt = id => Number((BigInt(id) >> TIMESTAMP_SHIFT) + DISCORD_EPOCH);
+export const BUTTON = { launch: 'ml', refuse: 'mx' };
 export const buttonId = (request, action) => `${action}:${request.launch}:${request.digest}`;
+
+export function pressedButton(customId) {
+  const [action, launch] = `${customId ?? ''}`.split(':');
+  return Object.values(BUTTON).includes(action) && DIALOG_ID.test(launch) ? { action, launch } : undefined;
+}
 
 export function verifyOffer(shown, notice, settings, now) {
   const { request, prompt, state } = fetchedRequest(shown);
   const isBound = ['launch', 'pot', 'target'].every(key => request[key] === notice[key])
-    && (notice.digest === undefined || JSON.stringify(request) === JSON.stringify(notice));
+    && (notice.digest === undefined || sameRequest(request, notice));
   if (!isBound || request.target !== settings.name || !settings.pots.includes(request.pot)) throw new Error('mac-launch: the fetched launch names another pot or Mac.');
   if (state !== OPEN || now >= request.expiresAt || now < request.createdAt) throw new Error('mac-launch: this launch is closed, expired or from the future.');
   const refused = request.acts.filter(act => settings.refusedActs.includes(act));
@@ -18,7 +24,7 @@ export function verifyOffer(shown, notice, settings, now) {
   return { request, prompt };
 }
 
-export function verifyPress(event, offer, settings, now, action = 'ml') {
+export function verifyPress(event, offer, settings, now, action) {
   const { request } = offer;
   const message = event.message;
   const isContext = event.type === 3 && event.data?.component_type === 2 && event.application_id === offer.applicationId

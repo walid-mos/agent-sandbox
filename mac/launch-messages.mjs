@@ -1,5 +1,5 @@
 import { ACTS } from '../session/launch-contract.mjs';
-import { buttonId } from './launch-approval.mjs';
+import { BUTTON, buttonId } from './launch-approval.mjs';
 
 const literal = value => `\`${value.replaceAll('`', 'ˋ')}\``;
 const mentions = { parse: [] };
@@ -12,8 +12,8 @@ export function offerMessage({ request, prompt }, settings, noticeUrl) {
     `Privileged acts declared: ${acts}`, `Cost declared: ${literal(request.cost || 'not stated')}`,
     `Notice: ${noticeUrl}`, `Expires <t:${Math.floor(request.expiresAt / 1000)}:R>`].join('\n');
   const components = [{ type: 1, components: [
-    { type: 2, style: 3, label: `Launch on ${settings.label}`, custom_id: buttonId(request, 'ml') },
-    { type: 2, style: 4, label: 'Refuse', custom_id: buttonId(request, 'mx') },
+    { type: 2, style: 3, label: `Launch on ${settings.label}`, custom_id: buttonId(request, BUTTON.launch) },
+    { type: 2, style: 4, label: 'Refuse', custom_id: buttonId(request, BUTTON.refuse) },
   ] }];
   return { content, components, allowed_mentions: mentions, attachments: [{ id: 0, filename: `prompt-${request.digest.slice(0, 12)}.txt` }] };
 }

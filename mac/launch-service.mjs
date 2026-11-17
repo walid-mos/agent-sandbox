@@ -1,9 +1,9 @@
 import { discordMessageUrl } from '../session/human-contract.mjs';
 import { launchStatus, noticeOf, OFFERED } from '../session/launch-contract.mjs';
-import { verifyOffer, verifyPress } from './launch-approval.mjs';
+import { BUTTON, pressedButton, verifyOffer, verifyPress } from './launch-approval.mjs';
 import { closedMessage, offerMessage } from './launch-messages.mjs';
 
-export function launchService({ store, discord, pots, runner, settings, clock = Date.now }) {
+export function launchService({ store, discord, pots, runner, settings, warn, clock = Date.now }) {
   const messageUrl = offer => discordMessageUrl({ guildId: offer.guildId, channelId: offer.channelId, messageId: offer.messageId });
   const saveState = (offer, state, details = {}) => {
     const status = launchStatus({ ...offer.request, status: state, messageUrl: messageUrl(offer), ...details });
@@ -42,9 +42,9 @@ export function launchService({ store, discord, pots, runner, settings, clock = 
   }
 
   async function press(event) {
-    const custom = event.data?.custom_id ?? '';
-    const [action, id] = custom.split(':');
-    if (!['ml', 'mx'].includes(action) || !/^[a-f0-9]{32}$/.test(id)) return;
+    const button = pressedButton(event.data?.custom_id);
+    if (!button) return;
+    const { action, launch: id } = button;
     const offer = store.get(id);
     if (!offer || offer.state !== OFFERED || store.used(id)) return;
     let approval = verifyPress(event, offer, settings(), clock(), action);
@@ -56,7 +56,7 @@ export function launchService({ store, discord, pots, runner, settings, clock = 
     catch { saveState(offer, 'superseded'); return; }
     approval = verifyPress(event, offer, settings(), clock(), action);
     store.consume(approval);
-    if (action === 'mx') { saveState(offer, 'refused'); return; }
+    if (action === BUTTON.refuse) { saveState(offer, 'refused'); return; }
     try {
       const run = runner.start(offer, settings());
       saveState({ ...offer, run }, 'started');
@@ -87,7 +87,7 @@ export function launchService({ store, discord, pots, runner, settings, clock = 
         }
         await deliver(store.get(offer.request.launch));
       } catch {
-        discord.warn('A launch refresh or delivery failed. It will retry.');
+        warn('A launch refresh or delivery failed. It will retry.');
       }
     }
   }

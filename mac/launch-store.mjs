@@ -22,14 +22,16 @@ export function writePrivate(path, value) {
 
 export function gateStore(folder) {
   privateDirectory(folder);
-  const path = id => {
+  const path = (id, suffix) => {
     if (!DIALOG_ID.test(id)) throw new Error('mac-launch: invalid launch ID.');
-    return join(folder, id);
+    return join(folder, `${id}${suffix}`);
   };
-  const get = id => existsSync(`${path(id)}.json`) ? readPrivate(`${path(id)}.json`) : undefined;
-  const save = offer => { writePrivate(`${path(offer.request.launch)}.json`, offer); return offer; };
-  const all = () => readdirSync(folder).filter(name => /^[a-f0-9]{32}\.json$/.test(name)).map(name => get(name.slice(0, -5)));
-  const used = id => existsSync(`${path(id)}.used`);
-  const consume = approval => writeFileSync(`${path(approval.launch)}.used`, JSON.stringify(approval), { flag: 'wx', mode: 0o600, flush: true });
-  return { get, save, all, used, consume, folder };
+  const get = id => existsSync(path(id, '.json')) ? readPrivate(path(id, '.json')) : undefined;
+  const save = offer => { writePrivate(path(offer.request.launch, '.json'), offer); return offer; };
+  const all = () => readdirSync(folder).filter(name => name.endsWith('.json') && DIALOG_ID.test(name.slice(0, -5))).map(name => get(name.slice(0, -5)));
+  const used = id => existsSync(path(id, '.used'));
+  const consume = approval => writeFileSync(path(approval.launch, '.used'), JSON.stringify(approval), { flag: 'wx', mode: 0o600, flush: true });
+  const approval = id => readPrivate(path(id, '.used'));
+  const session = id => path(id, '.session.jsonl');
+  return { get, save, all, used, consume, approval, session, folder };
 }

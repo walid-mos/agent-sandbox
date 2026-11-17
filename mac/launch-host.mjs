@@ -11,6 +11,7 @@ import { keychainToken, loadSettings, STATE_HOME } from './launch-settings.mjs';
 import { gateStore, readPrivate } from './launch-store.mjs';
 
 const POLL_MS = 5000;
+const warn = message => process.stderr.write(`${message}\n`);
 const COMMAND_MS = 10_000;
 
 export async function check() {
@@ -23,9 +24,9 @@ export async function check() {
     await commandOutput(tool, ['--version'], { timeout: COMMAND_MS });
     console.log(`${tool}: available.`);
   }
+  const pots = potTransport();
   for (const pot of config.pots) {
-    const reply = JSON.parse(await commandOutput('hc', ['exec', '--json', '--on', pot, 'node', '--version'], { timeout: COMMAND_MS }));
-    if (reply.code !== 0 || reply.timed_out || reply.truncated) throw new Error(`mac-launch: cannot reach ${pot}.`);
+    await pots.reach(pot);
     console.log(`Herdr reaches ${pot}.`);
   }
 }
@@ -55,7 +56,7 @@ async function history(client, service, config, applicationId) {
     const recent = messages.filter(message => Date.now() - Date.parse(message.timestamp) < LAUNCH_TTL_MS);
     for (const message of recent.reverse()) {
       try { await service.notice({ ...message, guild_id: config.guildId }, applicationId); }
-      catch { client.warn('mac-launch: a historical notice was refused.'); }
+      catch { warn('mac-launch: a historical notice was refused.'); }
     }
     if (recent.length !== messages.length || messages.length < 100) return;
     before = messages.at(-1).id;
@@ -68,10 +69,10 @@ export async function serve() {
   const store = gateStore(STATE_HOME);
   const release = lockService();
   const client = discordClient(keychainToken());
-  const service = launchService({ store, discord: client, pots: potTransport(), runner: herdrRunner(STATE_HOME), settings: loadSettings });
+  const service = launchService({ store, discord: client, pots: potTransport(), runner: herdrRunner(store), settings: loadSettings, warn });
   let applicationId;
   let pending = Promise.resolve();
-  const enqueue = operation => { pending = pending.then(operation).catch(() => client.warn('mac-launch: event refused or unavailable. No approval was inferred.')); };
+  const enqueue = operation => { pending = pending.then(operation).catch(() => warn('mac-launch: event refused or unavailable. No approval was inferred.')); };
   const close = client.listen((kind, event) => {
     if (kind === 'READY') {
       applicationId = event.application.id;
@@ -79,9 +80,10 @@ export async function serve() {
     }
     if (kind === 'MESSAGE_CREATE' && applicationId) enqueue(() => service.notice(event, applicationId));
     if (kind === 'INTERACTION_CREATE' && applicationId) enqueue(() => service.press(event));
-  }, error => { client.warn(error.message); stop(); process.exitCode = 1; });
+  }, error => { warn(error.message); stop(); process.exitCode = 1; });
   const timer = setInterval(() => enqueue(async () => {
-    checkDiscordPolicy(LAUNCH_POLICY, loadSettings().humanDiscord);
+    try { checkDiscordPolicy(LAUNCH_POLICY, loadSettings().humanDiscord); }
+    catch (error) { warn(error.message); stop(); process.exitCode = 1; return; }
     await service.tick();
   }), POLL_MS);
   function stop() { clearInterval(timer); close(); release(); }
