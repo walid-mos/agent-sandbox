@@ -30,16 +30,33 @@ function credentialsFor(sandbox) {
     throw new Error('jira: sandbox.json jira must name an onRequest group. Fix it and run bin/vm-config.');
   }
   const folders = Object.entries(sandbox.onRequest[group]);
-  if (!folders.every(([path, names]) => FOLDER.test(path) && Array.isArray(names)
+  if (!folders.every(([path, names]) => FOLDER.test(path) && !path.includes('..') && Array.isArray(names)
     && names.every(name => typeof name === 'string' && SECRET_NAME.test(name) && !name.startsWith('INFISICAL_')))) {
     throw new Error('jira: the selected onRequest group must map vault folders to lists of secret names without INFISICAL_ names.');
   }
   const entries = folders.flatMap(([path, names]) => names.map(name => ({ path, name })));
-  return Object.fromEntries(Object.entries(CREDENTIAL_NAMES).map(([role, name]) => {
-    const matches = entries.filter(entry => entry.name === name);
-    if (matches.length !== 1) throw new Error(`jira: onRequest.${group} must list ${name} exactly once.`);
-    return [role, matches[0]];
-  }));
+  const expected = Object.values(CREDENTIAL_NAMES);
+  const required = expected.join(' and ');
+  if (entries.length !== expected.length || !expected.every(name => entries.filter(entry => entry.name === name).length === 1)) {
+    throw new Error(`jira: onRequest.${group} must list exactly ${required}.`);
+  }
+  for (const [scope, extra] of outsideEntries(sandbox, group)) {
+    if (extra.some(name => expected.includes(name))) {
+      throw new Error(`jira: ${scope} holds ${required}. These names belong only under onRequest.${group}.`);
+    }
+  }
+  return Object.fromEntries(Object.entries(CREDENTIAL_NAMES).map(([role, name]) => [role, entries.find(entry => entry.name === name)]));
+}
+
+function outsideEntries(sandbox, group) {
+  const owners = sandbox.owners ?? {};
+  const namesIn = shapes => (Array.isArray(shapes) ? shapes : []).filter(name => typeof name === 'string');
+  const foldersIn = folders => (isObject(folders) ? Object.values(folders).flatMap(names => namesIn(names)) : []);
+  return [
+    ['owners', isObject(owners) ? Object.values(owners).filter(name => typeof name === 'string') : []],
+    ...Object.entries(sandbox.secrets ?? {}).map(([path, names]) => [`secrets ${path}`, namesIn(names)]),
+    ...Object.entries(sandbox.onRequest ?? {}).filter(([name]) => name !== group).map(([name, folders]) => [`onRequest.${name}`, foldersIn(folders)]),
+  ];
 }
 
 function writeAdapter(path, configuration) {
