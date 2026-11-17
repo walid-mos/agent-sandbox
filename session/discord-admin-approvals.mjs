@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { registerDiscordQuestion, closeDiscordQuestion } from './discord-clicks.mjs';
+import { closeDiscordQuestion, registerOwnerQuestion } from './discord-clicks.mjs';
 import { DIALOG_ID, MASTERMIND_POT, packet } from './human-contract.mjs';
 import { questionDigest, questionPacket } from './human-dialogs.mjs';
 
@@ -90,7 +90,7 @@ async function registerApproval(input, { pending, clicks, channelAccount, guildI
   const prepared = pendingApproval(input?.dialog, pending);
   if (!isUnused(prepared)) throw new Error('discord-admin: no unused approval has that dialog ID.');
   const registration = { question: questionPacket(prepared.question), request: requestId(prepared.id), pot: MASTERMIND_POT, channelAccount, guildId, messages: input.messages };
-  const record = await registerDiscordQuestion(registration, clicks, undefined, prepared.ownerId);
+  const record = await registerOwnerQuestion(registration, clicks, prepared.ownerId);
   return { dialog: record.id, registered: true, state: record.registrationState };
 }
 
