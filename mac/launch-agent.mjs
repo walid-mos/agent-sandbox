@@ -31,6 +31,8 @@ export function launchAgentPlist(settings) {
 }
 
 const onMac = () => { if (process.platform !== 'darwin') throw new Error('mac-launch: install this service on its Mac only.'); };
+// launchctl refuses to load a label it already holds, and fails to unload one it does not.
+const unload = () => { try { execFileSync('launchctl', ['bootout', `${domain()}/${LABEL}`], { stdio: 'ignore' }); } catch {} };
 
 export function install() {
   onMac();
@@ -41,13 +43,14 @@ export function install() {
   closeSync(openSync(LOG, 'a', 0o600));
   writeFileSync(PLIST, launchAgentPlist(settings));
   chmodSync(PLIST, 0o600);
+  unload();
   execFileSync('launchctl', ['bootstrap', domain(), PLIST], { stdio: 'inherit' });
   console.log('Mac launch service installed. No inbound port was opened.');
 }
 
 export function remove() {
   onMac();
-  try { execFileSync('launchctl', ['bootout', `${domain()}/${LABEL}`], { stdio: 'inherit' }); } catch {}
+  unload();
   rmSync(PLIST, { force: true });
   console.log('Mac launch login service removed.');
 }

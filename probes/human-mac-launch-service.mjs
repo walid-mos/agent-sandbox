@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
+import { existsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { lockService } from '../mac/launch-host.mjs';
 import { launchService } from '../mac/launch-service.mjs';
-import { application, scenario } from './fixtures/mac-launch.mjs';
+import { application, ownedFolder, scenario } from './fixtures/mac-launch.mjs';
+
+test('a lock whose PID now belongs to another process does not block the next gate', t => {
+  const folder = ownedFolder(t);
+  const lock = join(folder, 'service.lock');
+  writeFileSync(lock, JSON.stringify({ pid: process.ppid, started: 'Thu Jan  1 00:00:00 1970' }), { mode: 0o600 });
+  const release = lockService(folder);
+  assert.throws(() => lockService(folder), /already running/);
+  release();
+  assert.equal(existsSync(lock), false);
+});
 
 test('foreign notices and a disabled gate create no offer', async t => {
   const f = scenario(t);

@@ -2,7 +2,7 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkDiscordPolicy, LAUNCH_POLICY } from '../session/human-contract.mjs';
 import { LAUNCH_TTL_MS } from '../session/launch-contract.mjs';
-import { commandOutput } from '../session/run.mjs';
+import { command, commandOutput } from '../session/run.mjs';
 import { discordClient } from './launch-discord.mjs';
 import { potTransport } from './launch-pots.mjs';
 import { herdrRunner } from './launch-runner.mjs';
@@ -31,15 +31,20 @@ export async function check() {
   }
 }
 
-function lockService() {
-  const path = join(STATE_HOME, 'service.lock');
+// A crashed gate's PID is given to another process later, so the lock names its owner by start time too.
+function processStart(pid) {
+  try { return command('ps', ['-o', 'lstart=', '-p', `${pid}`]); } catch { return undefined; }
+}
+
+export function lockService(folder) {
+  const path = join(folder, 'service.lock');
   if (existsSync(path)) {
     const previous = readPrivate(path);
-    try { process.kill(previous.pid, 0); throw new Error('mac-launch: a gate is already running.'); }
-    catch (error) { if (error.code !== 'ESRCH') throw error; }
+    const started = processStart(previous.pid);
+    if (started && started === previous.started) throw new Error('mac-launch: a gate is already running.');
     rmSync(path);
   }
-  const owner = { pid: process.pid };
+  const owner = { pid: process.pid, started: processStart(process.pid) };
   writeFileSync(path, JSON.stringify(owner), { flag: 'wx', mode: 0o600 });
   const release = () => {
     if (existsSync(path) && readPrivate(path).pid === owner.pid) rmSync(path);
@@ -67,7 +72,7 @@ export async function serve() {
   const config = loadSettings();
   checkDiscordPolicy(LAUNCH_POLICY, config.humanDiscord);
   const store = gateStore(STATE_HOME);
-  const release = lockService();
+  const release = lockService(STATE_HOME);
   const client = discordClient(keychainToken());
   const service = launchService({ store, discord: client, pots: potTransport(), runner: herdrRunner(store), settings: loadSettings, warn });
   let applicationId;
