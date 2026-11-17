@@ -2,10 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 import { botModel, runCommand } from './commands.mjs';
-import { botAnswers, botDialogId, botResultMessageId, deliverBotResult, syncBotDialogs } from './human-bot.mjs';
-import { answerQuestion } from './human-dialogs.mjs';
-import { storeDialogSecret } from './human-secrets.mjs';
-import { humanStore } from './human-store.mjs';
+import { answerBotQuestion, storeBotSecret, syncBotDialogs } from './human-bot.mjs';
 import { main } from './main.mjs';
 import { questionIn } from './pots-questions.mjs';
 import { conversation, isFromBot, say, secretRequests, TERMINAL } from './terminal-conversation.mjs';
@@ -145,11 +142,7 @@ async function send(request) {
   const latest = conversation().at(-1);
   const message = questionId ?? (isFromBot(latest) && questionIn(latest.text) && !files.length ? latest.id : undefined);
   if (!message) return say({ id, text: `${text}`, ...(files.length && { files: files.map(attached) }) });
-  const dialog = humanStore().get(botDialogId(message));
-  if (!dialog || dialog.kind !== 'question') throw new Error('pots: that message has no question. Refresh the conversation.');
-  const answered = await answerQuestion(dialog.id, { answers: botAnswers(dialog, `${text}`) }, { messageId: id });
-  await deliverBotResult(dialog.id);
-  return botResultMessageId(answered);
+  return answerBotQuestion(message, `${text}`, id);
 }
 
 /** Answers one ask-secret as `pots chat` does, so the bot wakes on the same message and learns only which keys came. */
@@ -160,9 +153,7 @@ async function answerSecret(requestId) {
   await syncBotDialogs();
   let values;
   try { values = JSON.parse(readFileSync(STANDARD_INPUT, 'utf8')); } catch { throw new Error('pots: unreadable secret input.'); }
-  await storeDialogSecret(botDialogId(requestId), values);
-  await deliverBotResult(botDialogId(requestId));
-  return 'Requested secrets were stored in this pot.';
+  return storeBotSecret(requestId, values);
 }
 
 const SENT_BY = sendId => new RegExp(` send=${sendId}(?: |$)`);
