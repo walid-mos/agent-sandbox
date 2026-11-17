@@ -21,11 +21,11 @@ const click = () => ({ id: snowflake(now), type: 3, application_id: application,
 test('only the enabled operator may approve the gate message', () => {
   const event = click();
   event.member.user.id = '777777777777777777';
-  assert.throws(() => verifyPress(event, offer, settings, now), /operator/);
+  assert.throws(() => verifyPress(event, offer, settings, now, 'ml'), /operator/);
 });
 
 test('an authentic fresh press binds the whole approval to this offer', () => {
-  const approved = verifyPress(click(), offer, settings, now);
+  const approved = verifyPress(click(), offer, settings, now, 'ml');
   assert.equal(approved.digest, request.digest);
   assert.equal(approved.target, 'mac-studio');
   assert.equal(approved.pot, 'alpha');
@@ -49,12 +49,12 @@ const attacks = {
 for (const [name, attack] of Object.entries(attacks)) test(`rejects ${name}`, () => {
   const event = click();
   attack(event);
-  assert.throws(() => verifyPress(event, offer, settings, now));
+  assert.throws(() => verifyPress(event, offer, settings, now, 'ml'));
 });
 
 test('the private switch and expiry are rechecked at the press', () => {
-  assert.throws(() => verifyPress(click(), offer, { ...settings, humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: false } }, now), /off|enabled/);
-  assert.throws(() => verifyPress(click(), offer, settings, request.expiresAt), /expired|old/);
+  assert.throws(() => verifyPress(click(), offer, { ...settings, humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: false } }, now, 'ml'), /off|enabled/);
+  assert.throws(() => verifyPress(click(), offer, settings, request.expiresAt, 'ml'), /expired|old/);
 });
 
 test('the gate refuses a changed source, target, future or forbidden scope', () => {
