@@ -1,5 +1,5 @@
-import { operationOf } from './discord-admin-operations.mjs';
-import { guardChannels, guardRoles, isThread, requirePermission, requireProtection, requiresApproval } from './discord-admin-policy.mjs';
+import { isThread, operationOf } from './discord-admin-operations.mjs';
+import { guardChannels, guardRoles, requirePermission, requireProtection, requiresApproval } from './discord-admin-policy.mjs';
 
 async function guildChannel(id, guildId, api) {
   const channel = await api('GET', `/channels/${id}`);

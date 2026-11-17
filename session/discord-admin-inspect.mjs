@@ -1,4 +1,4 @@
-import { DISCORD_PERMISSIONS } from './discord-admin-policy.mjs';
+import { DISCORD_PERMISSIONS } from './discord-admin-operations.mjs';
 
 export async function inspectDiscord(input, { api, guildId }) {
   const paths = {
@@ -17,7 +17,7 @@ async function diagnostics(api, guildId) {
   const app = await api('GET', '/oauth2/applications/@me');
   const granted = roles.filter(role => role.id === guildId || member.roles.includes(role.id)).reduce((bits, role) => bits | BigInt(role.permissions), 0n);
   const hasAdministrator = (granted & DISCORD_PERMISSIONS.Administrator) !== 0n;
-  const missingPermissions = Object.entries(DISCORD_PERMISSIONS).filter(([name, bit]) => !['Administrator', 'ManageGuild'].includes(name) && !hasAdministrator && !(granted & bit)).map(([name]) => name);
+  const missingPermissions = Object.entries(DISCORD_PERMISSIONS).filter(([name, bit]) => name !== 'Administrator' && !hasAdministrator && !(granted & bit)).map(([name]) => name);
   return { view: 'diagnostics', missingPermissions, ...applicationDiagnostics(app),
     note: 'Read-only facts. Channel overrides and role hierarchy can further limit operations. No app settings were changed.' };
 }

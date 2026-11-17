@@ -1,17 +1,9 @@
-import { isSnowflake } from './human-contract.mjs';
+import { CHANNEL, DISCORD_PERMISSIONS, isThread, OVERWRITE, snowflake, STANDALONE_THREAD_TYPES } from './discord-admin-operations.mjs';
 
-export const DISCORD_PERMISSIONS = {
-  CreateInstantInvite: 1n, KickMembers: 2n, BanMembers: 4n, Administrator: 8n, ManageChannels: 16n,
-  ManageGuild: 32n, ViewChannel: 1024n, ManageRoles: 268435456n, ManageNicknames: 134217728n,
-  ManageThreads: 17179869184n, CreatePublicThreads: 34359738368n, CreatePrivateThreads: 68719476736n, ModerateMembers: 1099511627776n,
-};
-const THREAD_TYPES = [10, 11, 12];
-export const isThread = channel => THREAD_TYPES.includes(channel.type);
 const includesId = (ids, id) => ids.includes(id);
 const isRename = payload => Object.keys(payload).length === 1 && typeof payload.name === 'string';
 const rejectProtected = () => { throw new Error('discord-admin: protected pot resource cannot be changed by this operation.'); };
-const validId = id => typeof id === 'string' && isSnowflake(id);
-const validIds = ids => Array.isArray(ids) && ids.every(validId);
+const validIds = ids => Array.isArray(ids) && ids.every(snowflake);
 
 export function requireProtection(protection, guildId) {
   if (protection?.guildId !== guildId) throw new Error('discord-admin: protection metadata is missing or invalid. Restore owning runtime metadata before administering this guild.');
@@ -38,11 +30,11 @@ function guardDestination(request, snapshot) {
   const parentId = request.payload.parent_id;
   if (!parentId) return;
   if ([...snapshot.protection.channelIds, ...snapshot.protection.threadIds].includes(parentId)) rejectProtected();
-  if (snapshot.parent.type !== 4) throw new Error('discord-admin: parent_id must name a category in this guild.');
+  if (snapshot.parent.type !== CHANNEL.category) throw new Error('discord-admin: parent_id must name a category in this guild.');
 }
 
 function isBotOverwrite(item, snapshot) {
-  return snapshot.protection.botRoleIds.includes(item.id) || (item.type === 1 && item.id === snapshot.bot.id);
+  return snapshot.protection.botRoleIds.includes(item.id) || (item.type === OVERWRITE.member && item.id === snapshot.bot.id);
 }
 
 function guardOverwrites(request, snapshot) {
@@ -69,7 +61,7 @@ export function guardChannels(request, snapshot) {
 }
 
 function guardThreadCreation(request, channel) {
-  if (![0, 5].includes(channel?.type)) throw new Error('discord-admin: thread creation needs a text or announcement parent channel.');
+  if (![CHANNEL.text, CHANNEL.announcement].includes(channel?.type)) throw new Error('discord-admin: thread creation needs a text or announcement parent channel.');
   if (request.messageId) return requireMessageThread(request);
   requireStandaloneThread(request, channel);
 }
@@ -79,8 +71,8 @@ function requireMessageThread(request) {
 }
 
 function requireStandaloneThread(request, channel) {
-  if (![11, 12].includes(request.payload.type)) throw new Error('discord-admin: thread creation without a message requires explicit public or private type.');
-  if (channel.type !== 0) throw new Error('discord-admin: announcement threads require a parent message.');
+  if (!STANDALONE_THREAD_TYPES.includes(request.payload.type)) throw new Error('discord-admin: thread creation without a message requires explicit public or private type.');
+  if (channel.type !== CHANNEL.text) throw new Error('discord-admin: announcement threads require a parent message.');
 }
 
 function guardProtectedRoles(request, { protection, botMember, bot }) {
@@ -140,7 +132,7 @@ function changesEveryone(request, snapshot) {
   if (changesEveryoneRole(request)) return true;
   if (!Object.hasOwn(request.payload, 'permission_overwrites')) return false;
   const overwrites = [...request.payload.permission_overwrites, ...existingOverwrites(snapshot)];
-  return overwrites.some(item => item.type === 0 && item.id === request.guildId);
+  return overwrites.some(item => item.type === OVERWRITE.role && item.id === request.guildId);
 }
 
 export function requiresApproval(request, snapshot) {
@@ -154,7 +146,7 @@ function guildPermissions({ guild, botMember, roles }) {
 }
 
 function requiredThreadPermission(request, operation) {
-  if (request.action === 'thread.create' && request.payload.type === 12) return 'CreatePrivateThreads';
+  if (request.action === 'thread.create' && request.payload.type === CHANNEL.privateThread) return 'CreatePrivateThreads';
   return operation.permission;
 }
 
@@ -182,7 +174,7 @@ function applyOverwrites(bits, entries) {
 function channelPermissions(granted, channel, member, guildId, botId) {
   if (!channel) throw new Error('discord-admin: thread parent metadata is missing.');
   const overwrites = channel.permission_overwrites ?? [];
-  granted = applyOverwrites(granted, overwrites.filter(entry => entry.type === 0 && entry.id === guildId));
-  granted = applyOverwrites(granted, overwrites.filter(entry => entry.type === 0 && member.roles.includes(entry.id)));
-  return applyOverwrites(granted, overwrites.filter(entry => entry.type === 1 && entry.id === botId));
+  granted = applyOverwrites(granted, overwrites.filter(entry => entry.type === OVERWRITE.role && entry.id === guildId));
+  granted = applyOverwrites(granted, overwrites.filter(entry => entry.type === OVERWRITE.role && member.roles.includes(entry.id)));
+  return applyOverwrites(granted, overwrites.filter(entry => entry.type === OVERWRITE.member && entry.id === botId));
 }
