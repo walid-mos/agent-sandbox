@@ -3,13 +3,22 @@ export POTS_REPO
 POTS_RUNTIME=${POTS_RUNTIME:-$HOME/.config/agent-sandbox}
 export POTS_RUNTIME
 POTS_SANDBOX_ROOT="$POTS_RUNTIME/sandboxes"
-POTS_SANDBOX_DIR="$POTS_SANDBOX_ROOT/${SANDBOX:-}"
+. "$POTS_REPO/session/launch.env"
+# POTS_TRANSPORT=local marks a command running inside the sandbox VM, which holds its one configuration at the session's path.
+case "${POTS_TRANSPORT:=provider}" in
+	provider) POTS_SANDBOX_DIR="$POTS_SANDBOX_ROOT/${SANDBOX:-}" ;;
+	local) POTS_SANDBOX_DIR=$POTS_SESSION_CONFIGURATION ;;
+	*) echo "$(basename "$0"): POTS_TRANSPORT must be local or unset, got '$POTS_TRANSPORT'" >&2; exit 2 ;;
+esac
 POTS_CONFIG="$POTS_SANDBOX_DIR/sandbox.json"
 if [ -z "${SANDBOX:-}" ] || [ ! -f "$POTS_CONFIG" ]; then
-	echo "$(basename "$0"): set SANDBOX to one of: $(ls "$POTS_SANDBOX_ROOT" | tr '\n' ' ')" >&2
+	if [ "$POTS_TRANSPORT" = local ]; then
+		echo "$(basename "$0"): set SANDBOX and install the sandbox's configuration at $POTS_SANDBOX_DIR" >&2
+	else
+		echo "$(basename "$0"): set SANDBOX to one of: $(ls "$POTS_SANDBOX_ROOT" | tr '\n' ' ')" >&2
+	fi
 	exit 2
 fi
-. "$POTS_REPO/session/launch.env"
 
 sandbox_provider() {
 	jq -r '.provider // "colima"' "$1"
@@ -49,8 +58,12 @@ vm_setting() {
 	echo "$value"
 }
 
-# A provider defines POTS_VM_REPO, sandbox_vm, sandbox_docker, vm_is_running, vm_start, vm_scripts and vm_forbidden_endpoints for its kind of VM.
-. "$POTS_REPO/lib/providers/$POTS_PROVIDER.sh"
+# A provider defines POTS_VM_REPO, POTS_VM_ENTRY_ENVIRONMENT, sandbox_vm, sandbox_docker, vm_is_running, vm_start, vm_scripts and vm_forbidden_endpoints for its kind of VM.
+if [ "$POTS_TRANSPORT" = local ]; then
+	. "$POTS_REPO/lib/providers/local.sh"
+else
+	. "$POTS_REPO/lib/providers/$POTS_PROVIDER.sh"
+fi
 
 session_exec() {
 	input=

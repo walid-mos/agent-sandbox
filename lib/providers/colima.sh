@@ -2,6 +2,7 @@ POTS_PROFILE=$SANDBOX
 POTS_CONTEXT="colima-$POTS_PROFILE"
 # The VM mounts the Mac's Development directory at its Mac path, so the VM and the session read this checkout.
 POTS_VM_REPO=$POTS_REPO
+POTS_VM_ENTRY_ENVIRONMENT=
 COLIMA_VM_INTERFACE=eth0
 COLIMA_HOST=host.lima.internal
 MAC_ROUTER_PORT=3425

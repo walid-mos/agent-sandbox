@@ -6,4 +6,5 @@ swap_gib=$(vm_setting swapGiB)
 vm_start
 scripts=$(vm_scripts)
 sandbox_vm sudo "$scripts/setup.sh" "$swap_gib" "$POTS_LAUNCHER"
-sandbox_vm "$scripts/session-keys" "$SANDBOX" "$POTS_VM_REPO/bin/sandbox-exec" < "$HOME/.ssh/authorized_keys"
+# Left unquoted: the provider's VARIABLE=VALUE words, none on Colima.
+sandbox_vm "$scripts/session-keys" "$SANDBOX" "$POTS_VM_REPO/bin/sandbox-exec" $POTS_VM_ENTRY_ENVIRONMENT < "$HOME/.ssh/authorized_keys"
