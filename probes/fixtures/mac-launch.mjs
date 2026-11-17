@@ -36,7 +36,7 @@ export function scenario(t) {
   const discord = { post: async (channel, payload, bytes) => {
     posted.push({ channel, payload, bytes });
     return { id: '444444444444444444', attachments: [{ id: '666666666666666666', filename: payload.attachments[0].filename, size: Buffer.byteLength(bytes) }] };
-  }, edit: async (...args) => edits.push(args), acknowledge: async () => {} };
+  }, edit: async (...args) => edits.push(args) };
   const pots = { show: async () => structuredClone(source.shown), report: async (pot, packet) => {
     if (source.isReportBroken) throw new Error('offline');
     reports.push({ pot, packet });

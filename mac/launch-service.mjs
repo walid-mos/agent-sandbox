@@ -48,7 +48,6 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     const offer = store.get(id);
     if (!offer || offer.state !== OFFERED || store.used(id)) return;
     let approval = verifyPress(event, offer, settings(), clock(), action);
-    await discord.acknowledge(event);
     let shown;
     try { shown = await pots.show(offer.request.pot, id); }
     catch { saveState(offer, 'failed', { detail: 'The source is unavailable. Ask for a new prompt.' }); return; }

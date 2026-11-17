@@ -84,7 +84,11 @@ export async function serve() {
       enqueue(() => history(client, service, loadSettings(), applicationId));
     }
     if (kind === 'MESSAGE_CREATE' && applicationId) enqueue(() => service.notice(event, applicationId));
-    if (kind === 'INTERACTION_CREATE' && applicationId) enqueue(() => service.press(event));
+    if (kind === 'INTERACTION_CREATE' && applicationId) {
+      // Discord drops a press nobody answers within three seconds, so the answer never waits behind the queue. It decides nothing.
+      client.acknowledge(event).catch(() => warn('mac-launch: Discord did not take the answer to a press.'));
+      enqueue(() => service.press(event));
+    }
   }, error => { warn(error.message); stop(); process.exitCode = 1; });
   const timer = setInterval(() => enqueue(async () => {
     try { checkDiscordPolicy(LAUNCH_POLICY, loadSettings().humanDiscord); }
