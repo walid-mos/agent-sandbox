@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DIALOG_ID } from '../session/human-contract.mjs';
 import { writePrivateJson } from '../session/private-json.mjs';
@@ -40,7 +40,7 @@ export function gateStore(folder) {
   const all = onUnreadable => entries(RECORD, onUnreadable);
   const notices = onUnreadable => entries(NOTICE, onUnreadable);
   const remember = (id, notice) => writePrivateJson(path(id, NOTICE), notice);
-  const forget = id => { if (existsSync(path(id, NOTICE))) unlinkSync(path(id, NOTICE)); };
+  const forget = id => rmSync(path(id, NOTICE), { force: true });
   const decision = id => read(id, DECISION);
   // The first decision written for a launch is its only one: the exclusive create refuses a second, and the file and its name reach the disk before anything acts on it.
   function decide(id, decided) {

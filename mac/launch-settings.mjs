@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-import { ACTS, DEFAULT_REFUSED_ACTS, isTarget } from '../session/launch-contract.mjs';
+import { DEFAULT_REFUSED_ACTS, isAct, isTarget } from '../session/launch-contract.mjs';
 import { isSnowflake } from '../session/human-contract.mjs';
 import { writePrivateJson } from '../session/private-json.mjs';
 import { readPrivate, privateDirectory } from './launch-store.mjs';
@@ -17,7 +17,7 @@ function checkedSettings(settings) {
     && settings.pots.length > 0 && settings.pots.every(isTarget) && settings.announcers.length > 0 && settings.announcers.every(isSnowflake);
   const hasIds = [settings.guildId, settings.channelId, settings.humanDiscord?.userId].every(isSnowflake);
   const hasPaths = typeof settings.directory === 'string' && isAbsolute(settings.directory) && settings.path.every(path => typeof path === 'string' && isAbsolute(path));
-  const hasActs = settings.refusedActs.every(act => Object.hasOwn(ACTS, act));
+  const hasActs = settings.refusedActs.every(isAct);
   if (!hasNames || !hasIds || !hasPaths || !hasActs || !settings.piArguments.every(argument => typeof argument === 'string')) throw new Error('mac-launch: settings contain invalid names, IDs, paths or acts. Run configure.');
   return settings;
 }

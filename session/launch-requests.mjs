@@ -87,5 +87,5 @@ export async function expireLaunches(store, notify, now = Date.now()) {
 
 export function listedLaunches(store, now = Date.now()) {
   return store.all().sort((first, second) => first.request.createdAt - second.request.createdAt)
-    .map(({ request, ...record }) => ({ launch: request.launch, target: request.target, title: request.title, state: stateAt({ request, ...record }, now), asked: record.asked, statuses: record.statuses.map(status => status.status) }));
+    .map(record => ({ launch: record.request.launch, target: record.request.target, title: record.request.title, state: stateAt(record, now), asked: record.asked, statuses: record.statuses.map(status => status.status) }));
 }

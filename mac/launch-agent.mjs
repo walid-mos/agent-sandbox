@@ -23,7 +23,7 @@ function plistValue(value, depth) {
   return [`${pad}<dict>`, ...Object.keys(value).sort().flatMap(key => [`${pad}\t<key>${escape(key)}</key>`, plistValue(value[key], depth + 1)]), `${pad}</dict>`].join('\n');
 }
 
-export function launchAgentPlist(settings) {
+function launchAgentPlist(settings) {
   const agent = { Label: LABEL, ProgramArguments: [join(REPOSITORY, 'mac/launch-gate'), 'serve'], WorkingDirectory: REPOSITORY,
     EnvironmentVariables: { PATH: [...settings.path, ...SYSTEM_PATH].join(':') }, RunAtLoad: true, KeepAlive: { SuccessfulExit: false },
     ThrottleInterval: 30, StandardOutPath: LOG, StandardErrorPath: LOG };

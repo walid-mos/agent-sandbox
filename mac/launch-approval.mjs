@@ -1,7 +1,7 @@
 import { DIALOG_ID, discordEvidence, discordMessageUrl, isSnowflake, LAUNCH_POLICY } from '../session/human-contract.mjs';
 import { fetchedRequest, CLOCK_SKEW_MS, OPEN, sameRequest } from '../session/launch-contract.mjs';
 
-export const PRESS_MAX_AGE_MS = 30_000;
+const PRESS_MAX_AGE_MS = 30_000;
 // The press has its own limit up to the claim, so a slow start is judged from the claim and a Mac that slept in between still starts nothing.
 export const CLAIM_MAX_AGE_MS = 30_000;
 export const CLAIMED = 'claimed';
@@ -17,11 +17,12 @@ export function pressedButton(customId) {
 }
 
 export function boundRequest(shown, notice, settings) {
-  const { request, prompt, state } = fetchedRequest(shown);
+  const fetched = fetchedRequest(shown);
+  const { request } = fetched;
   const isBound = ['launch', 'pot', 'target'].every(key => request[key] === notice[key])
     && (notice.digest === undefined || sameRequest(request, notice));
   if (!isBound || request.target !== settings.name || !settings.pots.includes(request.pot)) throw new Error('mac-launch: the fetched launch names another pot or Mac.');
-  return { request, prompt, state };
+  return fetched;
 }
 
 export function verifyOffer(shown, notice, settings, now) {

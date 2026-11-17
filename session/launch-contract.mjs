@@ -15,7 +15,7 @@ export const OPEN = 'open';
 export const OFFERED = 'offered';
 export const STARTED = 'started';
 export const EXPIRED = 'expired';
-export const STATUSES = [OFFERED, STARTED, 'finished', 'refused', EXPIRED, 'superseded', 'cancelled', 'failed'];
+const STATUSES = [OFFERED, STARTED, 'finished', 'refused', EXPIRED, 'superseded', 'cancelled', 'failed'];
 export const isTarget = isPotName;
 export const LAUNCH_SCRIPT = `${assignments(readFileSync(new URL('./launch.env', import.meta.url), 'utf8')).POTS_SESSION_REPOSITORY}/session/mac-launch.mjs`;
 // Line feed and tab are the only characters a reader cannot see that a prompt may hold. The listed letters render as blanks.
@@ -37,7 +37,7 @@ const NOTICE_FIELDS = ['launch', 'pot', 'target'];
 const STATUS_FIELDS = ['launch', 'target', 'digest', 'status', 'detail', 'messageUrl', 'report'];
 const NOTICE_BLOCK = /\n\n```mac-launch\n([^\n]+)\n```$/;
 
-const isAct = act => Object.hasOwn(ACTS, act);
+export const isAct = act => Object.hasOwn(ACTS, act);
 const promptDigest = prompt => createHash('sha256').update(prompt, 'utf8').digest('hex');
 // A combining or ignorable character renders as nothing, so the scan reads the text without them and an act name cannot hide behind one.
 const BLANK = /[\p{Default_Ignorable_Code_Point}\p{Mn}\p{Me}]/gu;
