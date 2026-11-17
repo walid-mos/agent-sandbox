@@ -5,7 +5,7 @@ import { find as findDoorRequest, OPEN as WAITING, RECEIVED } from './door-reque
 import { ownName } from './doors.mjs';
 import { isSnowflake, MASTERMIND_POT, text } from './human-contract.mjs';
 import { launchNotice, noticeOf, noticeText } from './launch-contract.mjs';
-import { launchSettings, launchStore, listedLaunches, openLaunch, recordStatus, retireLaunch, shownLaunch } from './launch-requests.mjs';
+import { botWake, launchSettings, launchStore, listedLaunches, openLaunch, recordStatus, retireLaunch, shownLaunch } from './launch-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, commandWithInput } from './run.mjs';
 import { botId, isMastermind, sandbox } from './sandbox.mjs';
@@ -57,10 +57,9 @@ async function announce([id]) {
   command(DOOR_COMMAND, ['reply', id, '--text', 'Posted the launch notice in the launch channel. The Mac reports each next step to you itself.']);
 }
 
-// The wake carries an ID, so a status the gate sends twice wakes the bot once.
 async function status() {
   const report = await recordStatus(JSON.parse(readFileSync(0, 'utf8')), launchStore());
-  command('pots', ['wake', '--bot', botId, '--from', 'mac-launch', '--id', `mac-launch-${report.launch}-${report.status}`, '--note', JSON.stringify(report)]);
+  command('pots', botWake(report, botId));
   print({ stored: report.status });
 }
 

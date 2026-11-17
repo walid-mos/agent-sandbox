@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
-import { checkedStatus, launchRequest, OFFERED, OPEN, shownRequest } from './launch-contract.mjs';
+import { checkedStatus, launchRequest, launchStatus, OFFERED, OPEN, shownRequest } from './launch-contract.mjs';
 
 const LAUNCH_ID_BYTES = 16;
 const EXPIRED = 'expired';
@@ -20,6 +20,10 @@ function known(get, id) {
   if (!record) throw new Error('mac-launch: this pot holds no such launch. mac-launch.mjs list names them.');
   return record;
 }
+
+const statusReport = (status, request) => ({ ...status, title: request.title });
+// The wake carries an ID, so the same status sent twice, by the gate or by expiry, wakes the bot once.
+export const botWake = (report, bot) => ['wake', '--bot', bot, '--from', 'mac-launch', '--id', `mac-launch-${report.launch}-${report.status}`, '--note', JSON.stringify(report)];
 
 const stateAt = (record, now) => (LIVE.includes(record.state) && now >= record.request.expiresAt ? EXPIRED : record.state);
 
@@ -52,7 +56,7 @@ export async function recordStatus(candidate, store) {
   return store.locked(({ get, save }) => {
     const record = known(get, status.launch);
     if (record.request.digest !== status.digest || record.request.target !== status.target) throw new Error('mac-launch: this status names another prompt or another Mac than the launch this pot holds.');
-    const report = { ...status, title: record.request.title };
+    const report = statusReport(status, record.request);
     if (record.statuses.some(seen => seen.status === status.status)) return report;
     const state = status.status === OFFERED && record.state !== OPEN ? record.state : status.status;
     save({ ...record, state, statuses: [...record.statuses, status] });
@@ -69,7 +73,7 @@ export async function expireLaunches(store, notify, now = Date.now()) {
       return save({ ...current, state: EXPIRED });
     }, id);
     if (!expired) continue;
-    await notify(expired.request);
+    await notify(statusReport(launchStatus({ ...expired.request, status: EXPIRED }), expired.request));
     await store.patch(id, { expiryNotified: true });
   }
 }
