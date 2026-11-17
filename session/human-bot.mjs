@@ -1,4 +1,4 @@
-import { answerText, MASTERMIND_POT } from './human-contract.mjs';
+import { answerText, closedDialogText, MASTERMIND_POT } from './human-contract.mjs';
 import { answerQuestion, dialogId, openDialog } from './human-dialogs.mjs';
 import { storeDialogSecret } from './human-secrets.mjs';
 import { humanStore } from './human-store.mjs';
@@ -70,7 +70,7 @@ export async function deliverBotResult(id, store = humanStore()) {
     const messageId = botResultMessageId(dialog);
     if (!conversation().some(record => record.id === messageId || record.answers === dialog.source.message)) {
       const text = dialog.result.status === 'stored' ? SECRET_STORED
-        : dialog.result.status === 'answered' ? answerText(dialog.result.answers) : `Question ${dialog.result.status}.`;
+        : dialog.result.status === 'answered' ? answerText(dialog.result.answers) : closedDialogText(dialog);
       say({ id: messageId, text, ...(dialog.kind === 'secret' && { answers: dialog.source.message }), humanDialog: id, humanStatus: dialog.result.status,
         neighbourReport: dialog.result.evidence ? { pot: MASTERMIND_POT, ...dialog.result.evidence, approval: dialog.policy === 'push', scope: dialog.scope, dialog: dialog.id, digest: dialog.result.digest } : undefined });
     }

@@ -7,7 +7,7 @@ import { parsedLine } from './jsonl.mjs';
 import { command } from './run.mjs';
 import { publishedDialog, readTerminal, SESSION_LABEL } from './worker-human.mjs';
 import { answerQuestion } from './human-dialogs.mjs';
-import { answerText } from './human-contract.mjs';
+import { answerText, closedDialogText } from './human-contract.mjs';
 
 const QUESTION_TOOL = 'ask_user_question';
 const SECRET_TOOL = 'ask_user_secret';
@@ -95,7 +95,7 @@ export function waitingDialog(terminal) {
     const published = call && publishedDialog(terminal, session, call.id);
     if (published?.result) {
       const isAnswered = ['answered', 'stored'].includes(published.result.status);
-      return { id: call.id, kind: isAnswered ? 'answered' : 'closed', message: isAnswered ? (published.kind === 'secret' ? 'Secret request completed.' : answerText(published.result.answers)) : `Question ${published.result.status}.` };
+      return { id: call.id, kind: isAnswered ? 'answered' : 'closed', message: isAnswered ? (published.kind === 'secret' ? 'Secret request completed.' : answerText(published.result.answers)) : closedDialogText(published) };
     }
     if (isResumed) return { id: call.id, kind: 'resumed' };
     if (call?.name === QUESTION_TOOL) return { id: call.id, kind: 'question', questions: call.arguments.questions.map(questionView) };
