@@ -9,6 +9,7 @@ import { DIALOG_ID, discordMessageUrl, packet } from './human-contract.mjs';
 import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
 import { main } from './main.mjs';
+import { questionBlock } from './pots-questions.mjs';
 import { botHome, botId, isMastermind, sandbox } from './sandbox.mjs';
 
 const FOLDER = join(HUMAN_HOME, 'discord');
@@ -50,8 +51,8 @@ async function posted(record) {
 async function register(registration) {
   const request = find(registration.request);
   if (request?.direction !== RECEIVED || request.pot !== registration.pot) throw new Error('discord-human: no matching incoming door request.');
-  const block = /```question\s*\n([\s\S]*?)\n```/.exec(request.need);
-  if (!block || JSON.stringify(JSON.parse(block[1])) !== JSON.stringify(registration.question)) throw new Error('discord-human: question differs from the incoming request.');
+  const block = questionBlock(request.need);
+  if (!block || JSON.stringify(JSON.parse(block)) !== JSON.stringify(registration.question)) throw new Error('discord-human: question differs from the incoming request.');
   const record = await registerDiscordQuestion(registration, store(), sandbox.humanDiscord);
   await posted(record);
   return { dialog: record.id, registered: true };

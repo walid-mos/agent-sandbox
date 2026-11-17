@@ -34,9 +34,14 @@ function optionsOf(asked) {
 /** A bot's text without its question block and the question it asks, or null when it asks none. The last block is the
  *  question, so a quoted example above it does not hide the real one. A malformed block stays in the text, so the person
  *  sees it as code rather than losing it. */
+const lastBlock = written => [...written.matchAll(BLOCK)].at(-1);
+
+/** The JSON text of a message's question block: the last one, as `questionIn` reads it. */
+export const questionBlock = text => lastBlock(`${text ?? ''}`)?.[1];
+
 export function questionIn(text) {
   const written = `${text ?? ''}`;
-  const block = [...written.matchAll(BLOCK)].at(-1);
+  const block = lastBlock(written);
   const asked = block ? parsedBlock(block[1]) : null;
   const options = optionsOf(asked);
   if (!options) return null;
