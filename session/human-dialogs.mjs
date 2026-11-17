@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { answersOf, dialogSource, discordEvidence, discordMessage, packet, questionsOf, RELAYED_POLICIES, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
+import { answersOf, dialogSource, discordEvidence, discordMessage, onlyFor, packet, questionsOf, RELAYED_POLICIES, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
 import { humanStore } from './human-store.mjs';
 
 export const dialogId = source => createHash('sha256').update(JSON.stringify(dialogSource(source))).digest('hex').slice(0, 32);
@@ -14,9 +14,9 @@ export function questionPacket(dialog) {
 }
 
 function clickOf(question, clicks) {
-  const matches = clicks.filter(click => click?.question === question.id);
-  if (matches.length !== 1) throw new Error('human: answer must carry one click per question.');
-  return matches[0];
+  const click = onlyFor(question, clicks, 'question');
+  if (!click) throw new Error('human: answer must carry one click per question.');
+  return click;
 }
 
 function checkedReply(dialog, reply) {

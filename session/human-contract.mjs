@@ -67,16 +67,20 @@ export function targetKeys(target) {
   return target.destination === 'browser' ? [BROWSER_KEY] : [target.name];
 }
 
+export function onlyFor(question, items, field) {
+  const matches = items.filter(item => item?.[field] === question.id);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 export function answersOf(questions, answers) {
   if (!Array.isArray(answers) || answers.length !== questions.length) throw new Error('human: answer every question.');
   return questions.map(question => answerOf(question, answers));
 }
 
 function answerOf(question, answers) {
-  const matches = answers.filter(answer => answer?.id === question.id);
-  const answer = matches[0];
+  const answer = onlyFor(question, answers, 'id');
   const labels = answer?.labels;
-  if (matches.length !== 1 || !Array.isArray(labels) || !unique(labels) || typeof answer.text !== 'string') throw new Error('human: invalid answer shape.');
+  if (!answer || !Array.isArray(labels) || !unique(labels) || typeof answer.text !== 'string') throw new Error('human: invalid answer shape.');
   if (!labels.every(label => question.options.some(option => option.label === label))) throw new Error('human: unknown answer label.');
   const count = labels.length + (answer.text.trim() ? 1 : 0);
   if (count < 1 || (!question.multiple && count !== 1)) throw new Error('human: choose the permitted number of answers.');

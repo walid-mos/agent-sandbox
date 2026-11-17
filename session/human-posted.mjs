@@ -1,4 +1,4 @@
-import { discordMessage, VERSION } from './human-contract.mjs';
+import { discordMessage, onlyFor, VERSION } from './human-contract.mjs';
 import { questionDigest } from './human-dialogs.mjs';
 import { humanStore } from './human-store.mjs';
 
@@ -9,9 +9,9 @@ export async function registerPosted(posted, store = humanStore()) {
     if (dialog?.kind !== 'question' || posted.request !== dialog.delivery?.id || posted.digest !== questionDigest(dialog)) throw new Error('human: posted context does not match the question request and scope.');
     if (!Array.isArray(posted.messages) || posted.messages.length !== dialog.questions.length) throw new Error('human: register one message per question.');
     const messages = dialog.questions.map(question => {
-      const matches = posted.messages.filter(message => message.question === question.id);
-      if (matches.length !== 1 || discordMessage(matches[0].messageUrl).guildId !== posted.guildId) throw new Error('human: posted message does not match its question and guild.');
-      return { question: question.id, messageUrl: matches[0].messageUrl };
+      const match = onlyFor(question, posted.messages, 'question');
+      if (!match || discordMessage(match.messageUrl).guildId !== posted.guildId) throw new Error('human: posted message does not match its question and guild.');
+      return { question: question.id, messageUrl: match.messageUrl };
     });
     if (new Set(messages.map(message => message.messageUrl)).size !== messages.length) throw new Error('human: each question needs its own Discord message.');
     const context = { request: posted.request, digest: posted.digest, guildId: posted.guildId, messages };
