@@ -1,33 +1,14 @@
 #!/usr/bin/env python3
-import json
 import os
 from pathlib import Path
-import socketserver
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from landing import LAUNCH, Refused, Signer, publish_token, require_caller
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from landing import LAUNCH, Signer
+from factory_socket import serve
 
 REQUEST_BYTES = 2048
-REQUEST_SECONDS = 30
-
-
-class Handler(socketserver.StreamRequestHandler):
-    timeout = REQUEST_SECONDS
-
-    def handle(self):
-        try:
-            require_caller(self.rfile, LAUNCH["POTS_LANDING_SOCKET"])
-            line = self.rfile.readline(REQUEST_BYTES + 1)
-            if len(line) > REQUEST_BYTES or not line.endswith(b"\n"):
-                raise Refused("landing: send one bounded JSON line.")
-            release = self.server.signer.sign(json.loads(line))
-            reply = {"ok": True, **release}
-        except Refused as error:
-            reply = {"ok": False, "error": str(error)}
-        except (ValueError, OSError):
-            reply = {"ok": False, "error": "landing: malformed request or unavailable state. No signature was published."}
-        self.wfile.write((json.dumps(reply) + "\n").encode())
 
 
 def main():
@@ -36,16 +17,7 @@ def main():
     if not Path(LAUNCH["POTS_LANDING_KEY_HOME"]).is_dir():
         print("landing-signer: no factory key. The operator creates it from the Mac.", flush=True)
         return
-    signer = Signer()
-    address = Path(LAUNCH["POTS_LANDING_SOCKET"])
-    address.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
-    address.unlink(missing_ok=True)
-    with socketserver.UnixStreamServer(str(address), Handler) as server:
-        server.signer = signer
-        address.chmod(0o666)
-        publish_token(address)
-        print("landing-signer: ready", flush=True)
-        server.serve_forever()
+    serve(LAUNCH["POTS_LANDING_SOCKET"], "landing", REQUEST_BYTES, Signer().sign, "landing: malformed request or unavailable state. No signature was published.")
 
 
 if __name__ == "__main__":

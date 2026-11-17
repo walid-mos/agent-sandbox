@@ -1,30 +1,23 @@
 import base64
-import hmac
 import json
 import os
 from pathlib import Path
 import re
-import secrets
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
+from factory_socket import Refused
 from launch import LAUNCH
 from signed_commit import Untrusted, require_signed
 
 OBJECT_ID = re.compile(r"[0-9a-f]{40}")
 FACTORY_LABEL_KEY = "fr.nextnode.pots"
 FACTORY_LABEL_VALUE = "isolated-factory"
-TOKEN_FILE = "token"
-TOKEN_LENGTH = 64
 REQUEST_FIELDS = {"repository", "number", "head", "merged", "base"}
 ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "HOME": "/nonexistent", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_TERMINAL_PROMPT": "0"}
 GIT_OPTIONS = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "credential.helper=", "-c", "protocol.file.allow=never", "-c", "protocol.ext.allow=never")
-
-
-class Refused(Exception):
-    pass
 
 
 def execute(arguments, *, input=None, environment=ENVIRONMENT, timeout=120):
@@ -41,23 +34,6 @@ def private_directory(path):
     status = path.stat()
     if status.st_uid != os.geteuid() or status.st_mode & 0o077:
         raise Refused("landing: private state must be owned by this user and mode 0700.")
-
-
-# The caller authenticates with a token this VM writes into the socket's directory, which only the isolated factory mounts. A session reaches neither file, and VM root is trusted.
-def token_file(socket_path):
-    return Path(socket_path).parent / TOKEN_FILE
-
-
-def publish_token(socket_path):
-    path = token_file(socket_path)
-    path.write_text(secrets.token_hex(TOKEN_LENGTH // 2) + "\n")
-    path.chmod(0o444)
-
-
-def require_caller(incoming, socket_path):
-    given = incoming.readline(TOKEN_LENGTH + 2)
-    if not hmac.compare_digest(given, token_file(socket_path).read_bytes()):
-        raise Refused("the isolated factory's token is missing or wrong. Nothing was signed.")
 
 
 def fingerprint(home):
