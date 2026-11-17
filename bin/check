@@ -29,6 +29,10 @@ for path in "$root"/mac/*.ts; do
 	plain=$(node --no-warnings --input-type=module -e 'import { stripTypeScriptTypes } from "node:module"; import { readFileSync } from "node:fs"; process.stdout.write(stripTypeScriptTypes(readFileSync(process.argv[1], "utf8")))' "$path")
 	printf '%s\n' "$plain" | node --check --input-type=module
 done
+# The launcher decides which keys a sandbox needs: only SealSkin has a server and a tailnet ssh port.
+for path in "$root"/sandboxes.example/*/sandbox.json; do
+	jq -e '(.launcher // "docker") as $launcher | ($launcher == "docker") or ($launcher == "sealskin" and (.serverPort | type == "number") and (.tailnetSshPort | type == "number"))' "$path" > /dev/null || { echo "check: $path needs launcher docker or sealskin, and serverPort and tailnetSshPort for sealskin" >&2; exit 1; }
+done
 for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
 	jq empty "$path"
 done

@@ -8,8 +8,10 @@ PRIVATE_V6="fc00::/7 fe80::/10"
 EGRESS_CHAIN=DOCKER-USER
 INPUT_CHAIN=POTS-INPUT
 NETWORK_ENV=/etc/pots-firewall/network.env
+LAUNCHER_ENV=/etc/pots-firewall/launcher.env
 
 . "$NETWORK_ENV"
+. "$LAUNCHER_ENV"
 
 private_egress_rules() {
 	for range in $1; do
@@ -31,7 +33,9 @@ rules_v4() {
 	echo '*filter'
 	echo ":$EGRESS_CHAIN - [0:0]"
 	echo ":$INPUT_CHAIN - [0:0]"
-	echo "-A $EGRESS_CHAIN -d $SEALSKIN_SUBNET ! -s $SEALSKIN_SERVER_ADDRESS -m conntrack --ctstate NEW -j DROP"
+	if [ "$POTS_LAUNCHER" = sealskin ]; then
+		echo "-A $EGRESS_CHAIN -d $SEALSKIN_SUBNET ! -s $SEALSKIN_SERVER_ADDRESS -m conntrack --ctstate NEW -j DROP"
+	fi
 	private_egress_rules "$PRIVATE_V4"
 	vm_service_rules
 	echo COMMIT

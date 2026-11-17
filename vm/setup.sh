@@ -30,6 +30,7 @@ install_sysbox() {
 
 install_firewall() {
 	install -D -m 0644 "$here/network.env" /etc/pots-firewall/network.env
+	printf 'POTS_LAUNCHER=%s\n' "$launcher" > /etc/pots-firewall/launcher.env
 	install -m 0755 "$here/firewall.sh" /usr/local/sbin/pots-firewall
 	install -m 0644 "$here/pots-firewall.service" /etc/systemd/system/
 	systemctl daemon-reload
@@ -68,6 +69,11 @@ configure_swap() {
 swap_gib=${1:-}
 case $swap_gib in
 	'' | *[!0-9]*) echo "vm/setup.sh: expected vm.swapGiB as a whole number of GiB, got '$swap_gib'; set it in the sandbox's sandbox.json" >&2; exit 2 ;;
+esac
+launcher=${2:-}
+case $launcher in
+	docker | sealskin) ;;
+	*) echo "vm/setup.sh: expected the launcher docker or sealskin as second argument, got '$launcher'" >&2; exit 2 ;;
 esac
 install_sysbox
 install_firewall

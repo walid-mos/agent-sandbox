@@ -1,16 +1,17 @@
 # agent-sandbox
 
-Development sandboxes for a Pots bot and its Pi workers. Each sandbox is a SealSkin desktop session on its own Colima VM. The session has its own writable home and nested Docker daemon, with read-only access to the Mac's Development directory.
+Development sandboxes for a Pots bot and its Pi workers. Each sandbox is a desktop session on its own Colima VM, started either by plain Docker or by SealSkin. The session has its own writable home and nested Docker daemon, with read-only access to the Mac's Development directory.
 
 ## Sandboxes
 
-Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named after it, holding `sandbox.json`. [`sandboxes.example/`](sandboxes.example) holds a starting point, which `./bin/configure-host` copies when the runtime directory has none. That name is also its Colima profile. Every command under `bin/` and `mac/` acts on the sandbox that `SANDBOX` names and stops when it is unset.
+Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named after it, holding `sandbox.json`. [`sandboxes.example/`](sandboxes.example) holds a starting point, which `./bin/configure-host [docker|sealskin]` copies when the runtime directory has none. `POTS_RUNTIME` names another runtime directory, which keeps a trial sandbox out of the watchdog's sight. That name is also its Colima profile. Every command under `bin/` and `mac/` acts on the sandbox that `SANDBOX` names and stops when it is unset.
 
 | Key | Meaning |
 | --- | --- |
+| `launcher` | `docker` (the default) or `sealskin`. Docker starts the session image with `docker run`. SealSkin starts it through its server, as before |
 | `vm` | Cores, memory, swap file and disk of the VM |
-| `serverPort` | Mac-local port of the sandbox's SealSkin server. Each sandbox needs its own |
-| `tailnetSshPort` | Port of the Mac's tailnet address where ssh enters the sandbox's session. Each sandbox needs its own |
+| `serverPort` | `sealskin` only. Mac-local port of the sandbox's SealSkin server. Each sandbox needs its own |
+| `tailnetSshPort` | `sealskin` only. Port of the Mac's tailnet address where ssh enters the sandbox's session. Each sandbox needs its own |
 | `bot` | Name of the Pots bot that bootstrap creates, in one word |
 | `rules` | Optional. Path, in the session, of an instruction file that the bot and every worker of the sandbox load |
 | `owners` | GitHub owners that the dispatcher and the GitHub wrapper accept, each with the name of its token in the vault's `/tools/github` |
@@ -32,12 +33,14 @@ cd /path/to/agent-sandbox
 sandbox_repo="$PWD"
 export SANDBOX=sealskin
 ./bin/vm-up
-./bin/sealskin-up
+./bin/sealskin-up   # launcher sealskin only
 ```
+
+With the `docker` launcher, `vm-up` is the only step before `./bin/pots-session ensure`: no server starts and no admin setup exists. `pots-session` then runs the session image with `docker run`, with the same runtime, label, home volume `pots-home`, inner Docker volume and binds as SealSkin. [`session/launch.env`](session/launch.env) holds the image digest, runtime and volume names that both launchers read, and `./bin/render-config binds SANDBOX` prints the binds. `sealskin-up`, `sealskin-apply` and `mac/forward-dev` refuse a docker sandbox.
 
 `vm-up` writes the Colima profile from [the Colima template](colima/colima.yaml) and the sandbox's `vm` values, then starts the VM when it is stopped. It installs Sysbox, the container runtime, and enables the firewall service. Review the template and [the firewall configuration](vm/network.env) before starting. `sealskin-up` starts the server and applies the app template. Applying configuration restarts the SealSkin server and waits for it to load the template and installed app before returning.
 
-Complete SealSkin's initial admin setup through its Mac-local endpoint, `https://127.0.0.1:PORT`, where `PORT` is the sandbox's `serverPort`. The session API requires SealSkin's `/config/root_key`, and the installed Pots app is assigned to `admin`. This repository does not automate that initial admin setup.
+With the `sealskin` launcher, complete SealSkin's initial admin setup through its Mac-local endpoint, `https://127.0.0.1:PORT`, where `PORT` is the sandbox's `serverPort`. The session API requires SealSkin's `/config/root_key`, and the installed Pots app is assigned to `admin`. This repository does not automate that initial admin setup.
 
 Then create the session and bootstrap its tools:
 
@@ -154,7 +157,7 @@ Run the following from the Mac checkout:
 
 `name` prints the running session container name, or nothing. `ensure` launches a session if none is running. `ensure` and `restart` hold one lock, so the watchdog's check waits for a restart to finish and never launches a second session on the same home. `sandbox-exec` runs a command as the session user and fails when no session exists. Use `pots status` for the gateway and bot state, and `hc ls --all` for worker terminals.
 
-[The server image](sealskin/compose.yaml) and [the session image](sealskin/installed_apps.yml) are pinned by digest, and SealSkin's hourly image pull is off for the session app. Change an image by committing its new digest, then rerun `./bin/sealskin-up` for the server.
+[The server image](sealskin/compose.yaml) and [the session image](session/launch.env) are pinned by digest, and SealSkin's hourly image pull is off for the session app. Change the session image by committing its new digest in `session/launch.env`, then run `./bin/pots-session restart` (after `./bin/sealskin-apply` for SealSkin). Change the server image in its compose file and rerun `./bin/sealskin-up`.
 
 After changing the app template or installed app configuration, apply it before recreating the session:
 

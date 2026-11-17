@@ -19,7 +19,7 @@ fi
 if ! colima status --profile "$POTS_PROFILE" > /dev/null 2>&1; then
 	"$POTS_REPO/bin/vm-up"
 fi
-if ! sandbox_docker inspect --format '{{.State.Running}}' "$POTS_SERVER_CONTAINER" 2> /dev/null | grep -qx true; then
+if [ "$POTS_LAUNCHER" = sealskin ] && ! sandbox_docker inspect --format '{{.State.Running}}' "$POTS_SERVER_CONTAINER" 2> /dev/null | grep -qx true; then
 	"$POTS_REPO/bin/sealskin-up"
 fi
 "$POTS_REPO/bin/pots-session" ensure > /dev/null

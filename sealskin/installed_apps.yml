@@ -10,8 +10,8 @@
   overrides:
     name: Pots
     provider_config:
-      image: lscr.io/linuxserver/webtop:debian-xfce@sha256:4ec1d3cfb8df2e6e1c9d73c25bc1c8b42947e6861c3ef6a22e68b2f4cc94699f
+      image: SESSION_IMAGE
       docker_overrides:
-        runtime: sysbox-runc
+        runtime: SESSION_RUNTIME
         labels:
-          fr.nextnode.pots: session
+          SESSION_LABEL_KEY: SESSION_LABEL_VALUE

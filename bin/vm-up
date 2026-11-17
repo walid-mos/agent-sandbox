@@ -21,5 +21,5 @@ mv "$pending" "$profile"
 if ! colima status --profile "$POTS_PROFILE" > /dev/null 2>&1; then
 	colima start --profile "$POTS_PROFILE"
 fi
-colima ssh -p "$POTS_PROFILE" -- sudo "$POTS_REPO/vm/setup.sh" "$(vm_setting swapGiB)"
+colima ssh -p "$POTS_PROFILE" -- sudo "$POTS_REPO/vm/setup.sh" "$(vm_setting swapGiB)" "$POTS_LAUNCHER"
 colima ssh -p "$POTS_PROFILE" -- "$POTS_REPO/vm/session-keys" "$SANDBOX" "$POTS_CONTEXT" < "$HOME/.ssh/authorized_keys"

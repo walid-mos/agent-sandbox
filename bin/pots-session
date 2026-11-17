@@ -4,6 +4,9 @@ set -eu
 
 LOCK="$HOME/.colima/$POTS_PROFILE/pots-session.lock"
 LOCK_WAIT_SECONDS=300
+DOCKER_STOP_SECONDS=30
+NEWLINE='
+'
 
 # The watchdog and an operator can both find no session and each launch one on the same home, so every launch holds this lock.
 hold_lock() {
@@ -16,26 +19,56 @@ api() {
 			--header 'X-SealSkin-App: other' --header 'content-type: application/json' "$@"
 }
 
-ensure_home() {
+ensure_sealskin_home() {
 	if api "$POTS_SERVER_URL/api/homedirs" | jq -e --arg home "$POTS_HOME_NAME" '.. | strings | select(. == $home)' > /dev/null; then
 		return 0
 	fi
 	api --data "{\"home_name\":\"$POTS_HOME_NAME\"}" "$POTS_SERVER_URL/api/homedirs" > /dev/null
 }
 
-launch() {
+launch_sealskin() {
 	wait_for_server
-	ensure_home
+	ensure_sealskin_home
 	api --data "{\"application_id\":\"$POTS_APP_ID\",\"home_name\":\"$POTS_HOME_NAME\"}" \
 		"$POTS_SERVER_URL/api/launch/simple" > /dev/null
 }
 
-stop() {
-	stopping=$(session_container)
+stop_sealskin() {
 	sessions=$(api "$POTS_SERVER_URL/api/sessions")
 	for session in $(echo "$sessions" | jq -r --arg app "$POTS_APP_ID" '.[] | select(.app_id == $app) | .session_id'); do
 		api --request DELETE "$POTS_SERVER_URL/api/sessions/$session" > /dev/null
 	done
+}
+
+launch_docker() {
+	binds=$("$POTS_REPO/bin/render-config" binds "$SANDBOX")
+	[ -n "$binds" ] || { echo 'pots-session: rendered binds are empty' >&2; exit 1; }
+	set -- --volume "$POTS_HOME_VOLUME:$POTS_SESSION_HOME:rw"
+	# One bind per line: a path with a space stays one argument, and no pattern in a path expands.
+	set -f
+	IFS=$NEWLINE
+	for bind in $binds; do
+		set -- "$@" --volume "$bind"
+	done
+	unset IFS
+	set +f
+	sandbox_docker run --detach --rm --name "$POTS_SESSION_CONTAINER" --runtime "$POTS_SESSION_RUNTIME" \
+		--label "$POTS_SESSION_LABEL" --shm-size "$POTS_SESSION_SHM" \
+		--env PUID=1000 --env PGID=1000 --env TZ="$POTS_SESSION_TIMEZONE" --env START_DOCKER="$POTS_SESSION_START_DOCKER" \
+		"$@" "$POTS_SESSION_IMAGE" > /dev/null
+}
+
+stop_docker() {
+	[ -z "$1" ] || sandbox_docker stop --time "$DOCKER_STOP_SECONDS" "$1" > /dev/null
+}
+
+launch() {
+	"launch_$POTS_LAUNCHER"
+}
+
+stop() {
+	stopping=$(session_container)
+	"stop_$POTS_LAUNCHER" "$stopping" || return $?
 	if [ -n "$stopping" ]; then
 		sandbox_docker wait "$stopping" > /dev/null 2>&1 || true
 	fi

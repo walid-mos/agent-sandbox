@@ -2,11 +2,12 @@
 set -u
 
 PROBE_IMAGE=alpine:3.22
-DEVELOPMENT=$4
+launcher=$1
+outer_container=$2
+server_address=$3
+vm_sealskin_config=$4
+DEVELOPMENT=$5
 MAC_HOME=$(dirname "$DEVELOPMENT")
-server_address=$1
-vm_sealskin_config=$2
-server_container=$3
 failures=0
 
 expect() {
@@ -30,7 +31,7 @@ session_root_is_vm_root() {
 }
 
 session_docker_sees_vm_containers() {
-	docker ps -a --format '{{.Names}}' | grep -qx "$server_container"
+	docker ps -a --format '{{.Names}}' | grep -qx "$outer_container"
 }
 
 echo "as $(id -un)"
@@ -40,6 +41,8 @@ expect succeed only-development-is-mounted only_development_is_mounted
 expect fail write-development touch "$DEVELOPMENT/.agent-sandbox-probe"
 expect fail session-root-is-vm-root session_root_is_vm_root
 expect fail session-docker-sees-vm-containers session_docker_sees_vm_containers
-expect fail worker-mounts-vm-volume docker run --rm -v /:/session "$PROBE_IMAGE" test -e "/session$vm_sealskin_config"
-expect fail worker-reaches-sealskin-server docker run --rm "$PROBE_IMAGE" nc -z -w 4 "$server_address" 8443
+if [ "$launcher" = sealskin ]; then
+	expect fail worker-mounts-vm-volume docker run --rm -v /:/session "$PROBE_IMAGE" test -e "/session$vm_sealskin_config"
+	expect fail worker-reaches-sealskin-server docker run --rm "$PROBE_IMAGE" nc -z -w 4 "$server_address" 8443
+fi
 exit "$failures"

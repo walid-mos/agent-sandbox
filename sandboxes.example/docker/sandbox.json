@@ -1,0 +1,29 @@
+{
+  "launcher": "docker",
+  "vm": {
+    "cpu": 6,
+    "memoryGiB": 18,
+    "swapGiB": 0,
+    "diskGiB": 200
+  },
+  "bot": "Principal",
+  "owners": {
+    "NextNodeSolutions": "GITHUB_TOKEN",
+    "walid-mos": "GITHUB_TOKEN_WALID_MOS"
+  },
+  "secrets": {
+    "/providers": [
+      "DEEPSEEK_API_KEY",
+      "INCO_API_KEY",
+      "OPENROUTER_API_KEY",
+      "TYPESAFE_API_KEY"
+    ]
+  },
+  "onRequest": {
+    "claude": {
+      "/clients/claude": [
+        "CLAUDE_CODE_OAUTH_TOKEN"
+      ]
+    }
+  }
+}
