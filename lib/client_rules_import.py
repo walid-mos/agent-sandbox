@@ -2,18 +2,21 @@ from contextlib import contextmanager
 import fcntl
 import os
 from pathlib import Path
-import re
 import subprocess
 import tempfile
 
 from agent_sources import source_catalog
-from source_refresh import SAFE_CONFIG, git
+from source_refresh import git, require_safe_config
 from client_rules import (PRIVATE_FILE, SNAPSHOT_FILE, SNAPSHOT_MODE, STATE_FILE, apply_recipe,
                           approved_state, digest, parse_json, read_json, refuse, regular_file,
-                          replace_file, require_hash, rules_target, rules_text, source_file, state_bytes)
+                          replace_file, require_hash, rules_target, rules_text, source_file, json_bytes)
 
 LAUNCH_ENV = Path(__file__).resolve().parents[1] / "session/launch.env"
-SESSION_CONFIGURATION = Path(re.search(r"^POTS_SESSION_CONFIGURATION=(.+)$", LAUNCH_ENV.read_text(), re.MULTILINE).group(1))
+
+
+def session_configuration():
+    launch = dict(line.split("=", 1) for line in LAUNCH_ENV.read_text().splitlines() if line)
+    return Path(launch["POTS_SESSION_CONFIGURATION"])
 
 
 @contextmanager
@@ -45,12 +48,13 @@ def private_checkout(name):
 
 def require_origin(checkout, repository):
     try:
-        keys = git(checkout, "config", "--local", "--name-only", "--list").splitlines()
+        require_safe_config(checkout)
+    except RuntimeError:
+        refuse("source clone has unsupported Git configuration.")
+    try:
         origin = git(checkout, "config", "--local", "--get", "remote.origin.url")
     except RuntimeError:
         refuse("source origin could not be verified. No client text was written.")
-    if any(not SAFE_CONFIG.fullmatch(key) for key in keys):
-        refuse("source clone has unsupported Git configuration.")
     if origin.removesuffix(".git") != f"https://github.com/{repository}":
         refuse("checkout origin differs from the catalog's private repository.")
 
@@ -62,7 +66,7 @@ def require_selected(directory, source):
     sources = configuration.get("sources", [])
     if not isinstance(sources, list) or source not in sources:
         refuse("source is not selected in this sandbox's sources.")
-    rules_target(configuration.get("rules"), SESSION_CONFIGURATION)
+    rules_target(configuration.get("rules"), session_configuration())
 
 
 def import_rules(directory, checkout_for, source, original, relative, recipe, recipe_hash):
@@ -89,7 +93,7 @@ def install_import(directory, original, target, before, after, state):
     original_mode = original.stat().st_mode & 0o777
     created = []
     contents = [(target, after, PRIVATE_FILE), (directory / SNAPSHOT_FILE, after, SNAPSHOT_MODE),
-                (directory / STATE_FILE, state_bytes(state), PRIVATE_FILE)]
+                (directory / STATE_FILE, json_bytes(state), PRIVATE_FILE)]
     if any(path.exists() or path.is_symlink() for path, _, _ in contents):
         refuse("import destination already exists. Existing files were preserved.")
     try:
@@ -136,7 +140,7 @@ def approve_rules(directory, checkout_for, expected):
         snapshot = directory / SNAPSHOT_FILE
         replace_file(snapshot, candidate, SNAPSHOT_MODE)
         try:
-            replace_file(directory / STATE_FILE, state_bytes(updated))
+            replace_file(directory / STATE_FILE, json_bytes(updated))
         except BaseException:
             replace_file(snapshot, text.encode("utf-8"), SNAPSHOT_MODE)
             raise
@@ -151,4 +155,4 @@ def acknowledge_rules(directory, expected):
             refuse("no imported rules to acknowledge.")
         state, _ = approved
         if state["sha256"] == require_hash(expected) and state["isPending"]:
-            replace_file(directory / STATE_FILE, state_bytes({**state, "isPending": False}))
+            replace_file(directory / STATE_FILE, json_bytes({**state, "isPending": False}))

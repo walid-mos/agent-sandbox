@@ -11,6 +11,11 @@ SNAPSHOT_FILE = "client-rules.md"
 HASH = re.compile(r"[a-f0-9]{64}")
 PRIVATE_FILE = 0o600
 SNAPSHOT_MODE = 0o444
+REQUIRED = ("sandbox.json", "vault.json")
+SANDBOX_OPTIONAL = ("git-identity.json",)
+RUNTIME_OPTIONAL = ("tailnet.json",)
+OPTIONAL = SANDBOX_OPTIONAL + RUNTIME_OPTIONAL
+RULES_KEY = "client-rules"
 
 
 class RulesRefused(RuntimeError):
@@ -104,8 +109,9 @@ def apply_recipe(original, recipe):
     return b"".join([*pieces, original[position:]])
 
 
+# A session command can read a file while it changes, so each file is replaced whole.
 def replace_file(path, content, mode=PRIVATE_FILE):
-    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".client-rules-", delete=False) as pending:
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as pending:
         pending_path = Path(pending.name)
         try:
             os.fchmod(pending.fileno(), mode)
@@ -117,8 +123,8 @@ def replace_file(path, content, mode=PRIVATE_FILE):
             pending_path.unlink(missing_ok=True)
 
 
-def state_bytes(state):
-    return (json.dumps(state, indent=2) + "\n").encode()
+def json_bytes(content):
+    return (json.dumps(content, indent=2) + "\n").encode()
 
 
 def rules_text(content):
@@ -172,7 +178,8 @@ def verified_rules(payload, target_name, directory):
     if not isinstance(payload["text"], str):
         refuse("rules text must be a string.")
     content = payload["text"].encode("utf-8")
-    rules_text(content)
+    if not content:
+        refuse("rules must be nonempty UTF-8. Input text is withheld.")
     expected = require_hash(payload["sha256"])
     previous = require_hash(payload["previousSha256"])
     if digest(content) != expected:

@@ -3,14 +3,7 @@ import json
 from pathlib import Path
 import sys
 
-from client_rules import RulesRefused, approved_rules, read_json
-from client_rules_import import acknowledge_rules
-
-REQUIRED = ("sandbox.json", "vault.json")
-SANDBOX_OPTIONAL = ("git-identity.json",)
-RUNTIME_OPTIONAL = ("tailnet.json",)
-OPTIONAL = SANDBOX_OPTIONAL + RUNTIME_OPTIONAL
-RULES_KEY = "client-rules"
+from client_rules import REQUIRED, RULES_KEY, RUNTIME_OPTIONAL, SANDBOX_OPTIONAL, RulesRefused, approved_rules, read_json
 
 
 def bundle(directory, runtime):
@@ -27,6 +20,7 @@ def main():
     is_acknowledgement = len(sys.argv) > 1 and sys.argv[1] == "acknowledge"
     try:
         if is_acknowledgement:
+            from client_rules_import import acknowledge_rules
             directory, expected = sys.argv[2:]
             acknowledge_rules(Path(directory), expected)
         else:

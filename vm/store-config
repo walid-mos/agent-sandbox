@@ -4,8 +4,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from client_rules import RulesRefused, replace_file, unique_keys, verified_rules
-from config_bundle import OPTIONAL, REQUIRED, RULES_KEY
+from client_rules import OPTIONAL, REQUIRED, RULES_KEY, RulesRefused, json_bytes, replace_file, unique_keys, verified_rules
 
 SESSION_READABLE_DIRECTORY = 0o755
 SESSION_READABLE_FILE = 0o644
@@ -42,7 +41,7 @@ def main():
     directory.mkdir(parents=True, exist_ok=True)
     directory.chmod(SESSION_READABLE_DIRECTORY)
     for name, content in bundle.items():
-        replace_file(directory / name, (json.dumps(content, indent=2) + "\n").encode(), SESSION_READABLE_FILE)
+        replace_file(directory / name, json_bytes(content), SESSION_READABLE_FILE)
     for name in OPTIONAL:
         if name not in bundle:
             (directory / name).unlink(missing_ok=True)

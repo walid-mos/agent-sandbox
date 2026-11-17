@@ -169,9 +169,6 @@ class ImportTests(unittest.TestCase):
         for arguments in [["init", "--quiet"], ["remote", "add", "origin", "https://github.com/example/public-fixture.git"]]:
             result = subprocess.run(["git", "-C", str(checkout), *arguments], capture_output=True, check=False)
             self.assertEqual(result.returncode, 0)
-        host = self.root / "sandboxes/synthetic"
-        host.mkdir(parents=True)
-        (host / "sandbox.json").write_text(json.dumps({**self.configuration, "sources": ["synthetic"]}))
         (checkout / "rules").mkdir()
         (checkout / "rules/import.json").write_bytes(self.plan.read_bytes())
         result = self.cli_import("true")
