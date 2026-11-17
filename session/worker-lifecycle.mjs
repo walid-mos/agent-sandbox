@@ -25,7 +25,6 @@ export function lifecycleOf(worker) {
   return state;
 }
 
-// A task is complete when its result file is, and never touches Git.
 function taskFacts(worker) {
   const result = existsSync(worker.resultFile) && lstatSync(worker.resultFile);
   const resultReady = Boolean(result && result.isFile() && result.size > 0);
@@ -44,7 +43,6 @@ function repositoryFacts(worker, cwd) {
 
 export const completionFacts = (worker, cwd = worker.worktree) => worker.kind === 'task' ? taskFacts(worker) : repositoryFacts(worker, cwd);
 
-/** Completion facts, with the branch and commit a repository worker's report names. */
 export function reportFacts(worker) {
   const facts = completionFacts(worker);
   if (facts.kind === 'task') return facts;

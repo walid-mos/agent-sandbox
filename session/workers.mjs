@@ -37,7 +37,6 @@ export function save(worker) {
   writePrivateJson(join(WORKERS, `${worker.name}.json`), worker);
 }
 
-// A local repository worker waits for its first approved push, then for its draft PR, before it is published.
 export const PUBLICATION = Object.freeze({ local: 'local', awaitingPr: 'awaiting-pr', published: 'published' });
 const PUBLICATION_SUFFIX = '.publication';
 const publicationRecord = worker => join(WORKERS, `${worker.name}${PUBLICATION_SUFFIX}`);
@@ -147,7 +146,6 @@ function sessionArguments(worker, sessionDir, sessionId) {
   return ['--session', worker.sessionFile];
 }
 
-// The launcher hands a worker's Pi its identity through these variables, which worker-agent.mjs reads back.
 const LAUNCH_VARIABLES = { name: 'POTS_WORKER', owner: 'POTS_OWNER', launchId: 'POTS_LAUNCH' };
 export const launchedWorker = environment => Object.fromEntries(Object.entries(LAUNCH_VARIABLES).map(([field, variable]) => [field, environment[variable]]));
 const launchEnvironment = worker => Object.entries(LAUNCH_VARIABLES).map(([field, variable]) => `${variable}=${worker[field]}`);
