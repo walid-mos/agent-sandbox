@@ -2,7 +2,7 @@ import { readConversation } from './adopted-execution.mjs';
 import { dequeue, queued, updateRequest } from './queue.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { isStopped, launch, liveTerminals, terminalOf, workers } from './workers.mjs';
+import { isStopped, launch, liveTerminals, save, terminalOf, workers } from './workers.mjs';
 import { lifecycleOf, wrappedFollowUp } from './worker-lifecycle.mjs';
 
 function conversationOf(worker) {
@@ -35,8 +35,11 @@ function deliver(request, terminal, worker) {
 
 function reportNotStarted(request, worker, error) {
   const reason = failureReason(error) || (error instanceof Error ? error.message : 'hc did not answer');
+  const current = workers().find(candidate => candidate.name === worker.name);
+  if (!current) throw new Error('dispatch: failed worker record disappeared. Inspect its task before retrying.');
+  save({ ...current, status: 'not started', failure: reason });
   const note = JSON.stringify({ worker: worker.name, status: 'not started', reason, pullRequest: worker.pullRequest });
-  command('pots', ['wake', '--bot', botId, '--id', `${request.file}-not-started`, '--note', note]);
+  if (!worker.taskId) command('pots', ['wake', '--bot', botId, '--id', `${request.file}-not-started`, '--note', note]);
   if (!request.message) dequeue(request);
 }
 

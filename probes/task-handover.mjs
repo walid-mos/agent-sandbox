@@ -1,81 +1,21 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { performance } from 'node:perf_hooks';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { existingExecution, fixture, submission } from './fixtures/task-harness.mjs';
 import { test } from 'node:test';
 import { discordApiFixture } from './fixtures/task-discord.mjs';
 
-const root = dirname(import.meta.dirname);
-const preload = join(root, 'probes/fixtures/task-boundary.mjs');
-
-function fixture(t) {
-  const started = performance.now();
-  const folder = mkdtempSync(join(tmpdir(), 'herdr-handover-'));
-  const marker = join(folder, 'owner.json');
-  const registry = `${folder}.ownership.json`;
-  const owner = { run: folder, worktree: root, resource: folder, endpoint: 'filesystem-only', resources: [] };
-  const recordResource = resource => {
-    owner.resources.push(resource);
-    writeFileSync(registry, JSON.stringify(owner));
-  };
-  t.after(() => {
-    const cleanup = performance.now();
-    assert.equal(JSON.parse(readFileSync(marker, 'utf8')).run, owner.run);
-    assert.deepEqual(JSON.parse(readFileSync(registry, 'utf8')), owner);
-    rmSync(folder, { recursive: true });
-    rmSync(registry);
-    t.diagnostic(`cleanupMs=${(performance.now() - cleanup).toFixed(2)}`);
-  });
-  writeFileSync(marker, JSON.stringify(owner));
-  writeFileSync(registry, JSON.stringify(owner));
-  mkdirSync(join(folder, 'bot'));
-  writeFileSync(join(folder, 'bot/bot.json'), JSON.stringify({ model: 'synthetic-router' }));
-  const path = join(folder, 'boundary.json');
-  writeFileSync(path, JSON.stringify({ terminals: [], calls: [], wakes: [], loseReply: false }));
-  const read = () => JSON.parse(readFileSync(path, 'utf8'));
-  const patch = changes => writeFileSync(path, JSON.stringify({ ...read(), ...changes }));
-  function invoke(module, args) {
-    return spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--experimental-test-module-mocks',
-      '--import', preload, join(root, module), ...args],
-    { encoding: 'utf8', env: { ...process.env, POTS_TASK_FIXTURE: folder } });
-  }
-  const run = (operation, input) => invoke('session/control.mjs', [operation, JSON.stringify(input)]);
-  function workerStep(operation) {
-    const reply = invoke('probes/fixtures/task-worker.mjs', [operation]);
-    assert.equal(reply.status, 0, reply.stderr);
-  }
-  function control(operation, input) {
-    const reply = run(operation, input);
-    assert.equal(reply.status, 0, reply.stderr);
-    return JSON.parse(reply.stdout);
-  }
-  t.diagnostic(`setupMs=${(performance.now() - started).toFixed(2)}`);
-  return { folder, read, patch, run, control, invoke, workerStep, recordResource };
-}
-
-function existingExecution(folder) {
-  const cwd = join(folder, 'Development/example/project/.worktree/synthetic');
-  const sessions = join(folder, '.pi/agent/sessions');
-  mkdirSync(cwd, { recursive: true });
-  mkdirSync(sessions, { recursive: true });
-  const sessionFile = join(sessions, 'exact.jsonl');
-  const transcript = '{"type":"session","id":"synthetic-session"}\n{"type":"message","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"Synthetic final report."}]}}\n';
-  writeFileSync(sessionFile, transcript);
-  const terminal = { address: 't-synthetic-existing', name: 'synthetic-existing', cwd, argv: ['pi', '@synthetic-brief.md'],
-    parent: 'synthetic-mac/t-parent', state: 'live', status: 'working', created_ms: 1000,
-    labels: { 'pi.session': sessionFile } };
-  return { terminal, sessionFile, transcript };
-}
-
-const submission = { id: 'task-synthetic-001', target: 'synthetic', text: 'Produce the synthetic report.',
-  provenance: { source: 'herdr', author: 'synthetic-person', reference: 'synthetic-thread' } };
+test('simultaneous deliveries keep one durable intake and one bot receipt', async t => {
+  const { control, controlAsync, read } = fixture(t);
+  const replies = await Promise.all(Array.from({ length: 4 }, () => controlAsync('task-submit', submission)));
+  assert.equal(new Set(replies.map(reply => reply.receipt)).size, 1);
+  assert.equal(read().wakes.length, 1);
+  assert.equal(control('snapshot').tasks.length, 1);
+});
 
 test('Herdr intake reaches one bot receipt and explicit acceptance across lost replies and restart', t => {
   const { control, read, patch } = fixture(t);
-  const started = performance.now();
   patch({ loseReply: true });
   const uncertain = control('task-submit', submission);
   assert.equal(uncertain.delivery.state, 'unknown');
@@ -93,7 +33,6 @@ test('Herdr intake reaches one bot receipt and explicit acceptance across lost r
   assert.equal(snapshot.tasks[0].acceptance.state, 'accepted');
   assert.deepEqual(snapshot.tasks[0].provenance, submission.provenance);
   assert.equal(read().calls.filter(call => call.binary === 'hc' && call.args[0] === 'run').length, 0);
-  t.diagnostic(`executionMs=${(performance.now() - started).toFixed(2)}`);
 });
 
 test('adoption preserves the exact Mac-parented conversation and one final result through restart', async t => {
@@ -196,9 +135,32 @@ test('a new accepted task uses one existing dispatch queue worker and one lifecy
   assert.ok(snapshot.tasks[0].execution.result.id);
   const reports = read().wakes.filter(wake => wake.note.kind === 'task-report');
   assert.deepEqual(reports.at(-1).note.task, snapshot.tasks[0]);
-  assert.equal(read().wakes.filter(wake => wake.note.result).length, 1);
+  assert.equal(read().wakes.filter(wake => wake.note.result || wake.note.task?.execution?.result).length, 1);
   assert.equal(invoke('session/dispatch.mjs', args).status, 0);
   assert.equal(read().calls.filter(call => call.binary === 'hc' && call.args[0] === 'run').length, 1);
+});
+
+test('failed task launch reports its task identity and reason through the shared report only', t => {
+  const { folder, control, read, patch, invoke, workerStep } = fixture(t);
+  control('task-submit', submission);
+  control('task-decide', { id: submission.id, state: 'accepted', reason: 'Start synthetic work.' });
+  const config = join(folder, '.pi/agent/extensions/subagent');
+  mkdirSync(config, { recursive: true });
+  writeFileSync(join(config, 'config.json'), JSON.stringify({ worktreeBaseDir: '.worktree' }));
+  const brief = join(folder, 'brief.md');
+  writeFileSync(brief, 'Produce the synthetic report.');
+  const reply = invoke('session/dispatch.mjs', ['start', '--task', submission.id, '--title', 'feat: synthetic report',
+    '--subject', 'feat: synthetic report', 'example/project', 'feat/synthetic', brief, 'main']);
+  assert.equal(reply.status, 0, reply.stderr);
+  patch({ failLaunch: true });
+  workerStep('serve');
+  workerStep('report');
+  const task = control('snapshot').tasks[0];
+  assert.equal(task.execution.status, 'not started');
+  assert.equal(task.execution.failure, 'Simulated worker launch failure.');
+  const reports = read().wakes.filter(wake => wake.note.kind === 'task-report' || wake.note.status === 'not started');
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].note.task.id, submission.id);
 });
 
 test('task text and claimed author stay literal and cannot grant approval or launch', t => {

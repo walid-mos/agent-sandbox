@@ -46,6 +46,7 @@ function terminalCommand(args, boundary) {
   }
   if (args[0] === 'read') return 'Synthetic final result.';
   if (args[0] === 'run') {
+    if (boundary.failLaunch) throw new Error('Simulated worker launch failure.');
     const labels = Object.fromEntries(args.flatMap((value, index) => value === '--label' ? [args[index + 1].split('=')] : []));
     boundary.terminals.push({ address: 't-synthetic-new', name: args[args.indexOf('--name') + 1],
       cwd: args[args.indexOf('--cwd') + 1], state: 'live', status: 'working', labels });

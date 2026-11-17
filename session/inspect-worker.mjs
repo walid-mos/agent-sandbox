@@ -14,7 +14,7 @@ function report(worker, terminal, status, wake, state, facts, isSettled) {
   const result = isFinished ? keepResult(worker, terminal, state) : undefined;
   const note = { worker: worker.name, kind: worker.kind, taskId: worker.taskId, title, terminal: terminal.address, status, ...facts, cleanPass: passes(worker), pullRequest: worker.pullRequest, result };
   save({ ...worker, status, result, ...facts });
-  command('pots', ['wake', '--bot', botId, '--id', wake, '--note', JSON.stringify(note)]);
+  if (!worker.taskId) command('pots', ['wake', '--bot', botId, '--id', wake, '--note', JSON.stringify(note)]);
   save({ ...worker, status, lastReport: wake, result, ...facts });
 }
 
@@ -90,7 +90,7 @@ function inspectAdopted(worker, view) {
   const facts = terminal ? gitFacts(worker) : {};
   const note = { worker: worker.name, taskId: worker.taskId, terminal: worker.terminal, status, ...facts, result: worker.result };
   save({ ...worker, status, ...facts });
-  command('pots', ['wake', '--bot', botId, '--id', wake, '--note', JSON.stringify(note)]);
+  if (!worker.taskId) command('pots', ['wake', '--bot', botId, '--id', wake, '--note', JSON.stringify(note)]);
   save({ ...worker, status, ...facts, lastReport: wake });
 }
 
