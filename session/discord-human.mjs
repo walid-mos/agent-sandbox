@@ -4,7 +4,7 @@ import { acceptDiscordClick, closeDiscordQuestion } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
 import { ANSWERED, RECEIVED } from './door-requests.mjs';
 import { DIALOG } from './door-messages.mjs';
-import { DIALOG_ID } from './human-contract.mjs';
+import { storedPacket } from './human-door-packets.mjs';
 import { reconcileRegistrations, registerQuestion, REGISTRATION_EXIT } from './discord-registration.mjs';
 import { dialogDoors, DOOR_RETRY_MS } from './human-doors.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
@@ -39,23 +39,12 @@ async function settle(record) {
   for (const [id, update] of Object.entries(record.updates ?? {})) await updateMessage(record.id, id, update);
 }
 
-function completionPacket(request) {
-  let completion;
-  try { completion = JSON.parse(request.need); } catch { return undefined; }
-  if (completion?.type !== 'human.answered') return undefined;
-  return completion;
-}
-
-function completionOrigin(completion, pot) {
-  return DIALOG_ID.test(completion.dialog) && completion.request?.startsWith(`${pot}.`);
-}
-
 const isCompletionOwner = (record, pot) => !record?.registration || record.registration.pot === pot;
 const isCompletionAcknowledged = (request, record, completion) => request.state === ANSWERED && JSON.stringify(record?.closed) === JSON.stringify(completion);
 
 function currentCompletion(request) {
-  const completion = completionPacket(request);
-  if (!completion || !completionOrigin(completion, request.pot)) return undefined;
+  const completion = storedPacket(request, 'human.answered');
+  if (!completion) return undefined;
   const record = store.get(completion.dialog);
   const canComplete = [isCompletionOwner(record, request.pot), !isCompletionAcknowledged(request, record, completion)].every(Boolean);
   return canComplete ? completion : undefined;

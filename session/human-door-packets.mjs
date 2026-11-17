@@ -96,6 +96,16 @@ export function checkHumanRoute(need, { caller, isMastermindReceiver, find }) {
   return packet;
 }
 
+// The door admitted every stored dialog through humanPacket, so a record that no longer parses is damaged and is skipped, not allowed to stop the other dialogs.
+export function storedPacket(request, type) {
+  try {
+    const packet = humanPacket(request.need);
+    return packet.type === type ? packet : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const isInitialHumanPacket = need => INITIAL.includes(humanPacket(need).type);
 
 export function checkHumanReply(request, reply) {
