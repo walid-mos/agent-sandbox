@@ -5,9 +5,10 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from factory_socket import Refused
+from source_refresh import GIT_OPTIONS as SOURCE_GIT_OPTIONS
 
 ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "HOME": "/nonexistent", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_TERMINAL_PROMPT": "0"}
-GIT_OPTIONS = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "credential.helper=", "-c", "protocol.file.allow=never", "-c", "protocol.ext.allow=never")
+GIT_OPTIONS = (*SOURCE_GIT_OPTIONS, "-c", "credential.helper=", "-c", "protocol.file.allow=never", "-c", "protocol.ext.allow=never")
 
 
 def execute(arguments, *, input=None, environment=ENVIRONMENT, timeout=120):

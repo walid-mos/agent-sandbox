@@ -79,7 +79,7 @@ class Signer:
             anchor = execute(["/usr/bin/git", *GIT_OPTIONS, "-c", f"safe.directory={self.clone}", "-C", str(self.clone), "rev-parse", "HEAD"]).decode().strip()
         self.git("merge-base", "--is-ancestor", anchor, base)
         try:
-            require_signed(self.store, base, self.trust, GIT_OPTIONS)
+            require_signed(self.store, base, self.trust)
         except Untrusted as error:
             raise Refused("landing: the squash parent is not a trusted signed tip.") from error
         self.git("merge-base", "--is-ancestor", base, head)
