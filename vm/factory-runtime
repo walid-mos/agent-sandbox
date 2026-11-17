@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from factory_root import ENVIRONMENT, GIT_OPTIONS, execute, fingerprints, gpg, private_directory
 from factory_socket import Refused
 from landing import created_key
-from launch import LAUNCH
+from launch import LAUNCH, assignments
 
 ROOT = Path(__file__).resolve().parents[1]
 LABEL_KEY, LABEL_VALUE = "fr.nextnode.pots", "isolated-factory"
@@ -71,7 +71,7 @@ def build_image(revision):
         context.mkdir(mode=0o700)
         archive = execute(["/usr/bin/git", *GIT_OPTIONS, "-C", str(ROOT), "archive", revision])
         execute(["/usr/bin/tar", "--extract", "--file", "-", "--directory", str(context)], input=archive)
-        versions = dict(line.split("=", 1) for line in (context / "session/runtime-versions.env").read_text().splitlines() if line)
+        versions = assignments(context / "session/runtime-versions.env")
         docker("build", "--quiet", "--label", LABEL,
                "--build-arg", f"BASE_IMAGE=node:{versions['NODE_VERSION'].removeprefix('v')}-bookworm-slim",
                "--file", str(context / "session/factory-runtime/Dockerfile"), "--tag", tag, str(context))
