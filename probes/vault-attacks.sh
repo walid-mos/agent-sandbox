@@ -6,6 +6,7 @@ session_home=$2
 identity=$3
 socket=$4
 node=$5
+configuration=$6
 failures=0
 PATH="$(dirname "$node"):$PATH"
 
@@ -26,6 +27,15 @@ ask() {
 	"$node" --input-type=module -e 'const { askVault } = await import(process.argv[1]); await askVault(JSON.parse(process.argv[2]));' "$clone/session/vault.mjs" "$1"
 }
 
+sources_without_token() {
+	"$node" -e 'const { readFileSync } = require("node:fs");
+const [catalog, sandbox] = process.argv.slice(1).map(path => JSON.parse(readFileSync(path, "utf8")));
+const selected = sandbox.sources ?? [];
+for (const [name, source] of Object.entries(catalog)) {
+  if (!source.credential || !selected.includes(name)) console.log(name, JSON.stringify({ kind: "source", repository: source.repository }));
+}' "$clone/session/agent-sources.json" "$configuration/sandbox.json"
+}
+
 worker_sees_vault_access() {
 	INFISICAL_TOKEN=planted INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET=planted "$clone/session/with-vault" env | grep -q '^INFISICAL_'
 }
@@ -44,5 +54,9 @@ expect fail broker-serves-unlisted-name ask '{"kind":"secret","path":"/tools/git
 expect fail broker-serves-path-traversal ask '{"kind":"secret","path":"/providers/../tools/github","name":"GITHUB_TOKEN"}'
 expect fail broker-serves-vault-access-name ask '{"kind":"secret","path":"/","name":"INFISICAL_TOKEN"}'
 expect fail broker-serves-unapproved-source ask '{"kind":"source","repository":"walid-mos/agent-sandbox"}'
-expect fail broker-serves-public-source-token ask '{"kind":"source","repository":"walid-mos/agent-pi"}'
+unserved=$(sources_without_token) || { echo "FAIL read-source-selection"; failures=$((failures + 1)); }
+while read -r name request; do
+	[ -n "$name" ] || continue
+	expect fail "broker-serves-token-of-$name" ask "$request"
+done <<< "$unserved"
 exit "$failures"
