@@ -132,6 +132,7 @@ def rules_text(content):
 
 
 def approved_state(directory):
+    directory = Path(directory).absolute()
     state_path = directory / STATE_FILE
     if not state_path.exists() and not state_path.is_symlink():
         return None
