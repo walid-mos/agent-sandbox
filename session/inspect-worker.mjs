@@ -1,3 +1,4 @@
+import { waitsForHuman } from './worker-human.mjs';
 import { enqueue } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
@@ -25,6 +26,7 @@ const terminalDetails = terminal => JSON.parse(command('hc', ['get', '--json', t
 function terminalState(worker, terminals, now) {
   const terminal = terminalOf(worker, terminals);
   if (!terminal) return { state: 'finished' };
+  if (waitsForHuman(worker, terminal)) return { ...terminal, status: 'blocked' };
   if (terminal.status || terminal.agent === 'pi') return terminal;
   const graceEnd = worker.startedAt + STARTUP_GRACE_MS;
   return now < graceEnd ? { ...terminal, lookAgainAt: graceEnd } : { state: 'finished' };
@@ -46,7 +48,7 @@ function report(worker, terminal, status, wake) {
 // A message that reached the worker while it was reported starts a new turn, and the worker then keeps its terminal.
 function closeIfStillDone(worker, terminal) {
   const current = terminalDetails(terminal);
-  if (current.status?.state !== 'done' || current.turn !== terminal.turn) return;
+  if (current.status?.state !== 'done' || current.turn !== terminal.turn || waitsForHuman(worker, terminal)) return;
   closeTerminal(worker, terminal);
   save({ ...worker, isClosed: true });
 }

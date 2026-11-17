@@ -1,25 +1,22 @@
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 import { botModel, runCommand } from './commands.mjs';
-import { parsedLine } from './jsonl.mjs';
+import { botAnswers, botDialogId, deliverBotResult, syncBotDialogs } from './human-bot.mjs';
+import { answerQuestion } from './human-dialogs.mjs';
+import { storeDialogSecret } from './human-secrets.mjs';
+import { humanStore } from './human-store.mjs';
 import { main } from './main.mjs';
 import { questionIn } from './pots-questions.mjs';
-import { storeSecrets } from './pots-secrets.mjs';
+import { conversation, isFromBot, say, secretRequests, TERMINAL } from './terminal-conversation.mjs';
 import { queued } from './queue.mjs';
 import { commandOutput } from './run.mjs';
-import { botHome, botId } from './sandbox.mjs';
+import { botId } from './sandbox.mjs';
 import { endTerminal, isStopped, liveTerminals, markStopped, terminalOf, WORKER_PREFIX, workers } from './workers.mjs';
 import { answerDialog, waitingDialog } from './worker-dialogs.mjs';
 
 const MESSAGE_LIMIT = 80;
 const TRACE_LIMIT = '8';
-const TERMINAL = join(botHome, 'terminal');
-const PLATFORM = join(TERMINAL, 'platform.jsonl');
-// pots names the person of its terminal channel after the OS user, which is abc in every sandbox.
-const PERSON = 'abc';
-const PLACE = `dm-${PERSON}`;
-const isFromBot = record => record.person === 'bot';
 const ATTACHMENTS = 'files';
 const ATTACHMENT_DAYS = 30;
 const DAY_MS = 86_400_000;
@@ -36,19 +33,6 @@ async function section(arguments_) {
     const reason = `${error?.stderr ?? ''}`.trim().split('\n')[0];
     return `Unavailable. ${reason || 'pots did not answer.'}`;
   }
-}
-
-function conversation() {
-  if (!existsSync(PLATFORM)) return [];
-  return readFileSync(PLATFORM, 'utf8').split('\n').flatMap(parsedLine).filter(record => record.place === PLACE);
-}
-
-// The terminal channel's ask-secret is a message of the bot's that carries `secret`, and the message that answers it names it in `answers`.
-function secretRequests(records) {
-  const answered = new Set(records.map(record => record.answers).filter(Boolean));
-  return new Map(records
-    .filter(record => record.type === 'message' && isFromBot(record) && record.secret)
-    .map(record => [record.id, { secret: record.secret, isOpen: !answered.has(record.id) }]));
 }
 
 function messageView(record, requests) {
@@ -151,20 +135,21 @@ function attached(reference) {
 // pots chat waits for the answer, so this writes the record its terminal channel reads, as pots chat does.
 // One written while the bot is down waits there until it starts. The pane names the message, so a Retry after a lost
 // answer writes nothing twice.
-function send(request) {
-  const { id = `m-${randomUUID()}`, text = '', files = [] } = JSON.parse(request);
+async function send(request) {
+  const { id = `m-${randomUUID()}`, text = '', files = [], questionId } = JSON.parse(request);
   if (!Array.isArray(files) || (!`${text}`.trim() && !files.length)) {
     throw new Error('pots: send needs {"id", "text", "files"} with some text or at least one attached file.');
   }
   if (conversation().some(record => record.id === id)) return id;
-  return say({ id, text: `${text}`, ...(files.length && { files: files.map(attached) }) });
-}
-
-function say(message) {
-  const record = { id: `m-${randomUUID()}`, type: 'message', at: Date.now(), place: PLACE, person: PERSON, ...message };
-  mkdirSync(TERMINAL, { recursive: true });
-  appendFileSync(PLATFORM, `${JSON.stringify(record)}\n`);
-  return record.id;
+  await syncBotDialogs();
+  const latest = conversation().at(-1);
+  const message = questionId ?? (isFromBot(latest) && questionIn(latest.text) && !files.length ? latest.id : undefined);
+  if (!message) return say({ id, text: `${text}`, ...(files.length && { files: files.map(attached) }) });
+  const dialog = humanStore().get(botDialogId(message));
+  if (!dialog || dialog.kind !== 'question') throw new Error('pots: that message has no question. Refresh the conversation.');
+  const answered = await answerQuestion(dialog.id, { answers: botAnswers(dialog, `${text}`) }, { messageId: id });
+  await deliverBotResult(dialog.id);
+  return answered.result.messageId ?? `m-human-${dialog.id}`;
 }
 
 /** Answers one ask-secret as `pots chat` does, so the bot wakes on the same message and learns only which keys came. */
@@ -172,9 +157,12 @@ async function answerSecret(requestId) {
   const request = secretRequests(conversation()).get(requestId);
   if (!request) throw new Error(`pots: ${requestId} asks for no secret. Refresh the conversation.`);
   if (!request.isOpen) throw new Error('pots: that request for secrets has its answer already.');
-  const reply = await storeSecrets(request.secret, readFileSync(STANDARD_INPUT, 'utf8'));
-  say({ text: reply, answers: requestId });
-  return reply;
+  await syncBotDialogs();
+  let values;
+  try { values = JSON.parse(readFileSync(STANDARD_INPUT, 'utf8')); } catch { throw new Error('pots: unreadable secret input.'); }
+  await storeDialogSecret(botDialogId(requestId), values);
+  await deliverBotResult(botDialogId(requestId));
+  return 'Requested secrets were stored in this pot.';
 }
 
 const SENT_BY = sendId => new RegExp(` send=${sendId}(?: |$)`);

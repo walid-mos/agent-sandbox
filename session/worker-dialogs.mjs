@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parsedLine } from './jsonl.mjs';
 import { command } from './run.mjs';
+import { publishedDialog } from './worker-human.mjs';
+import { answerQuestion } from './human-dialogs.mjs';
+import { answerText } from './human-contract.mjs';
 
 // The Pi harness publishes the interactive session's file under this terminal label.
 const SESSION_LABEL = 'pi.session';
@@ -90,7 +93,12 @@ function dialogOf(terminal) {
  *  a secret, or another dialog only its terminal shows. */
 export function waitingDialog(terminal) {
   try {
-    const { call, isResumed, message } = dialogOf(terminal);
+    const { session, call, isResumed, message } = dialogOf(terminal);
+    const published = call && publishedDialog(terminal, session, call.id);
+    if (published?.result) {
+      const isAnswered = ['answered', 'stored'].includes(published.result.status);
+      return { id: call.id, kind: isAnswered ? 'answered' : 'closed', message: isAnswered ? (published.kind === 'secret' ? 'Secret request completed.' : answerText(published.result.answers)) : `Question ${published.result.status}.` };
+    }
     if (isResumed) return { id: call.id, kind: 'resumed' };
     if (call?.name === QUESTION_TOOL) return { id: call.id, kind: 'question', questions: call.arguments.questions.map(questionView) };
     if (call?.name === SECRET_TOOL) return { id: call.id, kind: 'secret', purpose: call.arguments.purpose };
@@ -168,6 +176,13 @@ export async function answerDialog(terminal, { dialog, answers }) {
   const steps = questions.flatMap((question, index) => answerSteps(question, answers[index]));
   // Several questions end on the dialog's submit tab, which Enter submits once every question has its answer.
   const submit = questions.length > 1 ? [{ keys: ['enter'] }] : [];
+  const published = publishedDialog(terminal, session, call.id);
+  if (published) {
+    const submitted = answers.map((answer, index) => ({ id: published.questions[index].id,
+      labels: answer.choices.map(choice => questions[index].options[choice].label), text: answer.text }));
+    await answerQuestion(published.id, { answers: submitted });
+    return settledResult(session, call.id);
+  }
   claimCall(call.id);
   [...steps, ...submit].forEach(step => press(terminal, step));
   return settledResult(session, call.id);

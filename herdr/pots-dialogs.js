@@ -172,6 +172,8 @@ export class WorkerDialogs {
     const notice = text => div().w_full().text_size(TEXT.small).text_color(colors.muted).child(text);
     if (form) return this.card(worker.name, form);
     if (receipt && (!worker.dialog || worker.dialog.id === receipt.dialogId)) return notice(`Answered. ${receipt.text}`);
+    if (worker.dialog?.kind === "closed") return notice(worker.dialog.message);
+    if (worker.dialog?.kind === "answered") return notice(`Answered. ${worker.dialog.message}`);
     if (worker.dialog?.kind === "resumed") return notice("Asks again a question you began in its terminal. Open it to finish there.");
     if (worker.dialog?.kind === "secret") return notice(`Open its terminal to type the secret it asks for: ${worker.dialog.purpose}`);
     if (worker.dialog?.kind === "other") return notice(`Waits for you in its terminal${worker.dialog.message ? `: ${worker.dialog.message}` : ""}. Open it to answer.`);

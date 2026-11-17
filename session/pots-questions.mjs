@@ -19,6 +19,7 @@ const optionOf = option => (typeof option === 'string' ? { label: option } : opt
 
 /** The options of a block that asks a real question, trimmed, or null: at least two, each with a distinct one-line label. */
 function optionsOf(asked) {
+  if (asked?.free === true) return [];
   if (!Array.isArray(asked?.options) || asked.options.length < MIN_OPTIONS) return null;
   const options = asked.options.map(optionOf);
   if (!options.every(option => isLabel(option?.label))) return null;
@@ -37,5 +38,5 @@ export function questionIn(text) {
   const asked = block ? parsedBlock(block[1]) : null;
   const options = optionsOf(asked);
   if (!options) return null;
-  return { text: written.replace(block[0], '').trim(), question: { multiple: asked.multiple === true, options } };
+  return { text: written.replace(block[0], '').trim(), question: { multiple: asked.multiple === true, options, purpose: ['ordinary', 'push'].includes(asked.purpose) ? asked.purpose : 'local', scope: asked.scope, for: asked.for } };
 }

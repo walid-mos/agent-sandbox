@@ -62,7 +62,7 @@ export class QuestionCards {
   choose(id, text, cx) {
     if (this.answers.has(id)) return;
     this.answers.set(id, text);
-    this.answer(text, cx);
+    this.answer(text, cx, id);
   }
 
   toggle(id, choice, cx) {

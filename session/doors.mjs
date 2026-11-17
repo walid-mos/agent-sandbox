@@ -69,18 +69,34 @@ function send(request, wire, done) {
   process.stdout.write(`${done} ${request.id}\n`);
 }
 
+export function prepareAsk({ pot, need, served, key }) {
+  return underLock(() => {
+    const existing = key && all().find(request => request.direction === ASKED && request.key === key);
+    if (existing) return existing;
+    const hop = chainHop();
+    const target = neighbour(pot);
+    const parent = served === undefined ? undefined : servedRequest(served);
+    const id = newRequestId(ownName());
+    requestMessage(id, hop, need);
+    const request = { id, direction: ASKED, pot: target, need, hop, for: parent, key, state: UNKNOWN, at: Date.now() };
+    save(request);
+    return request;
+  });
+}
+
+export function transmitAsk(request) {
+  const current = find(request.id);
+  if (!RESENDABLE.includes(current.state)) return current;
+  const outcome = knock(current.pot, requestMessage(current.id, current.hop, current.need));
+  return underLock(() => settle(current.id, outcome));
+}
+
 function ask(arguments_) {
   const options = { need: { type: 'string' }, for: { type: 'string' } };
   const { values, positionals: [pot] } = parseArgs({ args: arguments_, options, allowPositionals: true });
   if (!pot || values.need === undefined) throw new Error(USAGE);
-  const hop = chainHop();
-  const target = neighbour(pot);
-  const served = values.for === undefined ? undefined : servedRequest(values.for);
-  const id = newRequestId(ownName());
-  const wire = requestMessage(id, hop, values.need);
-  const request = { id, direction: ASKED, pot: target, need: values.need, hop, for: served, state: UNKNOWN, at: Date.now() };
-  underLock(() => save(request));
-  send(request, wire, 'asked');
+  const request = prepareAsk({ pot, need: values.need, served: values.for });
+  send(request, requestMessage(request.id, request.hop, request.need), 'asked');
 }
 
 function recordReply(id, text) {
