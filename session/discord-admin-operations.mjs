@@ -11,10 +11,13 @@ const channelType = value => [0, 2, 4, 5, 13, 15, 16].includes(value);
 const threadType = value => [10, 11, 12].includes(value);
 const timestamp = value => value === null || (typeof value === 'string' && Number.isFinite(Date.parse(value)));
 
-function overwrites(value) {
-  return Array.isArray(value) && value.every(item => item && Object.keys(item).every(key => ['id', 'type', 'allow', 'deny'].includes(key))
-    && snowflake(item.id) && [0, 1].includes(item.type) && permissions(item.allow) && permissions(item.deny));
+function overwriteOf(item) {
+  if (!item || typeof item !== 'object') return false;
+  return [Object.keys(item).every(key => ['id', 'type', 'allow', 'deny'].includes(key)),
+    snowflake(item.id), [0, 1].includes(item.type), permissions(item.allow), permissions(item.deny)].every(Boolean);
 }
+
+const overwrites = value => Array.isArray(value) && value.every(overwriteOf);
 
 const channelFields = { name: string(100), topic: string(4096), parent_id: parent, position: integer(0, 10000),
   permission_overwrites: overwrites, nsfw: boolean, rate_limit_per_user: integer(0, 21600) };
@@ -50,20 +53,50 @@ export const ADMIN_OPERATIONS = {
 
 const envelope = ['guildId', 'action', 'reason', 'payload', 'channelId', 'userId', 'roleId', 'messageId', 'code', 'approval'];
 
-export function operationOf(input) {
-  const operation = ADMIN_OPERATIONS[input?.action];
-  if (!operation || !Object.hasOwn(ADMIN_OPERATIONS, input.action)) throw new Error('discord-admin: unsupported operation. Use the advertised actions.');
+function selectedOperation(action) {
+  if (!Object.hasOwn(ADMIN_OPERATIONS, action)) throw new Error('discord-admin: unsupported operation. Use the advertised actions.');
+  return ADMIN_OPERATIONS[action];
+}
+
+function requireEnvelope(input) {
   if (!Object.keys(input).every(key => envelope.includes(key))) throw new Error('discord-admin: unknown request field.');
   if (!snowflake(input.guildId) || !string(400)(input.reason)) throw new Error('discord-admin: provide guildId and a non-empty audit reason of at most 400 characters.');
-  for (const field of ['channelId', 'userId', 'roleId', 'messageId']) {
-    if (input[field] !== undefined && !snowflake(input[field])) throw new Error(`discord-admin: invalid ${field}.`);
-  }
+}
+
+function requireTargetIds(input, operation) {
+  for (const field of ['channelId', 'userId', 'roleId', 'messageId']) requireSnowflakeField(input, field);
   if (!operation.targets.every(field => snowflake(input[field]))) throw new Error('discord-admin: missing operation target.');
-  if (input.action === 'invite.delete' && !/^[\w-]{2,100}$/.test(input.code ?? '')) throw new Error('discord-admin: invalid invite code.');
-  const payload = input.payload ?? {};
+  if (input.action === 'invite.delete') requireInviteCode(input.code);
+}
+
+function requireSnowflakeField(input, field) {
+  if (input[field] !== undefined && !snowflake(input[field])) throw new Error(`discord-admin: invalid ${field}.`);
+}
+
+function requireInviteCode(code) {
+  if (!/^[\w-]{2,100}$/.test(code ?? '')) throw new Error('discord-admin: invalid invite code.');
+}
+
+function requirePayloadObject(payload) {
   if (!payload || Array.isArray(payload) || typeof payload !== 'object') throw new Error('discord-admin: payload must be an object.');
+}
+
+function requirePayloadFields(payload, operation) {
   if (!Object.entries(payload).every(([key, value]) => Object.hasOwn(operation.fields, key) && operation.fields[key](value))) throw new Error('discord-admin: unsupported payload field or invalid value.');
   if (!operation.required.every(key => Object.hasOwn(payload, key))) throw new Error('discord-admin: missing required payload field.');
+  requireEditPayload(payload, operation);
+}
+
+function requireEditPayload(payload, operation) {
   if (operation.method === 'PATCH' && !Object.keys(payload).length) throw new Error('discord-admin: edit payload must not be empty.');
+}
+
+export function operationOf(input) {
+  const operation = selectedOperation(input?.action);
+  requireEnvelope(input);
+  requireTargetIds(input, operation);
+  const payload = input.payload ?? {};
+  requirePayloadObject(payload);
+  requirePayloadFields(payload, operation);
   return { ...operation, request: { ...input, payload }, path: operation.path(input) };
 }

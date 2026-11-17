@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { checkRegistration, closeDiscordQuestion } from './discord-clicks.mjs';
+import { registerDiscordQuestion, closeDiscordQuestion } from './discord-clicks.mjs';
 import { DIALOG_ID, MASTERMIND_POT, packet } from './human-contract.mjs';
 import { questionDigest, questionPacket } from './human-dialogs.mjs';
 
@@ -31,15 +31,20 @@ function approvalQuestion(id, request) {
 
 function registeredPick(record, question) {
   if (!record) return undefined;
-  const isOwnRegistration = record.localAdmin === true && record.registered === true && record.registrationState === 'acknowledged'
-    && record.registration?.request === requestId(question.id) && record.registration.question.digest === questionDigest(question);
-  if (!isOwnRegistration || record.closed) throw new Error('discord-admin: the approval message is not this exact registered question, or it is closed.');
-  return record.picks?.[QUESTION];
+  requireRegisteredApproval(record, question);
+  return record.picks[QUESTION];
+}
+
+function requireRegisteredApproval(record, question) {
+  const registration = record.registration ?? { question: {} };
+  const checks = [record.localAdmin === true, record.registered === true, record.registrationState === 'acknowledged', !record.closed,
+    registration.request === requestId(question.id), registration.question.digest === questionDigest(question)];
+  if (!checks.every(Boolean)) throw new Error('discord-admin: the approval message is not this exact registered question, or it is closed.');
 }
 
 function clickedLabel(pick, { ownerId, guildId }) {
   const [label] = pick.answer.labels;
-  if (pick.answer.labels.length !== 1 || pick.answer.text !== '' || ![APPROVE, DECLINE].includes(label)) throw new Error('discord-admin: the approval answer is not one of its two buttons.');
+  if (![pick.answer.labels.length === 1, pick.answer.text === '', [APPROVE, DECLINE].includes(label)].every(Boolean)) throw new Error('discord-admin: the approval answer is not one of its two buttons.');
   if (pick.evidence.guildId !== guildId || pick.evidence.userId !== ownerId) throw new Error('discord-admin: only the server owner\'s click decides an irreversible operation. Ask for a new approval.');
   return label;
 }
@@ -59,14 +64,18 @@ async function closeApproval(id, question, answer, clicks) {
 async function decideApproval(request, ownerId, { pending, clicks, guildId }) {
   return pending.locked(({ get, save }) => {
     const prepared = get(request.approval);
-    if (!isUnused(prepared) || prepared.ownerId !== ownerId) throw new Error('discord-admin: the approval is unknown, expired or already used, or the guild owner changed. Ask for a new approval.');
-    if (prepared.question.scope !== operationScope(request)) throw new Error('discord-admin: the approval covers another guild, resource, action or payload. Ask for a new approval.');
+    requirePendingApproval(prepared, ownerId, request);
     const pick = registeredPick(clicks.get(prepared.id), prepared.question);
     if (!pick) return { status: 'approval_pending', approval: prepared.id };
     const label = clickedLabel(pick, { ownerId, guildId });
     save({ ...prepared, consumed: { at: new Date().toISOString(), label, evidence: pick.evidence } });
     return { status: label === APPROVE ? 'authorized' : 'declined', approval: prepared.id, question: prepared.question, answer: pick.answer };
   }, request.approval);
+}
+
+function requirePendingApproval(prepared, ownerId, request) {
+  if (!isUnused(prepared) || prepared.ownerId !== ownerId) throw new Error('discord-admin: the approval is unknown, expired or already used, or the guild owner changed. Ask for a new approval.');
+  if (prepared.question.scope !== operationScope(request)) throw new Error('discord-admin: the approval covers another guild, resource, action or payload. Ask for a new approval.');
 }
 
 async function authorize(request, { ownerId }, dependencies) {
@@ -78,20 +87,20 @@ async function authorize(request, { ownerId }, dependencies) {
 }
 
 async function registerApproval(input, { pending, clicks, channelAccount, guildId }) {
-  const prepared = DIALOG_ID.test(input?.dialog ?? '') ? pending.get(input.dialog) : undefined;
+  const prepared = pendingApproval(input?.dialog, pending);
   if (!isUnused(prepared)) throw new Error('discord-admin: no unused approval has that dialog ID.');
   const registration = { question: questionPacket(prepared.question), request: requestId(prepared.id), pot: MASTERMIND_POT, channelAccount, guildId, messages: input.messages };
-  checkRegistration(registration);
-  return clicks.locked(({ get, save }) => {
-    const existing = get(prepared.id);
-    if (existing && JSON.stringify(existing.registration) !== JSON.stringify(registration)) throw new Error('discord-admin: a registration cannot change.');
-    const record = existing ?? save({ id: prepared.id, localAdmin: true, ownerId: prepared.ownerId, registration, registrationState: 'acknowledged', registered: true, picks: {} });
-    return { dialog: record.id, registered: true, state: record.registrationState };
-  }, prepared.id);
+  const record = await registerDiscordQuestion(registration, clicks, undefined, prepared.ownerId);
+  return { dialog: record.id, registered: true, state: record.registrationState };
+}
+
+function pendingApproval(id, pending) {
+  if (!DIALOG_ID.test(id ?? '')) return undefined;
+  return pending.get(id);
 }
 
 function approvedRequest(id, pending) {
-  const prepared = DIALOG_ID.test(id ?? '') ? pending.get(id) : undefined;
+  const prepared = pendingApproval(id, pending);
   if (!prepared) throw new Error('discord-admin: no approval has that dialog ID.');
   return { ...JSON.parse(prepared.question.scope), approval: id };
 }

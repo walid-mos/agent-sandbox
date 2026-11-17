@@ -22,16 +22,23 @@ export function fixture() {
     { id: managedRoleId, permissions: '1099511627775', position: 10, managed: true, tags: { bot_id: botId } },
     { id: roleId, permissions: '0', position: 1 },
   ];
-  const api = async (method, path, body, reason) => {
-    if (method !== 'GET') { mutations.push({ method, path, body, reason }); return { id: channelId }; }
-    if (path === '/users/@me') return { id: botId };
-    if (path === `/guilds/${guildId}`) return { id: guildId, owner_id: ownerId };
-    if (path === `/guilds/${guildId}/channels`) return channels;
-    if (path === `/guilds/${guildId}/roles`) return roles;
-    if (path === `/guilds/${guildId}/members/${botId}`) return { user: { id: botId }, roles: [managedRoleId] };
+  const reads = {
+    '/users/@me': { id: botId },
+    [`/guilds/${guildId}`]: { id: guildId, owner_id: ownerId },
+    [`/guilds/${guildId}/channels`]: channels,
+    [`/guilds/${guildId}/roles`]: roles,
+    [`/guilds/${guildId}/members/${botId}`]: { user: { id: botId }, roles: [managedRoleId] },
+  };
+  const read = path => {
+    if (Object.hasOwn(reads, path)) return reads[path];
     if (path.startsWith(`/guilds/${guildId}/members/`)) return { user: { id: userId }, roles: [roleId] };
     if (path.startsWith('/channels/')) return channels.find(channel => path === `/channels/${channel.id}`);
     throw new Error(`Unexpected fixture read ${path}`);
+  };
+  const api = async (method, path, body, reason) => {
+    if (method === 'GET') return read(path);
+    mutations.push({ method, path, body, reason });
+    return { id: channelId };
   };
   return { api, mutations, channels, roles, protection: { guildId, channelIds: [protectedId], threadIds: [], botRoleIds: [managedRoleId] },
     approvals: { authorize: async () => ({ status: 'approval_required' }) } };

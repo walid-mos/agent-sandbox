@@ -22,15 +22,34 @@ async function snapshotOf(request, { api, protection }) {
   const roles = await api('GET', `/guilds/${request.guildId}/roles`);
   const botMember = await api('GET', `/guilds/${request.guildId}/members/${bot.id}`);
   const owned = await protectedChannels(await api('GET', `/guilds/${request.guildId}/channels`), protection, api);
-  if (guild.id !== request.guildId || !roles.some(role => role.managed && role.tags?.bot_id === bot.id && protection.botRoleIds.includes(role.id))) {
-    throw new Error('discord-admin: protection metadata does not identify this application managed role.');
-  }
-  const channel = request.channelId ? await guildChannel(request.channelId, guild.id, api) : undefined;
-  const parent = request.payload.parent_id ? await guildChannel(request.payload.parent_id, guild.id, api) : undefined;
-  const threadParent = channel && isThread(channel) ? await guildChannel(channel.parent_id, guild.id, api) : undefined;
-  const needsMember = request.action.startsWith('member.') && !['member.unban', 'member.ban'].includes(request.action);
-  const targetMember = needsMember ? await api('GET', `/guilds/${guild.id}/members/${request.userId}`) : undefined;
+  requireApplicationRole(request, { guild, roles, bot, protection });
+  const channel = await optionalChannel(request.channelId, guild.id, api);
+  const parent = await optionalChannel(request.payload.parent_id, guild.id, api);
+  const threadParent = await parentOfThread(channel, guild.id, api);
+  const targetMember = await memberOf(request, api);
   return { bot, guild, roles, botMember, channel, parent, threadParent, targetMember, ...owned };
+}
+
+function isApplicationRole(role, bot, protection) {
+  return [role.managed, role.tags?.bot_id === bot.id, protection.botRoleIds.includes(role.id)].every(Boolean);
+}
+
+function requireApplicationRole(request, { guild, roles, bot, protection }) {
+  if (guild.id !== request.guildId || !roles.some(role => isApplicationRole(role, bot, protection))) throw new Error('discord-admin: protection metadata does not identify this application managed role.');
+}
+
+function optionalChannel(id, guildId, api) {
+  if (id) return guildChannel(id, guildId, api);
+}
+
+function parentOfThread(channel, guildId, api) {
+  if (channel && isThread(channel)) return guildChannel(channel.parent_id, guildId, api);
+}
+
+function memberOf(request, api) {
+  if (!request.action.startsWith('member.')) return;
+  if (['member.unban', 'member.ban'].includes(request.action)) return;
+  return api('GET', `/guilds/${request.guildId}/members/${request.userId}`);
 }
 
 function mutationBody(request) {
@@ -41,8 +60,12 @@ function mutationBody(request) {
 async function guardInvite(request, api) {
   if (request.action !== 'invite.delete') return;
   const invite = await api('GET', `/invites/${request.code}`);
-  if (invite.guild?.id !== request.guildId || !invite.channel?.id) throw new Error('discord-admin: invite is outside the configured guild.');
+  requireGuildInvite(invite, request.guildId);
   return { ...request, channelId: invite.channel.id };
+}
+
+function requireGuildInvite(invite, guildId) {
+  if (![invite.guild?.id === guildId, invite.channel?.id].every(Boolean)) throw new Error('discord-admin: invite is outside the configured guild.');
 }
 
 export async function administerDiscord(input, dependencies) {

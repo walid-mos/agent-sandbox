@@ -18,9 +18,17 @@ async function diagnostics(api, guildId) {
   const granted = roles.filter(role => role.id === guildId || member.roles.includes(role.id)).reduce((bits, role) => bits | BigInt(role.permissions), 0n);
   const hasAdministrator = (granted & DISCORD_PERMISSIONS.Administrator) !== 0n;
   const missingPermissions = Object.entries(DISCORD_PERMISSIONS).filter(([name, bit]) => !['Administrator', 'ManageGuild'].includes(name) && !hasAdministrator && !(granted & bit)).map(([name]) => name);
-  const hasMembersIntent = (BigInt(app.flags ?? 0) & ((1n << 14n) | (1n << 15n))) !== 0n;
-  return { view: 'diagnostics', missingPermissions, serverMembersIntent: hasMembersIntent ? 'enabled' : 'missing',
-    publicBot: app.bot_public === false ? 'disabled' : 'enabled or unknown',
-    installLink: app.custom_install_url === '' ? 'no custom link reported, confirm None in the already-open portal task' : 'portal verification still required',
+  return { view: 'diagnostics', missingPermissions, ...applicationDiagnostics(app),
     note: 'Read-only facts. Channel overrides and role hierarchy can further limit operations. No app settings were changed.' };
+}
+
+function membersIntent(app) {
+  const isEnabled = (BigInt(app.flags ?? 0) & ((1n << 14n) | (1n << 15n))) !== 0n;
+  return isEnabled ? 'enabled' : 'missing';
+}
+
+function applicationDiagnostics(app) {
+  return { serverMembersIntent: membersIntent(app),
+    publicBot: app.bot_public === false ? 'disabled' : 'enabled or unknown',
+    installLink: app.custom_install_url === '' ? 'no custom link reported' : 'no definitive install-link setting returned by this endpoint' };
 }

@@ -63,25 +63,31 @@ async function completions(onError) {
   for (const request of dialogDoors.all().filter(item => item.kind === DIALOG && item.direction === RECEIVED)) await completeRequest(request, onError);
 }
 
+function isAnswerWaiting(record) {
+  return [!record.outbox, record.replySent, record.answerFailure, Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS].some(Boolean);
+}
+
+async function notifyAdminApproval(record) {
+  await commandWithInput('pots', ['wake', '--bot', botId, '--from', 'discord-admin', '--note', `Discord Admin dialog ${record.id} has a registered click. Delegate approve with this ID to discord-admin. The command rechecks the exact operation and consumes it once.`], '', { timeout: 10_000 });
+  await store.patch(record.id, { replySent: true });
+}
+
+async function answerFailure(error, record, onError) {
+  if (dialogDoors.find(record.registration.request)?.state !== REFUSED) throw error;
+  onError(error.message);
+  await store.patch(record.id, { answerFailure: error.message });
+}
+
 // A refusal is final, so delivery records it instead of resending the same answer.
 async function deliverAnswer(record, onError) {
-  const isWaiting = !record.outbox || record.replySent || record.answerFailure || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS;
-  if (isWaiting) return;
+  if (isAnswerWaiting(record)) return;
   await store.patch(record.id, { attemptedAt: Date.now() });
-  if (record.localAdmin) {
-    await commandWithInput('pots', ['wake', '--bot', botId, '--from', 'discord-admin', '--note', `Discord Admin dialog ${record.id} has a registered click. Delegate approve with this ID to discord-admin. The command rechecks the exact operation and consumes it once.`], '', { timeout: 10_000 });
-    await store.patch(record.id, { replySent: true });
-    return;
-  }
+  if (record.localAdmin) return notifyAdminApproval(record);
   const { request } = record.registration;
   try {
     await dialogDoors.reply(request, JSON.stringify(record.outbox));
     await store.patch(record.id, { replySent: dialogDoors.find(request).state === ANSWERED });
-  } catch (error) {
-    if (dialogDoors.find(request)?.state !== REFUSED) throw error;
-    onError(error.message);
-    await store.patch(record.id, { answerFailure: error.message });
-  }
+  } catch (error) { await answerFailure(error, record, onError); }
 }
 
 function startDiscordHuman({ onError = () => {} } = {}) {
