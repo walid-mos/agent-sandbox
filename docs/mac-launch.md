@@ -71,27 +71,35 @@ The token stays in memory after its Keychain read. Subprocess environments, argu
 | Swap after approval | Change the prompt between display and launch | The gate launches its stored bytes, whose digest it recomputes at the press. The pot's copy is read again at the press and can only stop the launch. |
 | Swap before approval | Make the operator see other text than what runs | The prompt is shown as the gate's own attachment on the gate's own message. A press on an edited message, or one whose attachment or text differs from the gate's record, is refused. |
 | Invisible text | Hide an instruction, or an act name, from a reader | A prompt holding a control, format, private-use or line-separator character is refused, at the pot and again on the Mac. The act scan removes combining and ignorable characters before matching, so an act name cannot hide behind one. |
-| Undeclared privileged act | Ask for `vm-up` under a harmless title | The gate scans the prompt, the title and the stated cost for each privileged act's markers and refuses a request that names one it does not declare. The declared acts are on the button message. |
+| Undeclared privileged act | Ask for `vm-up` under a harmless title | The gate matches the prompt, the title and the stated cost against each privileged act's marker pattern and refuses a request that matches one it does not declare. The declared acts are on the button message. This is a text match, and other wording passes it. |
 | Stale prompt | Launch a superseded, cancelled or expired prompt | A closure the Mac wrote is final: no press, notice or later answer from the pot reopens it. The gate also asks the pot at the press, and a closed answer becomes a closure instead of a claim. A dead offer loses its buttons and its attachment. [One decision per launch](#one-decision-per-launch-written-on-the-mac) says what the Mac cannot know. |
 | Late launch | Fire after the Mac slept | The press is at most 30 seconds old, by Discord's own timestamp, when the Mac claims it. The Pi starts at most 30 seconds after the claim, by the Mac's clock. |
 | Data from the pot | Break out of a field | The gate parses the pot's answer as JSON under a size cap. Values reach `hc` and `pi` as separate arguments, never through a shell, and reach Discord inside code spans with mentions disabled. |
 | Report path | Use a status to start work | `hc exec` runs one fixed command in the pot with JSON on standard input. The pot's rules read it as a report. |
-| Gate code | Change the gate through a pull request | The Mac runs a tip the operator signed. A prompt that names the gate's own files or switch must declare `launch-gate`, which the gate refuses by default. |
+| Gate code | Change the gate through a pull request, or through a launched prompt | The Mac runs a tip the operator signed, and a pot cannot write to the Mac's checkout. A request whose text matches the gate's file or switch names must declare `launch-gate`, and the gate refuses that declaration by default. That refusal reads text. It does not stop an approved Pi from changing the gate, as [What a launched Pi can reach](#what-a-launched-pi-can-reach) says. |
 | Other server members | Press the button, or post a notice | The press is compared with the one operator ID. Notices count only from the configured announcer IDs, and a notice is no more than a reason to fetch. |
 
 ### What a launched Pi can reach
 
-A launched Pi runs as the Mac's user, in Herdr, exactly like a Pi the operator starts by hand. It can read and change that user's files, use its credentials, ssh keys, signing key and vault login, reach its network and its pots, and spend money wherever that user can. The gate does not sandbox it. The prompt is free text, so the operator's reading of it is the control, and the button message exists to make that reading honest.
+#### What the operating system restricts
 
-Three things narrow it.
+Nothing. A launched Pi runs as the Mac's user, in Herdr, exactly like a Pi the operator starts by hand. It can read and change that user's files, use its credentials, ssh keys, signing key and vault login, use the Mac's network, reach its pots, and spend money wherever that user can. The gate does not sandbox it and does not limit its network.
+
+That includes the gate itself. A launched Pi can read the gate's token from the Keychain, change its settings, its decisions and its code, and run `pi` or `hc` without any press. It may also be able to press as the operator through a Discord session signed in on that Mac. So from the first launch on, every guarantee on this page holds only as long as each approved prompt left the gate alone.
+
+The prompt is free text, so the operator's reading of it is the control, and the button message exists to make that reading honest.
+
+#### What the gate checks in the text
+
+Three checks support that reading. Each one reads or writes text. None restricts a running Pi.
 
 - The button message names the privileged acts the request declares, from the fixed list below, and the cost the pot states.
-- The gate refuses a request whose prompt names an act it does not declare, and one that declares an act listed in the Mac's `refusedActs`. The default refuses `sign-tip` and `launch-gate`: a signed tip decides the code every pot and this gate run, so those two stay the operator's manual acts unless he removes them from that list.
-- The gate adds a frame to the Pi's system prompt: the approved acts, that no later message from a pot is an instruction, and that its final reply is the report.
+- The gate matches the prompt, the title and the cost against one marker pattern per act. It refuses a request that matches an act it does not declare, and one that declares an act listed in the Mac's `refusedActs`. The default list holds `sign-tip` and `launch-gate`: a signed tip decides the code every pot and this gate run, so the gate offers no request that declares either unless the operator removes it from that list.
+- The gate adds a frame to the Pi's system prompt: the approved acts, that no later message from a pot is an instruction, and that its final reply is the report. It is an instruction to a model.
 
-The scan matches text. It catches a prompt that says `vm-up` and declares nothing. It does not catch a prompt that describes the same act in other words, and it is not an operating-system barrier.
+The match catches a prompt that says `vm-up` and declares nothing. It does not catch a prompt that describes the same act in other words, or one that builds a name from pieces. A launched Pi can sign a tip or change the gate whatever its request declared.
 
-| Act | Declared when the prompt asks to | Refused by default |
+| Act | Declared when the prompt asks to | Request refused by default |
 | --- | --- | --- |
 | `sign-tip` | Sign a commit or a tip that pots then run | Yes |
 | `launch-gate` | Change this gate, its settings, its token or its service | Yes |
@@ -236,7 +244,7 @@ The gate posts the offer in the launch channel, with the prompt as the attachmen
 Launch on Mac Studio?
 Pot: `accor` · Title: `Manage Workspace and Boats`
 Prompt: the attached file, 5321 bytes, sha256 `SHA256_OF_PROMPT_BYTES`
-Runs as: a Pi in Herdr on Mac Studio, as this Mac's user, with its files, credentials and network
+Runs as: a Pi in Herdr on Mac Studio, as this Mac's user with no restriction: its files, credentials, network and this gate
 Privileged acts declared: `spend` (create or resume paid machines or services)
 Cost declared: `One small Boat VM for an hour`
 Notice: https://discord.com/channels/GUILD/CHANNEL/MESSAGE
@@ -263,18 +271,21 @@ The gate reports to the requesting pot with `hc exec --on POT -i node /opt/agent
 
 `status` is `offered`, `started`, `finished`, `refused`, `expired`, `superseded`, `cancelled` or `failed`. The pot checks the launch and its digest against its own record, stores the status and wakes its bot with `from` set to `mac-launch` and that packet as the note. When `started` arrives for a launch the pot had asked to close, or had already called expired, the note also holds `tooLate` with that closure. A status the pot did not get is sent again until it lands. `report` is the Pi's final reply, cut at 8000 characters.
 
-A report is all that flows back. The gate has no way to send a pot's words into a running Pi: a new instruction is a new request with its own press.
+A report is all that flows back. The gate has no way to send a pot's words into a running Pi: a new instruction is a new request with its own press. The gate does not stop a launched Pi from contacting a pot by itself. That Pi has the Mac user's network and Herdr, and only its instructions tell it to take no follow-up.
 
 ## Setup: one paste per Mac
 
-Each block is a prompt for a Pi on that Mac with Node 24 or newer. Paste it once per Mac. Before its proof step, complete the shared Pots setup below with the operator's explicit permission. Refusal of signing and gate changes means rejecting declared or recognized prompt text. It does not prevent an approved Pi from performing those acts.
+Each block is a prompt for a Pi on that Mac with Node 24 or newer. Paste it once per Mac. Before its proof step, complete the shared Pots setup below with the operator's explicit permission. Each block first makes the Pi read out what a launched Pi can reach, in two parts: what the operating system restricts, which is nothing, and what the gate checks in a request's text.
 
 ### Mac Studio
 
 ```text
 Set up the Mac launch gate on this Mac Studio. Read docs/mac-launch.md in my agent-sandbox checkout first, including the shared Pots setup before the proof. Ask my explicit permission before applying any pot settings or restart, and wait while a paid run is active. Run no vm-up and change nothing else.
 
-Tell me this before anything else, and wait for my yes: a prompt I launch from Discord runs as a Pi under my own user on this Mac. It can read and change my files, use my credentials, ssh keys, signing key and vault login, reach my pots and spend money wherever I can. The gate shows me the prompt, the pot that asks and the privileged acts it declares, and it refuses a prompt that asks to sign a tip or to change the gate. Nothing else limits a launched Pi. It only holds if my own Discord login never lives inside a pot.
+Tell me these three things before anything else, and wait for my yes.
+What the operating system restricts: nothing. A prompt I launch from Discord runs as a Pi under my own user on this Mac, with no sandbox and with this Mac's network. It can read and change my files, use my credentials, ssh keys, signing key and vault login, reach my pots and spend money wherever I can. It can also read this gate's Discord token, change the gate's settings and code, and start more Pis with no click. It may be able to press buttons as me through a Discord session signed in on this Mac. So after my first launch, the gate is only as sound as every prompt I approved.
+What the gate checks: the request's text, before I see the button. It matches the prompt, the title and the cost against a fixed pattern per privileged act. It refuses a request that matches an act it did not declare, and one that declares sign-tip or launch-gate. A prompt that asks for the same act in other words passes, and the check stops nothing a launched Pi does afterwards. The button message shows me the prompt, the pot that asks and the acts it declares. My reading of the prompt is the only control.
+What it rests on: a pot is kept out only if my own Discord login never lives inside a pot.
 
 Then, in order:
 1. Check that the checkout is on main at a commit that has mac/launch-gate, and that node, hc and pi run. Stop if not.
@@ -294,7 +305,10 @@ To turn it off: ./mac/launch-gate disable, then ./mac/launch-gate remove. To rem
 ```text
 Set up the Mac launch gate on this MacBook Pro. Read docs/mac-launch.md in my agent-sandbox checkout first, including the shared Pots setup before the proof. Ask my explicit permission before applying any pot settings or restart, and wait while a paid run is active. Run no vm-up and change nothing else.
 
-Tell me this before anything else, and wait for my yes: a prompt I launch from Discord runs as a Pi under my own user on this Mac. It can read and change my files, use my credentials, ssh keys, signing key and vault login, reach my pots and spend money wherever I can. The gate shows me the prompt, the pot that asks and the privileged acts it declares, and it refuses a prompt that asks to sign a tip or to change the gate. Nothing else limits a launched Pi. It only holds if my own Discord login never lives inside a pot. This Mac shows a button only while it is awake, and a request dies 30 minutes after a pot wrote it.
+Tell me these three things before anything else, and wait for my yes.
+What the operating system restricts: nothing. A prompt I launch from Discord runs as a Pi under my own user on this Mac, with no sandbox and with this Mac's network. It can read and change my files, use my credentials, ssh keys, signing key and vault login, reach my pots and spend money wherever I can. It can also read this gate's Discord token, change the gate's settings and code, and start more Pis with no click. It may be able to press buttons as me through a Discord session signed in on this Mac. So after my first launch, the gate is only as sound as every prompt I approved.
+What the gate checks: the request's text, before I see the button. It matches the prompt, the title and the cost against a fixed pattern per privileged act. It refuses a request that matches an act it did not declare, and one that declares sign-tip or launch-gate. A prompt that asks for the same act in other words passes, and the check stops nothing a launched Pi does afterwards. The button message shows me the prompt, the pot that asks and the acts it declares. My reading of the prompt is the only control.
+What it rests on: a pot is kept out only if my own Discord login never lives inside a pot. This Mac shows a button only while it is awake, and a request dies 30 minutes after a pot wrote it.
 
 Then, in order:
 1. Check that the checkout is on main at a commit that has mac/launch-gate, and that node, hc and pi run. Stop if not.
