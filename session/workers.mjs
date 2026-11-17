@@ -120,14 +120,10 @@ export function openTerminal({ name, cwd, tab, options = [], labels = [], label,
   return JSON.parse(command('hc', ['get', name])).address;
 }
 
-let hasHumanDialogFlags;
-
+// The session can install another Pi while this launcher lives, so every launch asks the installed one.
 function humanDialogFlags(worker) {
-  if (hasHumanDialogFlags === undefined) {
-    const help = command('pi', ['--help'], { timeout: 15_000 });
-    hasHumanDialogFlags = help.includes('--human-dialog-worker') && help.includes('--human-dialog-broker');
-  }
-  if (!hasHumanDialogFlags) return [];
+  const help = command('pi', ['--help'], { timeout: 15_000 });
+  if (!(help.includes('--human-dialog-worker') && help.includes('--human-dialog-broker'))) return [];
   return ['--human-dialog-worker', worker.name, '--human-dialog-broker', HUMAN_BROKER];
 }
 
