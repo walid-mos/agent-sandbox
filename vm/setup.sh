@@ -80,7 +80,7 @@ install_tailscale() {
 	systemctl restart tailscaled.service
 }
 
-# The door account has no Docker access: it runs only the forced command bound to each key, and that command only through its one sudo rule.
+# The door account has no Docker access: it runs only the forced command bound to each key, and that command only through the sudo rule pots-door-keys writes with that key.
 install_door() {
 	id door > /dev/null 2>&1 || useradd --system --no-create-home --home-dir / --shell /bin/sh door
 	usermod --password '*' door

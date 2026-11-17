@@ -10,7 +10,7 @@ TAILNET_ATTACKS="$POTS_SESSION_REPOSITORY/probes/tailnet-attacks.sh"
 SESSION_TAILSCALE="$POTS_SESSION_HOME/.local/bin/tailscale"
 DOOR_CLIENT_CONFIG="$POTS_SESSION_REPOSITORY/session/door.ssh_config"
 DOOR_KNOWN_HOSTS="$POTS_SESSION_HOME/.config/agent-sandbox/door/known_hosts"
-DOOR_FILES="/etc/pots-door /etc/sudoers.d/pots-door /usr/local/sbin/pots-door /usr/local/sbin/pots-door-keys /usr/local/sbin/pots-door-serve"
+DOOR_FILES="/etc/pots-door /etc/sudoers.d/pots-door /etc/sudoers.d/pots-door-bindings /usr/local/sbin/pots-door /usr/local/sbin/pots-door-keys /usr/local/sbin/pots-door-serve"
 TAILNET_NODE="$POTS_SESSION_REPOSITORY/lib/tailnet_node.py"
 SESSION_TAILNET_NODE="$POTS_SESSION_REPOSITORY/session/tailnet-node"
 TAILNET_SERVICE_ADDRESS=100.100.100.100
@@ -105,6 +105,14 @@ guard_runs_every_minute() {
 	sandbox_vm systemctl is-active --quiet pots-tailnet-guard.timer
 }
 
+# The door account may run the door with the arguments of a key installed for it, and with no caller it names itself.
+door_sudo_takes_only_bindings() {
+	bound=$(sandbox_vm cat /etc/pots-door/authorized_keys | sed -n 's|^restrict,command="/usr/bin/sudo -n \(/usr/local/sbin/pots-door [a-z0-9 -]*\)".*|\1|p' | head -n 1)
+	[ -n "$bound" ] || return 1
+	sandbox_vm sudo -u door sudo -n -l $bound > /dev/null || return 1
+	! sandbox_vm sudo -u door sudo -n -l /usr/local/sbin/pots-door intruder "$SANDBOX" ask > /dev/null 2>&1
+}
+
 requires_firewall() {
 	sandbox_vm systemctl show "$1" --property Requires --value | tr ' ' '\n' | grep -qx pots-firewall.service
 }
@@ -124,6 +132,7 @@ judge session-sees-no-host-path in_session sh "$HOST_PATHS" || status=1
 judge firewall-closes-tailnet firewall_closes_tailnet || status=1
 judge door-listens-on-tailnet-only door_listens_on_tailnet_only || status=1
 judge door-account-has-no-docker door_account_has_no_docker || status=1
+judge door-sudo-takes-only-bindings door_sudo_takes_only_bindings || status=1
 tailnet_targets="$operator_node $(peer_pots)"
 judge host-node-matches-policy sandbox_vm sudo python3 "$TAILNET_NODE" check host "$SANDBOX" $tailnet_targets || status=1
 judge session-node-matches-policy in_session "$SESSION_TAILNET_NODE" check session "$SANDBOX" $tailnet_targets || status=1
