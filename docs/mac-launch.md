@@ -118,10 +118,10 @@ Each guarantee has an attack that must fail. `bin/check` runs them.
 | Only the operator's press on the gate's own unedited message launches, once, in time, with the switch on | `probes/human-mac-launch-gate.mjs` |
 | A request with invisible text, an undeclared or refused act, a wrong digest or another target makes no offer. A pot's cancellation stays asked until the Mac reports it, and a start the Mac committed first is reported as too late | `probes/human-mac-launch-request.mjs` |
 | From notice to report through the whole gate: foreign notices, a pot that changes its answer or reopens a closed launch, a claim that beat a cancellation, a pot that does not answer, a double press, a failed start, a disabled switch | `probes/human-mac-launch-service.mjs` |
-| Local failures cost no launch: a failed Discord edit still reports a start, an unreadable record does not stop other launches, a closure whose record was lost is reported after a restart, a failed notice is retried, a lapsed request reports `expired` rather than `refused`, a press the Mac refuses never consumes the approval, and a refused act is reported even after a failed delivery | `probes/human-mac-launch-recovery.mjs` |
-| The gateway client identifies, heartbeats, reconnects without resuming, and stops on a refused token | `probes/human-mac-launch-discord.mjs` |
+| A failed Discord edit still reports a start, an unreadable record does not stop other launches, a closure survives a crash before its record update, notices retry only within their lifetime, mismatched sources leave the queue, a lapsed request reports `expired`, and rejected presses consume nothing | `probes/human-mac-launch-recovery.mjs` |
+| The gateway client identifies, answers requested heartbeats while awaiting an acknowledgement, reconnects without resuming, and stops on a refused token | `probes/human-mac-launch-discord.mjs` |
 
-`node probes/mac-launch-runner.mjs` starts a stand-in `pi` through the real `hc` and reads its report back. It checks that a terminal's own error and a length-limited turn end the launch instead of leaving it started, and that a terminal lookup does not hold the event loop. It needs Herdr, so it runs by hand and not in `bin/check`.
+`node probes/mac-launch-runner.mjs` starts a stand-in `pi` through the real `hc` and reads its report back. It checks that an error, a length-limited turn and a final turn with no text end the launch, and that a terminal lookup does not hold the event loop. It needs Herdr, so it runs by hand and not in `bin/check`.
 
 Nothing here ran on a real Mac or against Discord's servers. The keychain read, the launchd service and the live gateway are proven only by the setup block's own check.
 
@@ -183,7 +183,9 @@ Every state but `Offered` is final for the approval. A launch that failed, expir
 
 A request lives 30 minutes from its creation in the pot. The enabled pot service wakes its bot one minute after the expiry even if the Mac is offline. The MacBook Pro shows an offer only while it is awake. A notice it slept through is read when it reconnects, and offered only if the request is still open.
 
-A notice the Mac cannot act on is answered on the pot, so its bot is not left waiting for a start that never comes. The Mac reports `refused` when the request declares an act it refuses, `expired` when the request lapsed before the Mac read it, and `failed` with the reason when it refuses the request for another cause. A notice whose fetch or post fails is kept on the Mac and tried again, across a restart too, so a short outage costs no offer.
+A valid, bound request the Mac cannot offer is answered on the pot. The Mac reports `refused` when the request declares an act it refuses, `expired` when the request lapsed before the Mac read it, and `failed` with the reason for other rejected requests. A notice whose fetch or post fails is kept on the Mac and retried across restarts until its local retry deadline. A mismatched source answer is dropped. If the pot remains unreachable, the notice leaves the retry queue and the pot reports its own expiry.
+
+A Discord post may succeed before its response is lost. A retry can then leave an earlier message with buttons that work on no offer. Only the message in the Mac's saved offer can authorize a launch, and the launch's exclusive decision still prevents a second start.
 
 Buttons are the only entry. The gate has no slash command: a second entry would be a second gate to prove, and the operator can ask any pot for a prompt.
 
