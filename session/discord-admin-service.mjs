@@ -8,10 +8,18 @@ async function guildChannel(id, guildId, api) {
   return channel;
 }
 
+async function trackedChannel(id, guildId, api) {
+  try { return await guildChannel(id, guildId, api); }
+  catch (error) {
+    if (error.discordCode !== 10003) throw error;
+  }
+}
+
 async function protectedChannels(channels, protection, api) {
   const ids = [...new Set(protectedIds(protection))];
   const missing = ids.filter(id => !channels.some(channel => channel.id === id));
-  const tracked = [...channels, ...await Promise.all(missing.map(id => guildChannel(id, protection.guildId, api)))];
+  const resolved = await Promise.all(missing.map(id => trackedChannel(id, protection.guildId, api)));
+  const tracked = [...channels, ...resolved.filter(Boolean)];
   return { channels: tracked, protection: withThreadParents(protection, tracked) };
 }
 

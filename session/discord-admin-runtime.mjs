@@ -28,7 +28,7 @@ function requireOneGuild(guilds) {
 }
 
 function potChannelId(name, channels, cache) {
-  const previous = cache?.potChannels?.[name];
+  const previous = channels.some(channel => channel.id === cache?.potChannels?.[name]) ? cache.potChannels[name] : undefined;
   const matches = previous ? channels.filter(channel => channel.id === previous) : channels.filter(channel => channel.name === name && channel.type === CHANNEL.text);
   if (matches.length !== 1) throw new Error('discord-admin: a pot channel cannot be identified from owning configuration and Discord metadata. Restore protection metadata.');
   return matches[0].id;

@@ -36,6 +36,7 @@ test('API errors reveal only status and numeric code, with no mutation retry', a
   await assert.rejects(api('DELETE', '/channels/100000000000000001', undefined, 'Requested'), error => {
     assert.match(error.message, /HTTP 403, code 50013/);
     assert.doesNotMatch(error.message, /untrusted response content/);
+    assert.equal(error.discordCode, 50013);
     return true;
   });
   assert.equal(attempts, 1);

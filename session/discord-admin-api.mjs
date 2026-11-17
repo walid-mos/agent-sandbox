@@ -44,9 +44,10 @@ async function responseBody(response) {
 }
 
 function discordFailure(response, result) {
-  const code = Number.isInteger(result?.code) ? `, code ${result.code}` : '';
+  const discordCode = Number.isInteger(result?.code) ? result.code : undefined;
+  const code = discordCode === undefined ? '' : `, code ${discordCode}`;
   const hint = HINTS[response.status] ?? 'Inspect this resource before a new request.';
-  return new Error(`discord-admin: Discord HTTP ${response.status}${code}. ${hint}`);
+  return Object.assign(new Error(`discord-admin: Discord HTTP ${response.status}${code}. ${hint}`), { discordCode });
 }
 
 async function discordResult(response) {

@@ -43,6 +43,15 @@ test('all configured pot channels including Personal are protected and cached by
   assert.deepEqual(await discoverProtection(proof), first);
 });
 
+test('a deleted and recreated pot channel is found again by its name', async t => {
+  const proof = runtime(t);
+  await discoverProtection(proof);
+  const recreatedId = '100000000000000074';
+  const channels = proof.dependencies.channels;
+  channels.splice(channels.findIndex(channel => channel.id === protectedId), 1, { id: recreatedId, guild_id: guildId, type: 0, name: 'primary' });
+  assert.equal((await discoverProtection(proof)).channelIds.includes(recreatedId), true);
+});
+
 test('missing owning thread map prevents administration', async t => {
   const proof = runtime(t);
   rmSync(join(proof.metadata, 'north-star-threads.json'));
