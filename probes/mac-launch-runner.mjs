@@ -48,5 +48,7 @@ try {
   assert.deepEqual(await runner.result(run), { status: 'failed', detail: 'Provider refused the request.' });
   writeFileSync(run.session, JSON.stringify({ type: 'message', message: { role: 'assistant', content: [], stopReason: 'length' } }) + '\n');
   assert.deepEqual(await runner.result(run), { status: 'failed', detail: 'Pi ended its turn with length.' });
-  console.log('Real Herdr terminal start, final report, provider error and length limit passed. No model or Mac was used.');
+  writeFileSync(run.session, JSON.stringify({ type: 'message', message: { role: 'assistant', content: [], stopReason: 'stop' } }) + '\n');
+  assert.deepEqual(await runner.result(run), { status: 'failed', detail: 'Pi ended its turn without a final text reply.' });
+  console.log('Real Herdr start, event-loop progress, final report, error, length limit and empty reply passed. No model or Mac was used.');
 } finally { cleanup(); }

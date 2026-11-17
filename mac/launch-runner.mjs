@@ -58,7 +58,7 @@ function lastTurn(path) {
   const last = messages.findLast(entry => entry.type === 'message' && entry.message?.role === 'assistant')?.message;
   if (!last) return undefined;
   const text = textOf(last);
-  if (last.stopReason === FINAL_STOP) return text ? { status: 'finished', report: text } : undefined;
+  if (last.stopReason === FINAL_STOP) return text ? { status: 'finished', report: text } : { status: 'failed', detail: 'Pi ended its turn without a final text reply.' };
   if (last.stopReason === undefined || last.stopReason === 'toolUse') return undefined;
   return { status: 'failed', detail: last.errorMessage?.slice(0, LAST_ERROR_CHARACTERS) || text.slice(0, LAST_ERROR_CHARACTERS) || `Pi ended its turn with ${last.stopReason}.` };
 }
