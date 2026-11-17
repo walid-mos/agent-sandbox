@@ -1,57 +1,75 @@
 import { maxWorkers } from './limits.mjs';
-import { dequeue, queued } from './queue.mjs';
+import { dequeue, queued, updateRequest } from './queue.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { isStopped, launch, RESUME, terminalOf, workers } from './workers.mjs';
+import { isStopped, launch, terminalOf, workers } from './workers.mjs';
+import { lifecycleOf, wrappedFollowUp } from './worker-lifecycle.mjs';
 
-const hasStarted = worker => worker.startedAt !== undefined;
-
-function conversationOf(worker, message) {
-  if (!hasStarted(worker)) return [`@${worker.brief}`];
-  return message ? [RESUME, '--', message] : [RESUME];
+function conversationOf(worker) {
+  return worker.sessionFile ? [] : [`@${worker.brief}`];
 }
 
 // Pi reads what it is sent once it runs, which its first status shows. hc refuses a blocked worker, and the message waits for the next pass.
-function deliver(request, terminal) {
-  if (!terminal?.status) return;
-  command('hc', ['send', '--', terminal.address, request.message]);
-  dequeue(request);
+function sendWhenOpen(request, terminal, worker, state) {
+  if (state.phase === 'closing' || request.sentTo === worker.launchId) return;
+  command('hc', ['send', '--', terminal.address, wrappedFollowUp(request)]);
+  updateRequest(request, { sentTo: worker.launchId });
+}
+
+function deliver(request, terminal, worker) {
+  if (!terminal.status) return;
+  const state = lifecycleOf(worker);
+  if (!state) return;
+  if (state.received.includes(request.file)) return dequeue(request);
+  sendWhenOpen(request, terminal, worker, state);
 }
 
 function reportNotStarted(request, worker, error) {
   const reason = failureReason(error) || (error instanceof Error ? error.message : 'hc did not answer');
   const note = JSON.stringify({ worker: worker.name, status: 'not started', reason, pullRequest: worker.pullRequest });
-  command('pots', ['wake', '--bot', botId, '--id', `${worker.name}-${Date.now()}-not-started`, '--note', note]);
-  dequeue(request);
+  command('pots', ['wake', '--bot', botId, '--id', `${request.file}-not-started`, '--note', note]);
+  if (!request.message) dequeue(request);
 }
 
 /** Starts the worker a request names, and resolves to whether it took a slot. */
 function start(request, worker) {
   try {
-    launch(worker, conversationOf(worker, request.message));
+    launch(worker, conversationOf(worker));
   } catch (error) {
-    // The bot hears of it once and the request leaves, so a worker that cannot start never holds the queue.
     reportNotStarted(request, worker, error);
     return false;
   }
-  // A brief opens the first conversation, so a message that came with it stays queued until the worker shows a status.
-  if (hasStarted(worker) || !request.message) dequeue(request);
+  if (!request.message) dequeue(request);
   return true;
 }
 
-function serve(request, { records, terminals, running }) {
+function workerForRequest(request, records) {
   const worker = records.get(request.worker);
   if (!worker || isStopped(worker)) {
     dequeue(request);
-    return;
+    return undefined;
   }
-  const terminal = terminalOf(worker, terminals);
-  if (terminal || running.has(worker.name)) {
-    if (request.message) deliver(request, terminal);
-    else dequeue(request);
-    return;
-  }
+  if (worker.owner !== botId) throw new Error('dispatch: worker ownership is unproven. Inspect its saved record before sending.');
+  return worker;
+}
+
+function startWaiting(request, worker, running) {
+  if (running.has(worker.name)) return;
   if (running.size < maxWorkers && start(request, worker)) running.add(worker.name);
+}
+
+function deliverRequest(request, terminal, worker) {
+  if (!request.message) return dequeue(request);
+  deliver(request, terminal, worker);
+}
+
+function serve(request, { records, terminals, running }) {
+  const worker = workerForRequest(request, records);
+  if (!worker) return;
+  const terminal = terminalOf(worker, terminals);
+  if (terminal) return deliverRequest(request, terminal, worker);
+  if (terminals.some(candidate => candidate.name === worker.name)) throw new Error('dispatch: terminal ownership changed. Inspect it before sending.');
+  startWaiting(request, worker, running);
 }
 
 /** Serves the requests in arrival order: a message reaches a worker that runs, and a waiting worker starts while a slot is free. */
