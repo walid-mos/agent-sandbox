@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, lstatSync, readFileSync, renameSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main, runOperation } from './main.mjs';
@@ -10,6 +10,7 @@ const GROUP = /^[a-z][a-z0-9-]*$/u;
 const FOLDER = /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/u;
 const SECRET_NAME = /^[A-Z][A-Z0-9_]*$/u;
 const MCP_URL = 'https://mcp.atlassian.com/v2/mcp';
+const ADAPTER_MERGE_TRIES = 5;
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const shellQuote = text => `'${text.replaceAll("'", "'\"'\"'")}'`;
 
@@ -21,6 +22,22 @@ function readConfiguration(path) {
     throw new Error(`jira: cannot read a JSON object from ${path}. Review the file before provisioning.`);
   }
   throw new Error(`jira: ${path} must contain a JSON object.`);
+}
+
+function readAdapterFile(path, piHome) {
+  rejectedParent(piHome);
+  const status = lstatSync(path, { throwIfNoEntry: false });
+  if (!status) return undefined;
+  if (!status.isFile()) throw new Error(`jira: ${path} must be a regular file. Review it before provisioning.`);
+  return readFileSync(path, 'utf8');
+}
+
+function rejectedParent(piHome) {
+  for (const directory of [piHome, join(piHome, '..')]) {
+    if (lstatSync(directory, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      throw new Error(`jira: ${directory} is a symlink. Review the session home before provisioning.`);
+    }
+  }
 }
 
 function credentialsFor(sandbox) {
@@ -59,40 +76,55 @@ function outsideEntries(sandbox, group) {
   ];
 }
 
-function writeAdapter(path, configuration) {
+function mergedAdapter(configuration, jira) {
+  if (configuration.mcpServers !== undefined && !isObject(configuration.mcpServers)) throw new Error('jira: mcp-adapter.json mcpServers must be an object. Review the file before provisioning.');
+  const servers = { ...configuration.mcpServers };
+  if (jira === undefined) delete servers.jira;
+  else servers.jira = jira;
+  return { ...configuration, mcpServers: servers };
+}
+
+function writeAdapter(path, contents, original) {
   const directory = mkdtempSync(join(path, '..', '.mcp-adapter-'));
   try {
     const staged = join(directory, 'mcp-adapter.json');
-    writeFileSync(staged, `${JSON.stringify(configuration, null, 2)}\n`, { mode: 0o600 });
+    writeFileSync(staged, contents, { mode: 0o600 });
+    if (original !== undefined && readFileSync(path, 'utf8') !== original) return false;
     renameSync(staged, path);
+    chmodSync(path, 0o600);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+  return true;
 }
 
 function configure(piHome, sandboxPath = SANDBOX) {
   if (!piHome) throw new Error('usage: jira.mjs configure PI_HOME [SANDBOX_JSON]');
   const credentials = credentialsFor(readConfiguration(sandboxPath));
-  const isEnabled = Object.hasOwn(credentials, 'email');
   const path = join(piHome, 'mcp-adapter.json');
-  const status = lstatSync(path, { throwIfNoEntry: false });
-  if (status && !status.isFile()) throw new Error(`jira: ${path} must be a regular file. Review it before provisioning.`);
-  if (!isEnabled && !status) return;
-  const configuration = status ? readConfiguration(path) : {};
-  if (configuration.mcpServers !== undefined && !isObject(configuration.mcpServers)) {
-    throw new Error(`jira: ${path} mcpServers must be an object. Review it before provisioning.`);
-  }
-  const servers = { ...configuration.mcpServers };
-  if (!isEnabled && !Object.hasOwn(servers, 'jira')) return;
-  delete servers.jira;
-  if (isEnabled) {
-    const command = [process.execPath, fileURLToPath(import.meta.url)].map(shellQuote).join(' ');
-    servers.jira = { url: MCP_URL, auth: false, headers: { Authorization: `!${command} authorization` } };
-  }
-  const desired = { ...configuration, mcpServers: servers };
-  if (JSON.stringify(configuration) === JSON.stringify(desired)) return;
-  mkdirSync(piHome, { recursive: true });
-  writeAdapter(path, desired);
+  const jira = Object.hasOwn(credentials, 'email') ? {
+    url: MCP_URL,
+    auth: false,
+    headers: { Authorization: `!${[process.execPath, fileURLToPath(import.meta.url)].map(shellQuote).join(' ')} authorization` },
+  } : undefined;
+  const mergeOnce = () => {
+    const attempt = count => {
+      const original = readAdapterFile(path, piHome);
+      if (original === undefined && jira === undefined) return true;
+      const contents = `${JSON.stringify(mergedAdapter(original === undefined ? {} : readConfiguration(path), jira), null, 2)}\n`;
+      if (contents === original) {
+        if (original !== undefined && (lstatSync(path).mode & 0o777) !== 0o600) chmodSync(path, 0o600);
+        return true;
+      }
+      if (readAdapterFile(path, piHome) !== original) return count < ADAPTER_MERGE_TRIES ? attempt(count + 1) : false;
+      mkdirSync(piHome, { recursive: true });
+      if (writeAdapter(path, contents, original)) return true;
+      return count < ADAPTER_MERGE_TRIES - 1 ? attempt(count + 1) : false;
+    };
+    return attempt(0);
+  };
+  if (mergeOnce()) return;
+  throw new Error(`jira: ${path} kept changing while provisioning merged it. Close the app that writes it and run bin/session-refresh again.`);
 }
 
 async function authorization(sandboxPath = SANDBOX) {
