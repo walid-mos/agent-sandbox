@@ -1,14 +1,14 @@
 import { execFile } from 'node:child_process';
 import { isPotName } from '../session/door-messages.mjs';
+import { LAUNCH_SCRIPT } from '../session/launch-contract.mjs';
 
-const REMOTE_SCRIPT = '/opt/agent-sandbox/session/mac-launch.mjs';
 const REMOTE_TIMEOUT_SECONDS = 10;
 const OUTPUT_BYTES = 128 * 1024;
 
 export function potTransport() {
   async function call(pot, arguments_, input) {
     if (!isPotName(pot)) throw new Error('mac-launch: invalid pot name.');
-    const options = ['exec', '--json', '--on', pot, '--timeout', `${REMOTE_TIMEOUT_SECONDS}`, ...(input === undefined ? [] : ['-i']), 'node', REMOTE_SCRIPT, ...arguments_];
+    const options = ['exec', '--json', '--on', pot, '--timeout', `${REMOTE_TIMEOUT_SECONDS}`, ...(input === undefined ? [] : ['-i']), 'node', LAUNCH_SCRIPT, ...arguments_];
     const { stdout } = await runWithInput(options, input);
     const response = JSON.parse(stdout);
     if (response.code !== 0 || response.timed_out || response.truncated) throw new Error(`mac-launch: ${pot} did not complete the launch command.`);

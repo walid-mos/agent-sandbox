@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { assignments } from './environment.mjs';
 import { DIALOG_ID, DIGEST, discordMessage, packet, text, VERSION } from './human-contract.mjs';
 import { isPotName } from './door-messages.mjs';
 
@@ -11,6 +13,7 @@ export const OPEN = 'open';
 export const OFFERED = 'offered';
 export const STATUSES = [OFFERED, 'started', 'finished', 'refused', 'expired', 'superseded', 'cancelled', 'failed'];
 export const isTarget = isPotName;
+export const LAUNCH_SCRIPT = `${assignments(readFileSync(new URL('./launch.env', import.meta.url), 'utf8')).POTS_SESSION_REPOSITORY}/session/mac-launch.mjs`;
 // Line feed and tab are the only characters a reader cannot see that a prompt may hold. The listed letters render as blanks.
 const UNSEEN = /[^\P{C}\n\t]|[\u2028\u2029\u115F\u1160\u3164\uFFA0\u2800]/u;
 
@@ -84,7 +87,7 @@ export function fetchedRequest(shown) {
 }
 
 export const launchNotice = ({ launch, pot, target }) => packet('mac.launch-notice', { launch, pot, target });
-export const noticeText = notice => `Post this Mac launch notice with node /opt/agent-sandbox/session/mac-launch.mjs announce and this door request ID. Target ${notice.target}, pot ${notice.pot}.\n\n\`\`\`mac-launch\n${JSON.stringify(notice)}\n\`\`\``;
+export const noticeText = notice => `Post this Mac launch notice with node ${LAUNCH_SCRIPT} announce and this door request ID. Target ${notice.target}, pot ${notice.pot}.\n\n\`\`\`mac-launch\n${JSON.stringify(notice)}\n\`\`\``;
 
 export function noticeOf(content) {
   const block = NOTICE_BLOCK.exec(content ?? '');
