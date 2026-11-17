@@ -17,7 +17,7 @@ export function finishPublication(record) {
   requireLandingAuthority(record.repository);
   publishLanding(record.repository, record.release);
   return reportToPrincipal({ ...record, stage: 'published' },
-    `PR factory merged ${pullUrl(record)} as ${record.mergeCommit}, signed landing commit ${record.release.commit} with ${record.release.fingerprint}, and published it to main. Receiver installation is not yet observed. The Mac continues waiting for an operator-signed tip.`);
+    `PR factory merged ${pullUrl(record)} as ${record.mergeCommit}, signed landing commit ${record.release.commit} with ${record.release.fingerprint}, and published it to ${LANDING_BRANCH}. Receiver installation is not yet observed. The Mac continues waiting for an operator-signed tip.`);
 }
 
 export function signPublication(record, facts) {

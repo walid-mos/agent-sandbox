@@ -4,7 +4,7 @@ import { comment, pullFacts, requireActionable, squashMerge } from './factory-gi
 import { logDirectory, pullArguments, pullUrl, requireRecord, writeRecord } from './factory-records.mjs';
 import { reportToPrincipal } from './factory-reports.mjs';
 import { signPublication } from './factory-publication.mjs';
-import { isLandingPull } from './factory-authority.mjs';
+import { isLandingPull, LANDING_BRANCH } from './factory-authority.mjs';
 
 const VERDICTS = ['PASS', 'PASS+NOTES', 'FAIL'];
 const MERGED = 'MERGED';
@@ -27,7 +27,7 @@ function postVerdict(record, decision, notes) {
 function land(record) {
   const before = requireActionable(record);
   if (isLandingPull(record) && before.baseRefOid !== record.releaseBase) {
-    throw new Error('factory: main moved after the checks. A new checked head is required before merging.');
+    throw new Error(`factory: ${LANDING_BRANCH} moved after the checks. A new checked head is required before merging.`);
   }
   const merge = squashMerge(record);
   const after = pullFacts(record);

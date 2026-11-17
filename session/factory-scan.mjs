@@ -58,7 +58,7 @@ function check(subject) {
   const base = mergeBase(subject.repository, subject.base, subject.head);
   const releaseBase = isLandingPull(subject) ? branchTip(subject.repository, LANDING_BRANCH) : undefined;
   if (releaseBase && releaseBase !== base) {
-    return reportToPrincipal({ ...subject, stage: 'stale-base' }, `PR factory requires a new head of ${pullUrl(subject)} containing current main ${releaseBase} before checking a signed release.`);
+    return reportToPrincipal({ ...subject, stage: 'stale-base' }, `PR factory requires a new head of ${pullUrl(subject)} containing current ${LANDING_BRANCH} ${releaseBase} before checking a signed release.`);
   }
   const checks = runChecks(subject, base, logDirectory(subject));
   const failed = checks.find(result => !result.isPassed);
