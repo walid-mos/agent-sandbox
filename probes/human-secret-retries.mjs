@@ -2,16 +2,25 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { after, mock, test } from 'node:test';
+import { after, beforeEach, mock, test } from 'node:test';
 
 const home = mkdtempSync(join(tmpdir(), 'human-decisions-'));
 process.env.HOME = home;
 after(() => { mock.restoreAll(); rmSync(home, { recursive: true, force: true }); });
 const session = join(home, 'worker.jsonl');
 mock.module('../session/sandbox.mjs', { exports: { botHome: join(home, 'bot'), botId: 'proof', potsHome: join(home, '.pots') } });
+const vault = { isAccessDenied: true, isWriteUncertain: false, writes: 0 };
+beforeEach(() => { Object.assign(vault, { isAccessDenied: true, isWriteUncertain: false, writes: 0 }); });
 mock.module('../session/run.mjs', { exports: {
   command: () => JSON.stringify({ labels: { 'pi.session': session } }),
-  commandWithInput: async () => { throw new Error('Unexpected external write'); },
+  commandWithInput: async (_binary, args) => {
+    if (args[0].endsWith('secret-names.mjs')) {
+      if (vault.isAccessDenied) throw new Error('Access denied');
+      return;
+    }
+    vault.writes += 1;
+    if (vault.isWriteUncertain) throw new Error('Write response lost');
+  },
 } });
 const { humanStore } = await import('../session/human-store.mjs');
 const { openDialog } = await import('../session/human-dialogs.mjs');
@@ -54,6 +63,31 @@ test('a failed write permits concurrent retries but applies only one successful 
   assert.equal(replies[0].result.status, 'stored');
   assert.deepEqual(replies[1].result, replies[0].result);
   assert.deepEqual(replies[2].result, replies[0].result);
+});
+
+test('a failed vault access check stays retryable and concurrent retries write only once', async () => {
+  const store = humanStore();
+  const dialog = await openDialog({ ...secretInput(botSource()), target: { destination: 'infisical', projectId: 'proof', environment: 'dev', name: 'FIRST' } }, store);
+  await assert.rejects(storeDialogSecret(dialog.id, { FIRST: 'dummy' }, { store }), /before writing/);
+  assert.equal(Boolean(store.get(dialog.id).writing), false);
+  assert.equal(vault.writes, 0);
+  vault.isAccessDenied = false;
+  await Promise.all([storeDialogSecret(dialog.id, { FIRST: 'dummy' }, { store }), storeDialogSecret(dialog.id, { FIRST: 'dummy' }, { store })]);
+  assert.equal(vault.writes, 1);
+  assert.equal(store.get(dialog.id).result.status, 'stored');
+});
+
+test('an unconfirmed vault write cannot apply again after the boundary recovers', async () => {
+  const store = humanStore();
+  const dialog = await openDialog({ ...secretInput(botSource()), target: { destination: 'infisical', projectId: 'proof', environment: 'dev', name: 'FIRST', replace: true } }, store);
+  vault.isAccessDenied = false;
+  vault.isWriteUncertain = true;
+  const before = vault.writes;
+  await assert.rejects(storeDialogSecret(dialog.id, { FIRST: 'dummy' }, { store }), /outcome is unknown/);
+  assert.equal(store.get(dialog.id).writing, true);
+  vault.isWriteUncertain = false;
+  await assert.rejects(storeDialogSecret(dialog.id, { FIRST: 'dummy' }, { store }), /interrupted/);
+  assert.equal(vault.writes, before + 1);
 });
 
 test('failure saving a successful receipt never permits a second destination write', async () => {

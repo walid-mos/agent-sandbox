@@ -8,13 +8,20 @@ import { humanStore } from './human-store.mjs';
 import { commandWithInput } from './run.mjs';
 
 const VALUE_LIMIT = 4096;
-const WRITER = join(homedir(), '.pi/agent/security/secret-set.mjs');
+const SECURITY = join(homedir(), '.pi/agent/security');
+const WRITE_MS = 120_000;
 
-function writeInfisical(target, value) {
-  const arguments_ = [WRITER, '--projectId', target.projectId, '--env', target.environment, '--name', target.name, '--path', target.path];
+async function writeInfisical(target, value) {
+  const targetArguments = ['--projectId', target.projectId, '--env', target.environment, '--path', target.path];
+  try {
+    await commandWithInput('node', [join(SECURITY, 'secret-names.mjs'), ...targetArguments], '', { timeout: WRITE_MS });
+  } catch {
+    throw new Error('human: the vault access check failed before writing. Restore access, then retry this request.');
+  }
+  const arguments_ = [join(SECURITY, 'secret-set.mjs'), ...targetArguments, '--name', target.name];
   if (target.replace) arguments_.push('--replace');
-  return commandWithInput('node', arguments_, value, { timeout: 120_000 }).catch(() => {
-    throw new Error('human: the vault did not confirm the write. Check its access, then retry this request.');
+  return commandWithInput('node', arguments_, value, { timeout: WRITE_MS }).catch(() => {
+    throw Object.assign(new Error('human: the vault write outcome is unknown. Verify the destination before opening a new request.'), { isUncertain: true });
   });
 }
 
@@ -52,8 +59,8 @@ async function attemptWrite(dialog, values, { save, write }) {
 async function writePots(target, values) {
   try {
     await storeSecrets({ file: target.file, keys: target.keys }, JSON.stringify(values));
-  } catch {
-    throw new Error('human: the pot did not confirm the secret file write. Check it, then retry this request.');
+  } catch (error) {
+    throw Object.assign(new Error('human: the pot did not confirm the secret file write. Check the destination before retrying.'), { isUncertain: error.isUncertain === true });
   }
 }
 

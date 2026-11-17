@@ -48,6 +48,10 @@ export async function storeSecrets(asked, input) {
   const { secretRequest, writeSecrets, secretsFolder } = await potsModules();
   const { file, keys } = secretRequest({ ...asked });
   const path = join(secretsFolder, file);
-  writeSecrets(path, Object.fromEntries(keys.map(key => [key, typed[key]])));
+  try {
+    writeSecrets(path, Object.fromEntries(keys.map(key => [key, typed[key]])));
+  } catch {
+    throw Object.assign(new Error('pots: the secret file write outcome is unknown. Check the destination before opening a new request.'), { isUncertain: true });
+  }
   return `(pots chat: wrote ${keys.join(', ')} to ${path})`;
 }
