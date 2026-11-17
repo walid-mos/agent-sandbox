@@ -5,4 +5,5 @@ set -eu
 if ! command -v pots > /dev/null || ! "$(dirname "$0")/with-vault" --ready; then
 	idle_until_bootstrap pots-gateway
 fi
+node "$(dirname "$0")/bot-secrets.mjs"
 exec "$(dirname "$0")/with-vault" pots start
