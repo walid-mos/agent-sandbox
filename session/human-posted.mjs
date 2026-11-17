@@ -1,4 +1,4 @@
-import { discordMessage, onlyFor, VERSION } from './human-contract.mjs';
+import { discordMessage, MASTERMIND_POT, onlyFor, VERSION } from './human-contract.mjs';
 import { questionDigest } from './human-dialogs.mjs';
 import { RECEIVED } from './door-requests.mjs';
 import { humanStore } from './human-store.mjs';
@@ -22,7 +22,7 @@ export async function registerPosted(posted, store = humanStore()) {
 }
 
 export async function reconcilePosted({ store, doors, onError }) {
-  for (const request of doors.all().filter(item => item.direction === RECEIVED && item.pot === 'mastermind')) {
+  for (const request of doors.all().filter(item => item.direction === RECEIVED && item.pot === MASTERMIND_POT)) {
     let posted;
     try { posted = JSON.parse(request.need); } catch { continue; }
     if (posted?.type !== 'human.posted') continue;

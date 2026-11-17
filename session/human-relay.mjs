@@ -1,7 +1,7 @@
 import { all, ANSWERED, find, RESENDABLE } from './door-requests.mjs';
 import { prepareAsk, transmitAsk } from './doors.mjs';
 import { deliverBotResult, syncBotDialogs } from './human-bot.mjs';
-import { packet } from './human-contract.mjs';
+import { MASTERMIND_POT, packet } from './human-contract.mjs';
 import { acceptDoorAnswer, cancelDialog, completionNeed, questionNeed, secretNeed } from './human-dialogs.mjs';
 import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
 import { ensureSecretPage, syncSecretPage } from './human-pages.mjs';
@@ -26,7 +26,7 @@ async function sendNotice(dialog, field, need, { store, doors, now }) {
   if (previous && now - previous.attemptedAt < DOOR_RETRY_MS) return;
   let request;
   try {
-    request = known || doors.prepare({ pot: 'mastermind', need, key: `human:${dialog.id}:${field}` });
+    request = known || doors.prepare({ pot: MASTERMIND_POT, need, key: `human:${dialog.id}:${field}` });
   } catch (error) {
     await store.patch(dialog.id, { [field]: { state: 'unsent', failure: error.message, attemptedAt: now } });
     return;
@@ -85,7 +85,7 @@ main(import.meta, () => {
   async function pass() {
     try {
       await syncBotDialogs();
-      if (sandbox.doors?.mastermind) await reconcileHuman({ onError });
+      if (sandbox.doors?.[MASTERMIND_POT]) await reconcileHuman({ onError });
     } catch (error) { onError('scan', error); }
     setTimeout(pass, PASS_MS);
   }
