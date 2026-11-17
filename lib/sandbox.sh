@@ -119,8 +119,9 @@ wait_for_server() {
 	curl --silent --fail --insecure --output /dev/null --retry "$SERVER_READY_ATTEMPTS" --retry-delay 2 --retry-all-errors "$POTS_SERVER_URL/"
 }
 
+# On Proxmox the lookup is an ssh, which would read and drop the stdin a caller then hands to the session.
 session_container() {
-	sandbox_docker ps --filter "label=$POTS_SESSION_LABEL" --filter status=running --format '{{.Names}}' | head -1
+	sandbox_docker ps --filter "label=$POTS_SESSION_LABEL" --filter status=running --format '{{.Names}}' < /dev/null | head -1
 }
 
 running_session() {
