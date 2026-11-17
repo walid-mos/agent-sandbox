@@ -66,10 +66,14 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     const shown = await pots.show(proposed.pot, proposed.launch);
     if (SOURCE_CLOSURES.includes(shown.state)) return closeUnoffered(shown, proposed);
     let verified;
-    try { verified = verifyOffer(shown, proposed, settings(), clock()); }
+    try { verified = verifyOffer(shown, proposed, config, clock()); }
     catch (error) {
-      try { boundRequest(shown, proposed, settings()); } catch { return; }
-      closeUnoffered(shown, proposed, { state: 'refused', details: { detail: error.message } });
+      let bound;
+      try { bound = boundRequest(shown, proposed, config); } catch { return; }
+      // The pot learns why nothing started. Only a declared act makes this a refusal, and only a lapsed clock an expiry.
+      const refused = bound.request.acts.some(act => config.refusedActs.includes(act));
+      const state = refused ? 'refused' : clock() >= bound.request.expiresAt ? EXPIRED : 'failed';
+      closeUnoffered(shown, proposed, { state, details: { detail: error.message } });
       return;
     }
     const payload = offerMessage(verified, config, discordMessageUrl({ guildId: message.guild_id, channelId: message.channel_id, messageId: message.id }));

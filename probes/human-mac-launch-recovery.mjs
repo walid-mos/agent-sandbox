@@ -47,6 +47,16 @@ test('a crash after an unoffered closure decision still reports that closure aft
   assert.equal(f.runs.length, 0);
 });
 
+test('a request that lapsed before the Mac read it is reported expired, not refused', async t => {
+  const f = scenario(t);
+  f.source.time += 1_800_000;
+  await f.service.notice(f.notice, application);
+  assert.equal(f.posted.length, 0);
+  assert.equal(f.store.decision(f.request.launch).state, 'expired');
+  await f.service.tick();
+  assert.equal(f.reports.at(-1)?.packet.status, 'expired');
+});
+
 test('a transient source outage retries the notice after the gate restarts', async t => {
   const f = scenario(t);
   const show = f.dependencies.pots.show;
