@@ -38,7 +38,7 @@ function routeEntry(id, entry) {
 export function routeProtection(routes) {
   requireMap(routes);
   const entries = Object.entries(routes).map(([id, entry]) => routeEntry(id, entry));
-  return { channelIds: [...new Set(entries.flatMap(entry => entry.channelIds))], threadIds: [...new Set(entries.flatMap(entry => entry.threadIds))] };
+  return { channelIds: entries.flatMap(entry => entry.channelIds), threadIds: entries.flatMap(entry => entry.threadIds) };
 }
 
 function messageAddress(link, guildId) {
@@ -82,5 +82,5 @@ export function northStarProtection(registry, guildId) {
   const entries = registry.threads.map(entry => northStarEntry(entry, guildId));
   if (![unique(entries.map(entry => entry.topic)), unique(entries.map(entry => entry.threadId))].every(Boolean)) throw invalid();
   requirePosts(registry.posts, overview, entries);
-  return { channelIds: [...new Set([overview.channelId, ...entries.map(entry => entry.starter.channelId)])], threadIds: entries.map(entry => entry.threadId) };
+  return { channelIds: [overview.channelId, ...entries.map(entry => entry.starter.channelId)], threadIds: entries.map(entry => entry.threadId) };
 }

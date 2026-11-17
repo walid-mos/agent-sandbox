@@ -1,14 +1,13 @@
 import { CHANNEL, CHANNEL_TOPIC_LIMIT, DISCORD_PERMISSIONS, FORUM_TOPIC_LIMIT, isThread, OVERWRITE, STANDALONE_THREAD_TYPES } from './discord-admin-operations.mjs';
 import { protectedIds } from './discord-admin-protection.mjs';
 
-const includesId = (ids, id) => ids.includes(id);
 const isRename = payload => Object.keys(payload).length === 1 && typeof payload.name === 'string';
 const rejectProtected = () => { throw new Error('discord-admin: protected pot resource cannot be changed by this operation.'); };
 
 function isProtectedChannel(request, { channels, protection, channel }) {
-  const ids = protectedIds(protection);
-  const hasProtectedChild = channels.some(item => item.parent_id === request.channelId && includesId(ids, item.id));
-  return [includesId(ids, request.channelId), hasProtectedChild, includesId(ids, channel?.parent_id)].some(Boolean);
+  const ids = new Set(protectedIds(protection));
+  const hasProtectedChild = channels.some(item => item.parent_id === request.channelId && ids.has(item.id));
+  return [ids.has(request.channelId), hasProtectedChild, ids.has(channel?.parent_id)].some(Boolean);
 }
 
 function guardProtectedEdit(request, snapshot) {
