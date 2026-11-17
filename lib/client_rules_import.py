@@ -48,12 +48,13 @@ def require_selected(directory, source):
     rules_target(configuration.get("rules"), SESSION_CONFIGURATION)
 
 
-def import_rules(directory, checkout, source, original, relative, recipe_path, recipe_hash):
+def import_rules(directory, checkout_for, source, original, relative, recipe, recipe_hash):
+    checkout = checkout_for(source)
     with locked(directory):
         require_selected(directory, source)
         original = regular_file(original)
         before = original.read_bytes()
-        plan = regular_file(recipe_path).read_bytes()
+        plan = regular_file(source_file(checkout, recipe)).read_bytes()
         if digest(plan) != require_hash(recipe_hash):
             refuse("recipe differs from the explicitly reviewed hash.")
         after = apply_recipe(before, parse_json(plan))

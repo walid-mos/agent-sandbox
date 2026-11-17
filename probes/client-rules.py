@@ -71,7 +71,7 @@ class ImportTests(unittest.TestCase):
         (self.host / "vault.json").write_text('{}')
 
     def import_original(self):
-        return import_rules(self.host, self.source, "synthetic", self.original, "AGENTS.md", self.plan, self.recipe_hash)
+        return import_rules(self.host, lambda source: self.source, "synthetic", self.original, "AGENTS.md", self.plan.name, self.recipe_hash)
 
     def test_import_links_original_to_approved_copy_and_keeps_one_source(self):
         state = self.import_original()
@@ -126,7 +126,7 @@ class ImportTests(unittest.TestCase):
 
     def test_unselected_source_and_corrupt_snapshot_are_refused(self):
         with self.assertRaises(RulesRefused):
-            import_rules(self.host, self.source, "unselected", self.original, "AGENTS.md", self.plan, self.recipe_hash)
+            import_rules(self.host, lambda source: self.source, "unselected", self.original, "AGENTS.md", self.plan.name, self.recipe_hash)
         self.import_original()
         snapshot = self.host / SNAPSHOT_FILE
         snapshot.chmod(0o600)
@@ -153,7 +153,7 @@ class ImportTests(unittest.TestCase):
     def test_refuses_symlink_escape_without_touching_original(self):
         (self.source / "outside").symlink_to(self.root, target_is_directory=True)
         with self.assertRaises(RulesRefused):
-            import_rules(self.host, self.source, "synthetic", self.original, "outside/new.md", self.plan, self.recipe_hash)
+            import_rules(self.host, lambda source: self.source, "synthetic", self.original, "outside/new.md", self.plan.name, self.recipe_hash)
         self.assertEqual(self.original.read_bytes(), ORIGINAL)
         self.assertFalse((self.root / "new.md").exists())
 

@@ -9,7 +9,7 @@ import sys
 REPOSITORY = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(REPOSITORY / "lib"))
-from client_rules import RulesRefused, refuse, source_file
+from client_rules import RulesRefused, refuse
 from client_rules_import import approve_rules, import_rules, private_checkout
 
 
@@ -42,9 +42,7 @@ def main():
     try:
         directory = sandbox_directory()
         if options.command == "import":
-            checkout = private_checkout(options.source)
-            recipe = source_file(checkout, options.recipe)
-            state = import_rules(directory, checkout, options.source, options.original, options.file, recipe, options.recipe_sha256)
+            state = import_rules(directory, private_checkout, options.source, options.original, options.file, options.recipe, options.recipe_sha256)
         else:
             state = approve_rules(directory, private_checkout, options.sha256)
         print(json.dumps({"sha256": state["sha256"], "previousSha256": state["previousSha256"],
