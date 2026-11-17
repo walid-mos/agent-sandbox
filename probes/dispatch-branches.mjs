@@ -16,10 +16,34 @@ const pullRequest = 'https://github.invalid/probe/pull/1';
 function prepare() {
   mkdirSync(session);
   mkdirSync(binaries);
-  for (const module of ['dispatch.mjs', 'main.mjs', 'limits.mjs', 'models.mjs', 'queue.mjs', 'run.mjs', 'workers.mjs']) {
-    copyFileSync(join(repository, 'session', module), join(session, module));
-  }
-  writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "accor-hotels": "UNUSED_PROBE_TOKEN" }, bot: "Probe" }; export const owners = Object.keys(sandbox.owners);\n');
+  copyFileSync(join(repository, 'session/dispatch.mjs'), join(session, 'dispatch.mjs'));
+  writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "accor-hotels": "UNUSED_PROBE_TOKEN" }, bot: "Probe" }; export const owners = Object.keys(sandbox.owners); export const botId = sandbox.bot.toLowerCase();\n');
+  writeFileSync(join(fixture, 'copy-imports.mjs'), `
+import { appendFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { registerHooks } from 'node:module';
+import { dirname } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+const source = pathToFileURL(${JSON.stringify(repository)});
+const target = pathToFileURL(${JSON.stringify(fixture + '/')});
+const record = (kind, url) => appendFileSync(new URL(kind + '.jsonl', target), JSON.stringify(fileURLToPath(url)) + '\\n');
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (!specifier.startsWith('.') || !context.parentURL?.startsWith(target.href)) return nextResolve(specifier, context);
+    const destination = new URL(specifier, context.parentURL);
+    if (destination.href.startsWith(target.href) && !existsSync(destination)) {
+      mkdirSync(dirname(fileURLToPath(destination)), { recursive: true });
+      copyFileSync(new URL(destination.href.slice(target.href.length), source), destination);
+      record('copied', destination);
+    }
+    return nextResolve(specifier, context);
+  },
+  load(url, context, nextLoad) {
+    const loaded = nextLoad(url, context);
+    if (url.startsWith(target.href)) record('loaded', url);
+    return loaded;
+  },
+});
+`);
   const executable = join(binaries, 'fake-command');
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -41,7 +65,7 @@ function invoke(branch, target = allowedRepository) {
   writeFileSync(join(configuration, 'config.json'), JSON.stringify({ worktreeBaseDir: '.worktree' }));
   const brief = join(home, 'request.md');
   writeFileSync(brief, 'Synthetic dispatch probe.');
-  const result = spawnSync(process.execPath, [join(session, 'dispatch.mjs'), 'start', '--', target, branch, brief, 'develop'], {
+  const result = spawnSync(process.execPath, ['--import', join(fixture, 'copy-imports.mjs'), join(session, 'dispatch.mjs'), 'start', '--', target, branch, brief, 'develop'], {
     cwd: fixture, encoding: 'utf8', timeout: 10_000, env: { HOME: home, PATH: binaries },
   });
   assert.ifError(result.error);
@@ -93,6 +117,10 @@ try {
     'feat/task?name', 'feat/task*name', 'feat/task[name', 'feat/$(touch marker)', 'feat/task;touch-marker']) refused(branch);
   refused(jiraBranch, 'outside-owner/product-data-apps');
   refused(jiraBranch, 'https://github.com/accor-hotels/product-data-apps');
+  const recorded = kind => readFileSync(join(fixture, kind + '.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const copied = new Set([join(session, 'dispatch.mjs'), join(session, 'sandbox.mjs'), ...recorded('copied')]);
+  const loaded = new Set(recorded('loaded'));
+  assert.deepEqual([...copied].sort(), [...loaded].sort(), 'copy exactly the active dispatch module graph');
   console.log('ok   dispatch preserves Jira branch and develop base, accepts lowercase branches, refuses malformed refs and unsupported repositories before side effects');
 } finally {
   rmSync(fixture, { recursive: true, force: true });
