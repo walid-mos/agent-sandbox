@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const CONFIG = '/etc/agent-sandbox/sandbox.json';
+const MASTERMIND = 'mastermind';
 
 function load() {
   try {
@@ -13,6 +14,10 @@ function load() {
 }
 
 export const sandbox = load();
+if (sandbox.role !== undefined && sandbox.role !== MASTERMIND) {
+  throw new Error(`sandbox: role is ${JSON.stringify(sandbox.role)} in ${CONFIG}. Leave it out for a pot that owns a domain, or set it to "${MASTERMIND}".`);
+}
+export const isMastermind = sandbox.role === MASTERMIND;
 export const botId = sandbox.bot.toLowerCase();
 export const owners = Object.keys(sandbox.owners);
 export const potsHome = join(homedir(), '.pots');

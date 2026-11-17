@@ -18,9 +18,10 @@ Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named a
 | `owners` | GitHub owners that the dispatcher and the GitHub wrapper accept, each with the name of its token in the vault's `/tools/github` |
 | `secrets` | Other vault folders, each with the names injected from it |
 | `onRequest` | Named groups of vault folders and names, injected only into a command that asks for the group |
+| `role` | Optional. `mastermind` for [the Mastermind](#mastermind). Left out for a pot that owns a domain; any other value stops the session's code |
 | `doors` | Optional. The pots this pot can ask through [their doors](#doors), each with one line on what it owns |
 
-Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). One file serves every pot: `~/.config/agent-sandbox/tailnet.json`, beside the sandboxes, holds `operatorLogin`, the Tailscale login of the operator's devices, which [the pots policy](#tailnet-and-doors) grants and the node checks expect. `./bin/vm-config` copies these files into the VM's `/etc/agent-sandbox`, readable by every user of the VM and writable by root only, and `vm-up` runs it. The session mounts that VM directory read-only at the same path. An edit on the Mac reaches the sandbox at the next `./bin/vm-config`. From there, the next command reads a changed `owners`, `secrets`, `onRequest` or `doors`. `vm` applies when the VM next starts, `serverPort` when the server is next created, and `bot` and `rules` at the next bootstrap. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart.
+Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). One file serves every pot: `~/.config/agent-sandbox/tailnet.json`, beside the sandboxes, holds `operatorLogin`, the Tailscale login of the operator's devices, which [the pots policy](#tailnet-and-doors) grants and the node checks expect. `./bin/vm-config` copies these files into the VM's `/etc/agent-sandbox`, readable by every user of the VM and writable by root only, and `vm-up` runs it. The session mounts that VM directory read-only at the same path. An edit on the Mac reaches the sandbox at the next `./bin/vm-config`. From there, the next command reads a changed `owners`, `secrets`, `onRequest` or `doors`. `vm` applies when the VM next starts, `serverPort` when the server is next created, and `bot`, `rules` and `role` at the next bootstrap. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart.
 
 ## Install on the operator's Mac
 
@@ -58,6 +59,7 @@ The VM's keeper launches the session within a minute of `vm-up`. To have it at o
 4. It restarts the router and seeds it, as [Model router](#model-router) describes.
 5. It creates the sandbox's bot when it has none, then links [its instructions](#the-bot-and-its-pi-workers), [the pot rules](session/pot/AGENTS.md) and the sandbox's `rules` into the session.
 6. It restarts the gateway, the worker watcher and the source watcher.
+7. It creates the Factory bot when the pot owns repositories.
 
 Bootstrap needs access to the private harness repository and the configured vault paths, and the Mac's Magpie as the source of the seed.
 
@@ -303,7 +305,7 @@ On every check, the VM's keeper compares both the installed Magpie and the runni
 
 Each sandbox has one bot, named by its `bot` key. It uses `magpie/group/router` for coordination, and the Pots gateway runs it through the session's service supervisor. Pi workers start on `magpie/group/router`, or `magpie/group/max` when the person asks for it, and use the installed Pi harness and separate Git worktrees under the session's `/config/Development`.
 
-[The bot's instructions](session/bot) and [the pot rules](session/pot/AGENTS.md) are the same in every sandbox. Every bot of a pot loads the pot rules, which bootstrap links at `~/.pots/AGENTS.md`, above the bots' folders and outside the workers' `/config/Development`: questions, doors and reports from a Mac. Bootstrap links the bot's instructions into its folder, so the bot reads them and cannot edit them. Change them in this repository. What differs between sandboxes is data. `owners` limits the repositories, and `rules` names an instruction file that bootstrap links at `/config/AGENTS.md`, where Pi loads it for the bot and for every worker.
+A pot's bot follows [the work center's instructions](session/bot), and the Mastermind's bot [its own](session/mastermind). Every bot of a pot also loads [the pot rules](session/pot/AGENTS.md), which bootstrap links at `~/.pots/AGENTS.md`, above the bots' folders and outside the workers' `/config/Development`: questions, doors and reports from a Mac. These instructions are the same in every sandbox. Bootstrap links them into the bot's folder, so the bot reads them and cannot edit them. Change them in this repository. What differs between sandboxes is data. `owners` limits the repositories, and `rules` names an instruction file that bootstrap links at `/config/AGENTS.md`, where Pi loads it for the bot and for every worker.
 
 A sandbox for a client uses `rules` for the client's own instruction file, which can make every push wait for the person's yes. The yes is a rule that the bot and the worker follow, and the sandbox's token can push without it. The bot asks before a start, because the start pushes the branch to open the draft PR. It asks again when a worker stops with unpushed commits, then sends the worker the yes for that one push.
 
@@ -322,11 +324,15 @@ Gateway and watcher wrappers wait indefinitely if their prerequisites are missin
 
 Worker briefs and records live under `/config/.config/agent-sandbox/workers`. The watcher polls their terminal state and wakes the bot with the branch, commit, uncommitted-path count, unpushed-commit count, clean-pass record and PR URL. It marks a worker complete only when its status is `done`, its worktree is clean and no commit is missing from `origin`. That signal does not verify PR checks or a merge. A lost unfinished worker is resumed once per watcher process. A terminal that just started is never treated as lost, because the vault login shows no agent status at first. A completed or stopped worker is relaunched only by a `send`. A stop is a `NAME.stopped` file beside the worker's record, which a `send` removes, and the watcher ends any terminal of a stopped worker that it finds running.
 
-A thread outside the sandbox reports to the bot through the sandbox's Herdr machine, from either Mac. The bot reads the note and tells the person in the Pots pane. `--from` accepts letters, digits, `-` and `_` only, so the thread's title opens the note.
+A thread outside the pots reports to the Mastermind through its Herdr machine, from either Mac. The Mastermind reads the note and tells the person in the Pots pane. A report starts no work. `--from` accepts letters, digits, `-` and `_` only, so the thread's title opens the note.
 
 ```sh
-hc exec --on "$SANDBOX" pots wake --from mac-thread --note "$thread_title: $report"
+hc exec --on mastermind pots wake --from mac-thread --note "$thread_title: $report"
 ```
+
+## Mastermind
+
+The Mastermind is the pot whose `sandbox.json` sets `role` to `mastermind`, as [its example](sandboxes.example/mastermind/sandbox.json) does. It is the person's single point of entry: its bot hands each request through a door to the pot that owns the domain, follows it and reports. It owns no domain. Its `owners` is empty, so the dispatcher refuses every repository and bootstrap creates no Factory bot. Its secrets are only the router's model credentials. The person can still talk to any pot in its own tab.
 
 ## Pots and doors
 

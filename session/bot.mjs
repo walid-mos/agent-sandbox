@@ -6,10 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { link, linkFolder } from './link.mjs';
 import { main } from './main.mjs';
 import { ROUTER_MODEL } from './models.mjs';
-import { botHome, potsHome, sandbox } from './sandbox.mjs';
+import { botHome, isMastermind, potsHome, sandbox } from './sandbox.mjs';
 
 const SESSION = dirname(fileURLToPath(import.meta.url));
-const VERSIONED = join(SESSION, 'bot');
+const VERSIONED = join(SESSION, isMastermind ? 'mastermind' : 'bot');
 // Pi loads the instructions of every folder above its own: the pot's rules reach every bot and no worker, the sandbox's rules the bot and every worker.
 const POT_RULES = { source: join(SESSION, 'pot/AGENTS.md'), target: join(potsHome, 'AGENTS.md') };
 const SESSION_RULES = join(homedir(), 'AGENTS.md');
