@@ -39,7 +39,7 @@ A pot cannot close a launch. `cancel` and `--replaces` record what the pot asks 
 
 When the Mac claims the operator's press first, the launch runs. The Mac reports `started`, and the pot's note for that status carries `tooLate` with the closure that lost. The Mac never reports a claimed launch as cancelled.
 
-The gate asks the pot once more at the press. A closed answer becomes the Mac's closure instead of a claim. A pot that does not answer starts nothing and leaves the press unused, and the operator gets a private reply telling him to press again. That last look narrows the window. It is not the boundary, because a pot may ask a moment after it.
+The gate asks the pot once more at the press. A closed answer becomes the Mac's closure instead of a claim. A pot that does not answer starts nothing and leaves the press unused, and the operator gets a private reply telling him to press again. A press the Mac will not accept, because it is too old, from the future or from a disabled gate, gets that private reply too and consumes nothing. That last look narrows the window. It is not the boundary, because a pot may ask a moment after it.
 
 So a launch is dead from the moment the Mac writes its closure. From then on no press, no notice and no answer from the pot starts it, a pot that shows it open again included. A launch a pot asked to close, and that the Mac has not closed yet, is still live and its button still works. A pot that hides its own cancellation from the Mac gets no confirmation: the operator still decides on the Mac's own message.
 
@@ -118,9 +118,10 @@ Each guarantee has an attack that must fail. `bin/check` runs them.
 | Only the operator's press on the gate's own unedited message launches, once, in time, with the switch on | `probes/human-mac-launch-gate.mjs` |
 | A request with invisible text, an undeclared or refused act, a wrong digest or another target makes no offer. A pot's cancellation stays asked until the Mac reports it, and a start the Mac committed first is reported as too late | `probes/human-mac-launch-request.mjs` |
 | From notice to report through the whole gate: foreign notices, a pot that changes its answer or reopens a closed launch, a claim that beat a cancellation, a pot that does not answer, a double press, a failed start, a disabled switch | `probes/human-mac-launch-service.mjs` |
+| Local failures cost no launch: a failed Discord edit still reports a start, an unreadable record does not stop other launches, a closure whose record was lost is reported after a restart, a failed notice is retried, a lapsed request reports `expired` rather than `refused`, a press the Mac refuses never consumes the approval, and a refused act is reported even after a failed delivery | `probes/human-mac-launch-recovery.mjs` |
 | The gateway client identifies, heartbeats, reconnects without resuming, and stops on a refused token | `probes/human-mac-launch-discord.mjs` |
 
-`node probes/mac-launch-runner.mjs` starts a stand-in `pi` through the real `hc` and reads its report back. It needs Herdr, so it runs by hand and not in `bin/check`.
+`node probes/mac-launch-runner.mjs` starts a stand-in `pi` through the real `hc` and reads its report back. It checks that a terminal's own error and a length-limited turn end the launch instead of leaving it started, and that a terminal lookup does not hold the event loop. It needs Herdr, so it runs by hand and not in `bin/check`.
 
 Nothing here ran on a real Mac or against Discord's servers. The keychain read, the launchd service and the live gateway are proven only by the setup block's own check.
 
@@ -181,6 +182,8 @@ stateDiagram-v2
 Every state but `Offered` is final for the approval. A launch that failed, expired or was refused needs a new request and a new press.
 
 A request lives 30 minutes from its creation in the pot. The enabled pot service wakes its bot one minute after the expiry even if the Mac is offline. The MacBook Pro shows an offer only while it is awake. A notice it slept through is read when it reconnects, and offered only if the request is still open.
+
+A notice the Mac cannot act on is answered on the pot, so its bot is not left waiting for a start that never comes. The Mac reports `refused` when the request declares an act it refuses, `expired` when the request lapsed before the Mac read it, and `failed` with the reason when it refuses the request for another cause. A notice whose fetch or post fails is kept on the Mac and tried again, across a restart too, so a short outage costs no offer.
 
 Buttons are the only entry. The gate has no slash command: a second entry would be a second gate to prove, and the operator can ask any pot for a prompt.
 
