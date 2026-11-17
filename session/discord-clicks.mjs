@@ -24,22 +24,34 @@ export async function registerDiscordQuestion(registration, store, identity) {
   }, question.dialog);
 }
 
+const formChildren = component => component.components ?? (component.component ? [component.component] : []);
+
+function formComponentText(component) {
+  if (component.custom_id === 'answer' && typeof component.value === 'string') return [component.value];
+  return formText(formChildren(component));
+}
+
 function formText(components = []) {
-  return components.flatMap(component => component.custom_id === 'answer' && typeof component.value === 'string' ? [component.value]
-    : formText(component.components ?? (component.component ? [component.component] : []))).join('\n');
+  return components.flatMap(formComponentText).join('\n');
+}
+
+function formAnswer(question, interaction) {
+  if (interaction?.type !== 5) throw new Error('discord-human: a stored form answers only on its modal submission.');
+  return { id: question.id, labels: [], text: formText(interaction.data?.components) };
+}
+
+function selectedLabels(question, event) {
+  const values = event.option === 'select' ? (event.values ?? []) : [event.option];
+  if (!values.length || !values.every(value => /^\d+$/.test(value ?? '') && question.options[Number(value)])) throw new Error('discord-human: unknown selection.');
+  if (event.option === 'select' && !question.multiple && values.length !== 1) throw new Error('discord-human: this question is not multiple choice.');
+  return values.map(value => question.options[Number(value)].label);
 }
 
 function chosenAnswer(question, event) {
   const { interaction } = event;
-  if (event.customId.startsWith('form:')) {
-    if (interaction?.type !== 5) throw new Error('discord-human: a stored form answers only on its modal submission.');
-    return { id: question.id, labels: [], text: formText(interaction.data?.components) };
-  }
+  if (event.customId.startsWith('form:')) return formAnswer(question, interaction);
   if (interaction && interaction.type !== 3) throw new Error('discord-human: unsupported answer interaction.');
-  const values = event.option === 'select' ? (event.values ?? []) : [event.option];
-  if (!values.length || !values.every(value => /^\d+$/.test(value ?? '') && question.options[Number(value)])) throw new Error('discord-human: unknown selection.');
-  if (event.option === 'select' && !question.multiple && values.length !== 1) throw new Error('discord-human: this question is not multiple choice.');
-  return { id: question.id, labels: values.map(value => question.options[Number(value)].label), text: '' };
+  return { id: question.id, labels: selectedLabels(question, event), text: '' };
 }
 
 function disabled(components = []) {

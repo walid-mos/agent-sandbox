@@ -21,14 +21,22 @@ export async function registerPosted(posted, store = humanStore()) {
   }, posted.dialog);
 }
 
-export async function reconcilePosted({ store, doors, onError }) {
-  for (const request of doors.all().filter(item => item.direction === RECEIVED && item.pot === MASTERMIND_POT)) {
-    let posted;
-    try { posted = JSON.parse(request.need); } catch { continue; }
-    if (posted?.type !== 'human.posted') continue;
-    try {
-      await registerPosted(posted, store);
-      await doors.acknowledge(request);
-    } catch { onError(posted.dialog, new Error('human: posted context was rejected or its acknowledgement needs retry.')); }
-  }
+function postedPacket(request) {
+  let posted;
+  try { posted = JSON.parse(request.need); } catch { return undefined; }
+  return posted?.type === 'human.posted' ? posted : undefined;
+}
+
+async function acknowledgePosted(request, { store, doors, onError }) {
+  const posted = postedPacket(request);
+  if (!posted) return;
+  try {
+    await registerPosted(posted, store);
+    await doors.acknowledge(request);
+  } catch { onError(posted.dialog, new Error('human: posted context was rejected or its acknowledgement needs retry.')); }
+}
+
+export async function reconcilePosted(options) {
+  const received = options.doors.all().filter(item => item.direction === RECEIVED && item.pot === MASTERMIND_POT);
+  for (const request of received) await acknowledgePosted(request, options);
 }

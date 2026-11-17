@@ -44,18 +44,28 @@ function questionOf(question) {
     options: options.map(({ label, detail, recommended }) => ({ label, detail: typeof detail === 'string' ? detail : '', recommended: recommended === true })) };
 }
 
+function potsTarget(target) {
+  if (!/^[\w-]+\.env$/.test(target.file) || !Array.isArray(target.keys) || !target.keys.length || !target.keys.every(key => KEY.test(key))) return undefined;
+  return { destination: 'pots', file: target.file, keys: [...new Set(target.keys)] };
+}
+
+function infisicalTarget(target) {
+  if (!NAME.test(target.projectId) || !NAME.test(target.environment) || !KEY.test(target.name) || !/^\/[^\r\n\0]*$/.test(target.path ?? '/')) return undefined;
+  return { destination: 'infisical', projectId: target.projectId, environment: target.environment,
+    name: target.name, path: target.path ?? '/', replace: target.replace === true };
+}
+
+function browserTarget(target) {
+  if (!isExactOrigin(target.origin) || !isSocketPath(target.socket) || !CAPABILITY.test(target.capability ?? '')) return undefined;
+  return { destination: 'browser', origin: target.origin, socket: target.socket, capability: target.capability };
+}
+
+const TARGETS = new Map([['pots', potsTarget], ['infisical', infisicalTarget], ['browser', browserTarget]]);
+
 export function targetOf(target) {
-  if (target?.destination === 'pots' && /^[\w-]+\.env$/.test(target.file) && Array.isArray(target.keys) && target.keys.length && target.keys.every(key => KEY.test(key))) {
-    return { destination: 'pots', file: target.file, keys: [...new Set(target.keys)] };
-  }
-  if (target?.destination === 'infisical' && NAME.test(target.projectId) && NAME.test(target.environment) && KEY.test(target.name) && /^\/[^\r\n\0]*$/.test(target.path ?? '/')) {
-    return { destination: 'infisical', projectId: target.projectId, environment: target.environment,
-      name: target.name, path: target.path ?? '/', replace: target.replace === true };
-  }
-  if (target?.destination === 'browser' && isExactOrigin(target.origin) && isSocketPath(target.socket) && CAPABILITY.test(target.capability ?? '')) {
-    return { destination: 'browser', origin: target.origin, socket: target.socket, capability: target.capability };
-  }
-  throw new Error('human: secrets require a Pots env file, an Infisical target or a waiting browser tool.');
+  const checked = TARGETS.get(target?.destination)?.(target);
+  if (!checked) throw new Error('human: secrets require a Pots env file, an Infisical target or a waiting browser tool.');
+  return checked;
 }
 
 function isExactOrigin(origin) {

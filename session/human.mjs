@@ -24,12 +24,17 @@ function view(dialog) {
   return { id, kind, policy, result, expiresAt, delivery, issue, consumption, isWriting: dialog.writing === true };
 }
 
+function workerOf(requested) {
+  if (requested.source?.type !== 'worker') return undefined;
+  return workers().find(candidate => candidate.name === requested.source.worker);
+}
+
 main(import.meta, async () => {
   const [operation, id] = process.argv.slice(2);
   const operations = {
     open: async () => {
       const requested = await input();
-      const worker = requested.source?.type === 'worker' && workers().find(candidate => candidate.name === requested.source.worker);
+      const worker = workerOf(requested);
       return view(await openDialog({ ...requested, served: worker?.servedRequest ?? requested.served }));
     },
     get: () => view(humanStore().get(id)),

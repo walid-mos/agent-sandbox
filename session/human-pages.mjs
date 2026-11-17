@@ -14,14 +14,22 @@ async function pageCommand(binary, arguments_) {
   catch { throw new Error('human: the native secret page service is unavailable. Check Pots and the tailnet page proxy.'); }
 }
 
+const withPort = host => (host.includes(':') ? host : `${host}:443`);
+const isBareOrigin = url => [url.pathname === '/', !url.username, !url.password, !url.search, !url.hash].every(Boolean);
+const isTailnetPage = url => url.protocol === 'https:' && url.hostname.endsWith('.ts.net') && isBareOrigin(url);
+const isLocalProxy = (url, port) => [url.protocol === 'http:', ['127.0.0.1', 'localhost'].includes(url.hostname),
+  url.port === `${port}`, url.pathname === '/', !url.username, !url.password].every(Boolean);
+
+function parsedUrl(value, message) {
+  try { return new URL(value); } catch { throw new Error(message); }
+}
+
+const isServedPage = (serve, url, proxy, port) => isTailnetPage(url) && serve.AllowFunnel?.[withPort(url.host)] !== true && isLocalProxy(proxy, port);
+
 function checkedPageOrigin(settings, serve) {
-  let url;
-  try { url = new URL(settings.publicUrl); } catch { throw new Error('human: configure a tailnet publicUrl before making a secret link.'); }
-  const host = url.host.includes(':') ? url.host : `${url.host}:443`;
-  let proxy;
-  try { proxy = new URL(serve.Web?.[host]?.Handlers?.['/']?.Proxy); } catch { throw new Error('human: the configured page proxy is not served.'); }
-  if (url.protocol !== 'https:' || url.username || url.password || !url.hostname.endsWith('.ts.net') || url.pathname !== '/' || url.search || url.hash
-    || serve.AllowFunnel?.[host] === true || proxy.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(proxy.hostname) || proxy.port !== `${settings.pagePort}` || proxy.pathname !== '/' || proxy.username || proxy.password) {
+  const url = parsedUrl(settings.publicUrl, 'human: configure a tailnet publicUrl before making a secret link.');
+  const proxy = parsedUrl(serve.Web?.[withPort(url.host)]?.Handlers?.['/']?.Proxy, 'human: the configured page proxy is not served.');
+  if (!isServedPage(serve, url, proxy, settings.pagePort)) {
     throw new Error('human: publicUrl must be the tailnet-link proxy of the local Pots page port, without Funnel.');
   }
   return url.origin;
@@ -45,10 +53,14 @@ export async function ensureSecretPage(id, store = humanStore()) {
     const dialog = get(id);
     if (!isOpen(dialog) || dialog.pageLink) return dialog;
     const output = await pageCommand('pots', ['page', 'secret', '--bot', botId, '--file', stageFile(id), '--keys', targetKeys(dialog.target).join(','), '--text', dialog.purpose]);
-    const issued = JSON.parse(output);
-    if (issued.via !== 'public-url' || new URL(issued.url).origin !== origin || !/^S\d+$/.test(issued.link)) throw new Error('human: Pots did not return the configured tailnet secret link.');
-    return save({ ...dialog, pageLink: { id: issued.link, url: issued.url, expires: issued.expires } });
+    return save({ ...dialog, pageLink: issuedPage(output, origin) });
   }, id);
+}
+
+function issuedPage(output, origin) {
+  const issued = JSON.parse(output);
+  if (issued.via !== 'public-url' || new URL(issued.url).origin !== origin || !/^S\d+$/.test(issued.link)) throw new Error('human: Pots did not return the configured tailnet secret link.');
+  return { id: issued.link, url: issued.url, expires: issued.expires };
 }
 
 // Pots' page writes its own claim line beside the values, marked with a leading #.

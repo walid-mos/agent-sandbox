@@ -36,10 +36,13 @@ async function sendNotice(dialog, field, need, { store, doors, now }) {
   await store.patch(dialog.id, { [field]: { id: delivered.id, state: delivered.state, failure: delivered.failure, attemptedAt: now } });
 }
 
+async function secretPageState(initial, options) {
+  const dialog = !initial.result && initial.expiresAt <= options.now ? await cancelDialog(initial.id, 'expired', options.store) : initial;
+  return options.pages.sync(dialog.id, options.store);
+}
+
 async function reconcileSecret(initial, options) {
-  let dialog = initial;
-  if (!dialog.result && dialog.expiresAt <= options.now) dialog = await cancelDialog(dialog.id, 'expired', options.store);
-  dialog = await options.pages.sync(dialog.id, options.store);
+  const dialog = await secretPageState(initial, options);
   if (dialog.result) return dialog;
   try {
     return await options.pages.ensure(dialog.id, options.store);

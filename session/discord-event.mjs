@@ -38,22 +38,29 @@ function reference(row) {
   return match && { channel: match[1], message: match[2] };
 }
 
-/** The exact control a gateway event names, or undefined when the event cannot be bound to one. */
+function matchingControl(text, raw) {
+  if (!text || !raw) return true;
+  if (text.customId !== raw.customId || text.question !== raw.question) return false;
+  return !text.values || !raw.values || text.values.every(value => raw.values.includes(value));
+}
+
+function eventAddress(row, raw) {
+  const named = reference(row);
+  const person = PERSON.exec(row.person ?? '');
+  return { userId: person?.[1] ?? raw?.userId, guildId: raw?.guildId,
+    channelId: raw?.channelId ?? named?.channel, messageId: raw?.messageId ?? named?.message };
+}
+
 export function eventOf(row) {
   const text = fromText(row);
   const interaction = interactionOf(row);
   const raw = fromRaw(interaction);
-  if (text && raw && (text.customId !== raw.customId || text.question !== raw.question)) return undefined;
-  if (text?.values && raw?.values && !text.values.every(value => raw.values.includes(value))) return undefined;
+  if (!matchingControl(text, raw)) return undefined;
   const asked = text && { ...text, values: raw?.values ?? text.values };
   const chosen = asked ?? raw;
   if (!chosen) return undefined;
-  const named = reference(row);
-  const person = PERSON.exec(row.person ?? '');
   return { dialog: chosen.dialog, questionIndex: chosen.question, customId: chosen.customId, option: chosen.option,
-    values: chosen.values, userId: person?.[1] ?? raw?.userId,
-    guildId: raw?.guildId, channelId: raw?.channelId ?? named?.channel, messageId: raw?.messageId ?? named?.message,
-    interaction };
+    values: chosen.values, ...eventAddress(row, raw), interaction };
 }
 
 /**

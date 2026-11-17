@@ -50,34 +50,59 @@ async function posted(record) {
   if (![OPEN, ANSWERED].includes(delivered.state)) throw new Error('discord-human: posted context was not delivered. Keep the question disabled and retry register.');
 }
 
-async function register(registration) {
+function registrationRequest(registration) {
   const request = find(registration.request);
   if (request?.direction !== RECEIVED || request.pot !== registration.pot) throw new Error('discord-human: no matching incoming door request.');
   const block = questionBlock(request.need);
   if (!block || JSON.stringify(JSON.parse(block)) !== JSON.stringify(registration.question)) throw new Error('discord-human: question differs from the incoming request.');
+  return request;
+}
+
+async function register(registration) {
+  registrationRequest(registration);
   const record = await registerDiscordQuestion(registration, store, sandbox.humanDiscord);
   await posted(record);
   return { dialog: record.id, registered: true };
 }
 
+function completionPacket(request) {
+  let completion;
+  try { completion = JSON.parse(request.need); } catch { return undefined; }
+  if (completion?.type !== 'human.answered') return undefined;
+  return completion;
+}
+
+function completionOrigin(completion, pot) {
+  return DIALOG_ID.test(completion.dialog) && completion.request?.startsWith(`${pot}.`);
+}
+
+const isCompletionOwner = (record, pot) => !record?.registration || record.registration.pot === pot;
+const isCompletionAcknowledged = (request, record, completion) => request.state === ANSWERED && JSON.stringify(record?.closed) === JSON.stringify(completion);
+
+function currentCompletion(request) {
+  const completion = completionPacket(request);
+  if (!completion || !completionOrigin(completion, request.pot)) return undefined;
+  const record = store.get(completion.dialog);
+  const canComplete = [isCompletionOwner(record, request.pot), !isCompletionAcknowledged(request, record, completion)].every(Boolean);
+  return canComplete ? completion : undefined;
+}
+
+async function completeRequest(request, onError) {
+  const completion = currentCompletion(request);
+  if (!completion) return;
+  try {
+    await closeDiscordQuestion(completion, store, request.pot);
+    await replyReceived(request, ANSWERED_ACK);
+  } catch { onError('A question completion remains pending.'); }
+}
+
 async function completions(onError) {
-  for (const request of all().filter(item => item.direction === RECEIVED)) {
-    let completion;
-    try { completion = JSON.parse(request.need); } catch { continue; }
-    if (completion?.type !== 'human.answered') continue;
-    if (!DIALOG_ID.test(completion.dialog) || !completion.request?.startsWith(`${request.pot}.`)) continue;
-    const record = store.get(completion.dialog);
-    if (record?.registration && record.registration.pot !== request.pot) continue;
-    if (request.state === ANSWERED && JSON.stringify(record?.closed) === JSON.stringify(completion)) continue;
-    try {
-      await closeDiscordQuestion(completion, store, request.pot);
-      await replyReceived(request, ANSWERED_ACK);
-    } catch { onError('A question completion remains pending.'); }
-  }
+  for (const request of all().filter(item => item.direction === RECEIVED)) await completeRequest(request, onError);
 }
 
 async function deliverAnswer(record) {
-  if (!record.outbox || record.replySent || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS) return;
+  const isWaiting = !record.outbox || record.replySent || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS;
+  if (isWaiting) return;
   await store.patch(record.id, { attemptedAt: Date.now() });
   const request = find(record.registration.request);
   await replyReceived(request, JSON.stringify(record.outbox));
@@ -88,19 +113,23 @@ function startDiscordHuman({ onError = () => {} } = {}) {
   const inbox = discordInbox(join(botHome, 'bot.sqlite'));
   const cursorPath = join(FOLDER, 'cursor.json');
   let cursor = existsSync(cursorPath) ? JSON.parse(readFileSync(cursorPath, 'utf8')).id : 0;
+  async function readClick(row) {
+    try {
+      const result = await acceptDiscordClick(row, { store, identity: sandbox.humanDiscord, channelAccount: row.channel, at: new Date(row.at).toISOString() });
+      if (['accepted', 'stale'].includes(result.status)) await settle(store.get(result.dialog));
+    } catch (error) {
+      if (error?.isTransient) {
+        onError('The dialog store is busy, so this click is retried on the next poll.');
+        return false;
+      }
+      onError(`A click was rejected: ${error.message}`);
+    }
+    return true;
+  }
   async function clicks() {
     try {
       for (const row of inbox.after(cursor)) {
-        try {
-          const result = await acceptDiscordClick(row, { store, identity: sandbox.humanDiscord, channelAccount: row.channel, at: new Date(row.at).toISOString() });
-          if (['accepted', 'stale'].includes(result.status)) await settle(store.get(result.dialog));
-        } catch (error) {
-          if (error?.isTransient) {
-            onError('The dialog store is busy, so this click is retried on the next poll.');
-            break;
-          }
-          onError(`A click was rejected: ${error.message}`);
-        }
+        if (!(await readClick(row))) break;
         cursor = row.id;
         writeFileSync(`${cursorPath}.tmp`, JSON.stringify({ id: cursor }), { mode: 0o600 });
         renameSync(`${cursorPath}.tmp`, cursorPath);

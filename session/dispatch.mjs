@@ -38,16 +38,24 @@ function workspace(repository, branch, base) {
   return worktree;
 }
 
+function servedRequest(requested) {
+  const served = requested && find(requested);
+  if (requested && (served?.direction !== 'received' || served.state !== 'open')) throw new Error('dispatch: --for must name an open incoming door request.');
+  return served;
+}
+
+function ensureNewWorker(name) {
+  if (!workers().some(worker => worker.name === name)) return;
+  throw new Error(`dispatch: worker ${name} already exists. Send to that worker or choose a new branch.`);
+}
+
 function start(arguments_) {
   const { values, positionals } = parseArgs({ args: arguments_, options: START_OPTIONS, allowPositionals: true });
   const [repository, branch, briefFile, requestedBase] = positionals;
   validate(repository, branch);
-  const served = values.for && find(values.for);
-  if (values.for && (served?.direction !== 'received' || served.state !== 'open')) throw new Error('dispatch: --for must name an open incoming door request.');
+  const served = servedRequest(values.for);
   const name = terminalName(`${WORKER_PREFIX}${repository.split('/')[1]}-${branch}`, `${repository}/${branch}`);
-  if (workers().some(worker => worker.name === name)) {
-    throw new Error(`dispatch: worker ${name} already exists. Send to that worker or choose a new branch.`);
-  }
+  ensureNewWorker(name);
   const request = readFileSync(briefFile, 'utf8');
   const base = requestedBase ?? command('gh', ['api', `repos/${repository}`, '--jq', '.default_branch']);
   const worktree = workspace(repository, branch, base);
