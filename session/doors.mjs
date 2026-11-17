@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { isPotName, MESSAGE_BYTES, message, newRequestId, parse, REPLY, REQUEST } from './door-messages.mjs';
-import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, remove, save, UNDELIVERED } from './door-requests.mjs';
+import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, remove, save, UNDELIVERED, underLock } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId, sandbox } from './sandbox.mjs';
@@ -116,9 +116,7 @@ function wake({ caller, kind, id, text }) {
   command('pots', ['wake', '--bot', botId, '--from', `pot-${caller}`, '--id', `door-${kind}-${id.replace('.', '-')}`, '--note', note]);
 }
 
-async function deliver([caller]) {
-  if (!isPotName(caller)) throw new Error(`pots: a door delivery comes from pot:NAME, and this one names ${caller}.`);
-  const delivery = { caller, ...parse(await standardInput(MESSAGE_BYTES)) };
+function keep(delivery) {
   const record = ACCEPTED[delivery.kind](delivery);
   if (!record) return;
   const previous = find(record.id);
@@ -130,6 +128,13 @@ async function deliver([caller]) {
     else remove(record.id);
     throw new Error(`pots: ${sandbox.bot} could not be woken for ${record.id}, so it was not kept. ${failureReason(error) || error.code || ''}`, { cause: error });
   }
+}
+
+async function deliver([caller]) {
+  if (!isPotName(caller)) throw new Error(`pots: a door delivery comes from pot:NAME, and this one names ${caller}.`);
+  const delivery = { caller, ...parse(await standardInput(MESSAGE_BYTES)) };
+  // One delivery at a time: the duplicate check, the count, the save and the wake never interleave with another one.
+  underLock(() => keep(delivery));
 }
 
 main(import.meta, () => runOperation({ ask, reply, requests, deliver }, USAGE));
