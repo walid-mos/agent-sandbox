@@ -1,15 +1,15 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { acceptDiscordClick, closeDiscordQuestion, registerDiscordQuestion } from './discord-clicks.mjs';
+import { acceptDiscordClick, closeDiscordQuestion } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
-import { all, ANSWERED, find, OPEN, RECEIVED } from './door-requests.mjs';
-import { prepareAsk, transmitAsk } from './doors.mjs';
-import { DIALOG_ID, discordMessageUrl, packet } from './human-contract.mjs';
+import { all, ANSWERED, find, RECEIVED } from './door-requests.mjs';
+import { DIALOG } from './door-messages.mjs';
+import { DIALOG_ID, packet } from './human-contract.mjs';
+import { reconcileRegistrations, registerQuestion, REGISTRATION_EXIT } from './discord-registration.mjs';
 import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
 import { main } from './main.mjs';
 import { commandWithInput } from './run.mjs';
-import { questionBlock } from './pots-questions.mjs';
 import { botHome, botId, isMastermind, sandbox } from './sandbox.mjs';
 
 const FOLDER = join(HUMAN_HOME, 'discord');
@@ -28,7 +28,7 @@ async function updateMessage(id, questionId, update) {
   await store.locked(async ({ get, save }) => {
     const current = get(id);
     if (JSON.stringify(current.updates?.[questionId]) !== JSON.stringify(update)) return;
-    await callDiscord(current.registration.channelAccount, `PATCH /channels/${update.channelId}/messages/${update.messageId}`, update.body);
+    await callDiscord((current.registration ?? current.savedRegistration).channelAccount, `PATCH /channels/${update.channelId}/messages/${update.messageId}`, update.body);
     const updates = { ...current.updates };
     delete updates[questionId];
     save({ ...current, updates });
@@ -38,31 +38,6 @@ async function updateMessage(id, questionId, update) {
 /** Applies the message updates a durable claim left behind, so a restart finishes the claim it read back. */
 async function settle(record) {
   for (const [id, update] of Object.entries(record.updates ?? {})) await updateMessage(record.id, id, update);
-}
-
-async function posted(record) {
-  const { question, request, pot, guildId, messages } = record.registration;
-  const need = packet('human.posted', { dialog: record.id, request, digest: question.digest, guildId, at: new Date().toISOString(),
-    messages: messages.map((message, index) => ({ question: question.questions[index].id,
-      messageUrl: discordMessageUrl({ guildId, ...message }) })) });
-  const door = prepareAsk({ pot, need: JSON.stringify(need), served: request, key: `human-posted:${record.id}` });
-  const delivered = transmitAsk(door);
-  if (![OPEN, ANSWERED].includes(delivered.state)) throw new Error('discord-human: posted context was not delivered. Keep the question disabled and retry register.');
-}
-
-function registrationRequest(registration) {
-  const request = find(registration.request);
-  if (request?.direction !== RECEIVED || request.pot !== registration.pot) throw new Error('discord-human: no matching incoming door request.');
-  const block = questionBlock(request.need);
-  if (!block || JSON.stringify(JSON.parse(block)) !== JSON.stringify(registration.question)) throw new Error('discord-human: question differs from the incoming request.');
-  return request;
-}
-
-async function register(registration) {
-  registrationRequest(registration);
-  const record = await registerDiscordQuestion(registration, store, sandbox.humanDiscord);
-  await posted(record);
-  return { dialog: record.id, registered: true };
 }
 
 function completionPacket(request) {
@@ -97,7 +72,7 @@ async function completeRequest(request, onError) {
 }
 
 async function completions(onError) {
-  for (const request of all().filter(item => item.direction === RECEIVED)) await completeRequest(request, onError);
+  for (const request of all().filter(item => item.kind === DIALOG && item.direction === RECEIVED)) await completeRequest(request, onError);
 }
 
 async function deliverAnswer(record) {
@@ -140,6 +115,7 @@ function startDiscordHuman({ onError = () => {} } = {}) {
   async function delivery() {
     try {
       await completions(onError);
+      await reconcileRegistrations(store, onError);
       for (const record of store.all()) {
         try {
           await settle(record);
@@ -158,7 +134,9 @@ main(import.meta, async () => {
   if (process.argv[2] === 'register') {
     let registration;
     try { registration = JSON.parse(readFileSync(0, 'utf8')); } catch { throw new Error('discord-human: unreadable registration.'); }
-    process.stdout.write(`${JSON.stringify(await register(registration))}\n`);
+    const result = await registerQuestion(registration, { store, identity: sandbox.humanDiscord });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    process.exitCode = REGISTRATION_EXIT[result.state];
     return;
   }
   startDiscordHuman({ onError: message => process.stderr.write(`discord-human: ${message}\n`) });

@@ -77,6 +77,7 @@ if [ -n "$skipped" ]; then
 fi
 node --disable-warning=ExperimentalWarning --experimental-test-module-mocks --test "$root"/session/worker-*.test.mjs
 node --disable-warning=ExperimentalWarning --experimental-test-module-mocks --test "$root"/probes/human-*.mjs
+PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 "$root/probes/human-door-vm.py"
 node "$root/probes/dispatch-branches.mjs"
 git -C "$root" diff --check
 printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'

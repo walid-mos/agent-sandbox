@@ -1,15 +1,15 @@
 import { parseArgs } from 'node:util';
 import { DOOR_COMMAND } from './door-command.mjs';
 import { knock } from './door-knock.mjs';
-import { HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, parse, Refusal, REPLY, replyMessage, REQUEST, requestMessage } from './door-messages.mjs';
-import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, remove, RESENDABLE, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
+import { DIALOG, dialogMessage, HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, Refusal, replyMessage, requestMessage } from './door-messages.mjs';
+import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, RESENDABLE, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
+import { receiveMessage } from './door-deliveries.mjs';
+import { humanPacket } from './human-door-packets.mjs';
 import { main, runOperation } from './main.mjs';
-import { command, failureReason } from './run.mjs';
-import { botId, sandbox } from './sandbox.mjs';
+import { command } from './run.mjs';
+import { sandbox } from './sandbox.mjs';
 
 const CONNECTED = 'Running';
-// A pot that answers nothing cannot be made to hold an endless list: its neighbour waits for an answer first.
-const UNANSWERED_REQUESTS_PER_POT = 20;
 const SETTLED = [ANSWERED, REFUSED];
 const DELIVERED_STATE = { [ASKED]: OPEN, [RECEIVED]: ANSWERED };
 const USAGE = `usage: ${DOOR_COMMAND} ask POT --need TEXT [--for REQUEST_ID] | ${DOOR_COMMAND} reply REQUEST_ID --text TEXT | ${DOOR_COMMAND} resend REQUEST_ID | ${DOOR_COMMAND} requests [--all]`;
@@ -36,7 +36,7 @@ function ownName() {
 
 // Whatever this pot asks may serve any request it has not answered, so it goes one hop past the deepest of them, --for or not.
 function chainHop() {
-  const open = all().filter(request => request.direction === RECEIVED && request.state === OPEN);
+  const open = all().filter(request => request.direction === RECEIVED && request.state === OPEN && request.kind !== DIALOG);
   const hop = Math.max(-1, ...open.map(request => request.hop)) + 1;
   if (hop <= HOP_LIMIT) return hop;
   const deepest = open.filter(request => request.hop + 1 === hop).map(request => `${request.id} from ${request.pot}`).join(', ');
@@ -72,16 +72,27 @@ function send(request, wire, done) {
   process.stdout.write(`${done} ${request.id}\n`);
 }
 
-export function prepareAsk({ pot, need, served, key }) {
+export const prepareAsk = options => prepare(options);
+
+export function prepareHumanAsk(options) {
+  const packet = humanPacket(options.need);
+  const isPosted = packet.type === 'human.posted';
+  if (isPosted ? sandbox.role !== 'mastermind' || options.pot === 'mastermind' : sandbox.role === 'mastermind' || options.pot !== 'mastermind') throw new Error('pots: human dialog packet has the wrong direction.');
+  return prepare(options, DIALOG);
+}
+
+const askWire = request => request.kind === DIALOG ? dialogMessage(request.id, request.need) : requestMessage(request.id, request.hop, request.need);
+
+function prepare({ pot, need, served, key }, kind) {
   return underLock(() => {
-    const existing = key && all().find(request => request.direction === ASKED && request.key === key);
+    const existing = key && all().find(request => request.direction === ASKED && request.key === key && request.kind === kind);
     if (existing) return existing;
-    const hop = chainHop();
+    const hop = kind === DIALOG ? undefined : chainHop();
     const target = neighbour(pot);
     const parent = served === undefined ? undefined : servedRequest(served);
     const id = newRequestId(ownName());
-    requestMessage(id, hop, need);
-    const request = { id, direction: ASKED, pot: target, need, hop, for: parent, key, state: UNKNOWN, at: Date.now() };
+    const request = { id, direction: ASKED, pot: target, need, hop, for: parent, key, kind, state: UNKNOWN, at: Date.now() };
+    askWire(request);
     save(request);
     return request;
   });
@@ -90,7 +101,7 @@ export function prepareAsk({ pot, need, served, key }) {
 export function transmitAsk(request) {
   const current = find(request.id);
   if (!RESENDABLE.includes(current.state)) return current;
-  return knockAndSettle(current, requestMessage(current.id, current.hop, current.need));
+  return knockAndSettle(current, askWire(current));
 }
 
 function ask(arguments_) {
@@ -129,7 +140,7 @@ function recordResend(id) {
 function resend([id, ...extra]) {
   if (!id || extra.length > 0) throw new Error(USAGE);
   const request = underLock(() => recordResend(id));
-  const wire = request.direction === ASKED ? requestMessage(id, request.hop, request.need) : replyMessage(id, request.reply);
+  const wire = request.direction === ASKED ? askWire(request) : replyMessage(id, request.reply);
   send(request, wire, 'resent');
 }
 
@@ -150,52 +161,8 @@ async function standardInput(limit) {
   return Buffer.concat(chunks);
 }
 
-// Each returns the record to keep, or nothing when the door already delivered this very message and a resend brings it again.
-const ACCEPTED = {
-  [REQUEST]({ caller, id, origin, hop, text }) {
-    if (origin !== caller) throw new Refusal(`pots: request ${id} is in the name of ${origin}, and ${caller} sent it.`);
-    if (hop > HOP_LIMIT) throw new Refusal(`pots: request ${id} comes ${hop} hops down a chain of requests, and a pot takes ${HOP_LIMIT} at most.`);
-    const known = find(id);
-    if (known?.direction === RECEIVED && known.need === text && known.hop === hop) return undefined;
-    if (known) throw new Refusal(`pots: ${id} already names another message.`);
-    const unanswered = all().filter(request => request.direction === RECEIVED && request.pot === caller && !SETTLED.includes(request.state));
-    if (unanswered.length >= UNANSWERED_REQUESTS_PER_POT) throw new Refusal(`pots: ${caller} has ${unanswered.length} requests here that wait for their reply.`);
-    return { id, direction: RECEIVED, pot: caller, need: text, hop, state: OPEN, at: Date.now() };
-  },
-  [REPLY]({ caller, id, text }) {
-    const asked = find(id);
-    if (asked?.direction !== ASKED || asked.pot !== caller) throw new Refusal(`pots: this pot asked ${caller} nothing under ${id}.`);
-    if (asked.state !== ANSWERED) return { ...asked, state: ANSWERED, reply: text, answeredAt: Date.now(), failure: undefined };
-    if (asked.reply === text) return undefined;
-    throw new Refusal(`pots: ${id} already has its reply, and a request takes one.`);
-  },
-};
-
-// The note is JSON, so a neighbour's text is one string in it and never reads as a flag or as a second header.
-function wake({ caller, kind, id, text }, record) {
-  const note = JSON.stringify({ kind, id, pot: caller, text, for: record.for });
-  command('pots', ['wake', '--bot', botId, '--from', `pot-${caller}`, '--id', `door-${kind}-${id.replace('.', '-')}`, '--note', note]);
-}
-
-function keep(delivery) {
-  const record = ACCEPTED[delivery.kind](delivery);
-  if (!record) return;
-  const previous = find(record.id);
-  save(record);
-  try {
-    wake(delivery, record);
-  } catch (error) {
-    if (previous) save(previous);
-    else remove(record.id);
-    throw new Error(`pots: ${sandbox.bot} could not be woken for ${record.id}, so it was not kept. ${failureReason(error) || error.code || ''}`, { cause: error });
-  }
-}
-
 async function deliver([caller]) {
-  if (!isPotName(caller)) throw new Refusal(`pots: a door delivery comes from pot:NAME, and this one names ${caller}.`);
-  const delivery = { caller, ...parse(await standardInput(MESSAGE_BYTES)) };
-  // One delivery at a time: the duplicate check, the count, the save and the wake never interleave with another one.
-  underLock(() => keep(delivery));
+  receiveMessage(caller, await standardInput(MESSAGE_BYTES));
 }
 
 main(import.meta, () => runOperation({ ask, reply, resend, requests, deliver }, USAGE));

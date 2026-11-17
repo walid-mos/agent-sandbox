@@ -1,5 +1,5 @@
 import { all, ANSWERED, find, RESENDABLE } from './door-requests.mjs';
-import { prepareAsk, transmitAsk } from './doors.mjs';
+import { prepareHumanAsk, transmitAsk } from './doors.mjs';
 import { deliverBotResult, syncBotDialogs } from './human-bot.mjs';
 import { LOCAL_POLICY, MASTERMIND_POT, packet } from './human-contract.mjs';
 import { acceptDoorAnswer, cancelDialog, completionNeed, questionNeed, secretNeed } from './human-dialogs.mjs';
@@ -12,7 +12,7 @@ import { sandbox } from './sandbox.mjs';
 
 const PASS_MS = 2000;
 const POSTED_ACK = JSON.stringify(packet('human.posted-ack', {}));
-const transport = { prepare: prepareAsk, transmit: transmitAsk, find, all, acknowledge: request => replyReceived(request, POSTED_ACK) };
+const transport = { prepare: prepareHumanAsk, transmit: transmitAsk, find, all, acknowledge: request => replyReceived(request, POSTED_ACK) };
 
 async function noteIssue(dialog, store, error) {
   return dialog.issue === error.message ? dialog : store.patch(dialog.id, { issue: error.message });

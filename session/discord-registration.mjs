@@ -1,0 +1,63 @@
+import { registerDiscordQuestion } from './discord-clicks.mjs';
+import { DIALOG } from './door-messages.mjs';
+import { ANSWERED, find, OPEN, RECEIVED, RESENDABLE, UNKNOWN } from './door-requests.mjs';
+import { prepareHumanAsk, transmitAsk } from './doors.mjs';
+import { discordMessageUrl, packet } from './human-contract.mjs';
+import { checkHumanReply, humanPacket } from './human-door-packets.mjs';
+import { DOOR_RETRY_MS } from './human-doors.mjs';
+
+const transport = { find, prepare: prepareHumanAsk, transmit: transmitAsk };
+export const REGISTRATION_EXIT = { saved: 1, pending: 2, acknowledged: 0 };
+
+function registrationRequest(registration, doors) {
+  const request = doors.find(registration.request);
+  if (request?.kind !== DIALOG || request.direction !== RECEIVED || request.pot !== registration.pot) throw new Error('discord-human: no matching incoming dialog request.');
+  if (JSON.stringify(humanPacket(request.need)) !== JSON.stringify(registration.question)) throw new Error('discord-human: question differs from the incoming request.');
+}
+
+function postedNeed(record) {
+  const { question, request, guildId, messages } = record.savedRegistration;
+  return JSON.stringify(packet('human.posted', { dialog: record.id, request, digest: question.digest, guildId, at: new Date().toISOString(),
+    messages: messages.map((message, index) => ({ question: question.questions[index].id, messageUrl: discordMessageUrl({ guildId, ...message }) })) }));
+}
+
+async function settleRegistration(record, store, doors) {
+  if (record.registered === true || record.closed) return record;
+  let door = record.postedRequest && doors.find(record.postedRequest);
+  if (!door) {
+    door = doors.prepare({ pot: record.savedRegistration.pot, need: postedNeed(record), key: `human-posted:${record.id}` });
+    await store.patch(record.id, { postedRequest: door.id });
+  }
+  if (RESENDABLE.includes(door.state) && Date.now() - (record.postedAttemptedAt ?? 0) < DOOR_RETRY_MS) return record;
+  await store.patch(record.id, { postedAttemptedAt: Date.now() });
+  const delivered = doors.transmit(door);
+  return store.locked(({ get, save }) => {
+    const current = get(record.id);
+    if (current.closed || current.registered === true) return current;
+    if (delivered.state !== ANSWERED) {
+      const registrationState = [OPEN, UNKNOWN].includes(delivered.state) ? 'pending' : 'saved';
+      return save({ ...current, registrationState, postedState: delivered.state, registered: false, failure: delivered.failure });
+    }
+    checkHumanReply(delivered, delivered.reply);
+    return save({ ...current, registration: current.savedRegistration, savedRegistration: undefined,
+      registrationState: 'acknowledged', postedState: delivered.state, registered: true, failure: undefined });
+  }, record.id);
+}
+
+export async function registerQuestion(registration, { store, identity, doors = transport }) {
+  registrationRequest(registration, doors);
+  const record = await registerDiscordQuestion(registration, store, identity);
+  try {
+    const settled = await settleRegistration(record, store, doors);
+    return { dialog: settled.id, registered: settled.registered === true, state: settled.registrationState, postedRequest: settled.postedRequest, failure: settled.failure };
+  } catch (error) {
+    const failed = await store.patch(record.id, { registered: false, failure: error.message });
+    return { dialog: failed.id, registered: false, state: failed.registrationState, postedRequest: failed.postedRequest, failure: failed.failure };
+  }
+}
+
+export async function reconcileRegistrations(store, onError, doors = transport) {
+  for (const record of store.all().filter(record => record.savedRegistration && !record.closed)) {
+    try { await settleRegistration(record, store, doors); } catch { onError('Posted context is not acknowledged. Keep question controls disabled.'); }
+  }
+}

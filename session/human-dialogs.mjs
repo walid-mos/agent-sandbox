@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { answersOf, dialogSource, discordEvidence, discordMessage, LOCAL_POLICY, MASTERMIND_POT, onlyFor, packet, policyOf, questionsOf, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
 import { ANSWERED, ASKED } from './door-requests.mjs';
 import { humanStore } from './human-store.mjs';
+import { humanNeed } from './human-door-packets.mjs';
 
 export const dialogId = source => createHash('sha256').update(JSON.stringify(dialogSource(source))).digest('hex').slice(0, 32);
 
@@ -92,8 +93,7 @@ export async function acceptDoorAnswer(dialog, request, options) {
 }
 
 export function questionNeed(dialog) {
-  const question = questionPacket(dialog);
-  return `${dialog.context || 'A worker waits for your answer.'}\n\n\`\`\`question\n${JSON.stringify(question)}\n\`\`\``;
+  return humanNeed(questionPacket(dialog));
 }
 
 export function completionNeed(dialog) {

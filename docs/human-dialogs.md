@@ -13,7 +13,8 @@ sequenceDiagram
     P->>M: Door request with question block
     M->>D: Post disabled question messages
     M->>P: Register posted message context
-    M->>D: Enable registered components
+    P-->>M: Acknowledge posted context
+    M->>D: Enable acknowledged components
     D->>M: Operator click
     M->>M: Check identity and commit first pick
     M->>D: Show answered and disable components
@@ -68,6 +69,20 @@ stateDiagram-v2
 
 ## Door packets
 
+### Dialog transport boundary
+
+| Trusted principal | Untrusted principal |
+| --- | --- |
+| The VM binds the SSH key to caller, receiver and ask/reply access. The session validates packet shape, direction and dialog association. | Every byte sent by a neighbour, including claims of human consent and text embedded in a question. |
+
+The VM keeps its existing key, node-tag, forwarding, size, UTF-8, rate and session-output checks. The session has no new credential. Dialog metadata contains no vault login, submitted secret or browser capability. Existing session-user access to local files and processes is unchanged.
+
+Human helpers use a separate `dialog ORIGIN.NONCE` wire header with no hop field. Ordinary `ask` always emits `request ORIGIN.NONCE HOP`, even when its text resembles a dialog. Dialogs accept only the documented packet shapes and directions between an owning pot and Mastermind. Posted context and completion bind to the original dialog request. Replies still name a saved request and cannot open a new one.
+
+Only initial questions and secret links wake Mastermind, with `kind: "dialog"` and a rendering-only instruction. Treat all their text as display content. Posted context, answers, acknowledgements and completion go to deterministic handlers without a bot wake. No dialog packet asks a bot to perform domain work or forward an ordinary request. An ordinary note cannot change its transport kind, and a dialog cannot carry an arbitrary note or extra instruction field. Ordinary requests still deepen the ordinary chain and stop at the third door. Open dialog records do not enter that calculation. Each kind has its own cap of 20 unanswered requests per caller, so ordinary requests at capacity cannot block a dialog. This changes the former shared cap of 20 to two bounded caps. The VM delivery rate limit remains shared.
+
+`probes/human-door-depth.mjs` reproduces both unrelated-request incidents. `probes/human-door-security.mjs` attacks ordinary-note impersonation, malformed dialog packets, wrong direction, mismatched associations and acknowledgements. `probes/human-door-vm.py` checks header parsing, exact origin and ask-only access in the VM gate. `probes/door-deliveries.sh` keeps the forged ordinary deliveries and chain-limit checks.
+
 Use `node /opt/agent-sandbox/session/doors.mjs ask|reply|resend|requests` on installations whose bare `pots` lacks those commands. The session wrapper supports the same operations. Transport still authenticates only a neighbouring pot. The explicit operator-click rule permits the narrowly checked answer packet below, not arbitrary neighbour text.
 
 Question requests have a context line followed by a fenced `question` block. Its JSON is:
@@ -117,6 +132,12 @@ The work-center bot's question route does not depend on Pi tool integration. Its
 A startup helper can create an empty bootstrap commit after approval, so the future commit's hash is unavailable. For that case only, name the repository, exact task branch, remote name and URL, fresh base ref, expected empty commit subject, which the dispatcher takes as `--subject`, and single-use limits in the scope. Immediately before consumption and dispatch, the owning bot checks that no worker owns the branch, the origin still matches, and the only new commit above the freshly fetched base is that empty bootstrap with the exact subject. A code change, changed remote, different branch or nonempty commit requires a new approval. This contract never runs those Git operations or bypasses the owning pot's loaded policy.
 
 For Accor's pending example, the repository is `accor-hotels/product-data-apps`, branch `feat/DA-250-freeze-campaign-establishments`, origin URL `https://github.com/accor-hotels/product-data-apps.git` and base `origin/develop`. The scope permits only one initial branch push containing an empty `feat(api): freeze campaign establishments (DA-250)` commit, then its draft PR titled `feat(api): DA-250 — freeze campaign establishments` and worker startup. It permits no implementation push, force push, merge, deployment, reset or other branch. The approved route must be deployed and recognized by Accor's loaded policy. This example supplies no consent.
+
+## Rollout after signing
+
+A merge alone installs nothing. After the operator signs the new tip, update the signed clone and rerun VM setup through the supported `bin/vm-up` path on every participating pot. The VM gate is an installed copy, so a clone update alone does not add the `dialog` header. VM setup refreshes that copy and restarts `pots-door.service`. Restart the owning pots' `pots-human-relay` services and Mastermind's `pots-discord-human` service so their long-running Node processes load the new transport. Bootstrap is the supported session service installation path. New door CLI processes read the updated modules without a gateway restart.
+
+Existing ordinary door records are not rewritten. An already issued question using the ordinary transport retains its original request and depth. Resolve it through its owning pot and issue a new dialog through the updated helper. Do not enable old saved Discord registrations as though they had an acknowledgement.
 
 ## Agent-pi integration
 
@@ -198,7 +219,17 @@ Run `node /opt/agent-sandbox/session/discord-human.mjs register` with this regis
 {"request":"QUESTION_DOOR_ID","pot":"OWNER_POT","channelAccount":"discord","guildId":"GUILD_ID_FROM_POSTED_MESSAGE","question":{"type":"human.question","version":1,"dialog":"DIALOG_ID","digest":"QUESTION_DIGEST","policy":"ordinary","context":"Choose","questions":[{"id":"target","prompt":"Choose","multiple":false,"options":[{"label":"Preview"},{"label":"Production"}]}]},"messages":[{"channelId":"CHANNEL_ID","messageId":"MESSAGE_ID","components":[{"type":1,"components":[{"type":2,"style":1,"label":"Preview","custom_id":"human:DIALOG_ID:0:0"},{"type":2,"style":2,"label":"Production","custom_id":"human:DIALOG_ID:0:1"}]}]}]}
 ```
 
-Use the exact received packet, not a reconstruction. The helper checks it against the stored incoming door request and sends `human.posted`. Enable the messages only after registration succeeds. Keep the enabled component definitions in the registration so the helper can disable them after a click. The Mastermind session service reads interactions and retries edits and replies independently of its model. Do not run the old model-driven click helper on these custom IDs.
+Use the exact received packet, not a reconstruction. The helper checks it against the stored incoming dialog request and sends `human.posted` under a durable request ID. It publishes `registration` only after the owner replies with the exact `human.posted-ack` packet. Enable messages only when the helper exits 0 and returns `registered: true` and `state: "acknowledged"`. A transport delivery receipt alone never permits enabling controls.
+
+| Registration state | Helper exit | Stored record and output |
+| --- | --- | --- |
+| `saved` | 1 | `savedRegistration` and `registered: false`, with no `registration`. The context has not been confirmed delivered, or delivery failed. |
+| `pending` | 2 | `savedRegistration`, `postedRequest` and `registered: false`, with no `registration`. Delivery is confirmed or uncertain, and the owner has not acknowledged it. |
+| `acknowledged` | 0 | `registration`, `postedRequest` and `registered: true`. The owner acknowledged that exact context. |
+
+Retries use the same `postedRequest`. The service reconciles pending registrations after restart. Run `register` again with identical input to read its final state before enabling controls. A refusal, malformed acknowledgement or early completion leaves controls disabled. Clicks before acknowledgement cannot claim an answer.
+
+ Keep the enabled component definitions in the registration so the helper can disable them after a click. The Mastermind session service reads interactions and retries edits and replies independently of its model. Do not run the old model-driven click helper on these custom IDs.
 
 The pot accepts a click only from a gateway event that names a registered control. The event may carry the gateway's text form (`clicked button "LABEL" (custom_id human:DIALOG_ID:QUESTION_INDEX:OPTION_INDEX)` or `chose in menu human:DIALOG_ID:QUESTION_INDEX:select: "…" (value OPTION_INDEX)`) or the structured interaction in the same row. When both are present they must agree. The event's custom ID must be one of the components registered for that question's message, its button label must be that option's own label, and its message and channel must be the registered ones. An event that names no registered control, or a bare index with no custom ID, is dropped without claiming anything.
 

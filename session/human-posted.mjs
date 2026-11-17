@@ -1,5 +1,6 @@
 import { discordMessage, MASTERMIND_POT, onlyFor, VERSION } from './human-contract.mjs';
 import { questionDigest } from './human-dialogs.mjs';
+import { DIALOG } from './door-messages.mjs';
 import { RECEIVED } from './door-requests.mjs';
 import { humanStore } from './human-store.mjs';
 
@@ -37,6 +38,6 @@ async function acknowledgePosted(request, { store, doors, onError }) {
 }
 
 export async function reconcilePosted(options) {
-  const received = options.doors.all().filter(item => item.direction === RECEIVED && item.pot === MASTERMIND_POT);
+  const received = options.doors.all().filter(item => item.kind === DIALOG && item.direction === RECEIVED && item.pot === MASTERMIND_POT);
   for (const request of received) await acknowledgePosted(request, options);
 }
