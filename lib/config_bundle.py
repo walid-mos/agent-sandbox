@@ -6,17 +6,19 @@ import sys
 from client_rules import RulesRefused, approved_rules, read_json
 
 REQUIRED = ("sandbox.json", "vault.json")
-OPTIONAL = ("git-identity.json",)
+SANDBOX_OPTIONAL = ("git-identity.json",)
+RUNTIME_OPTIONAL = ("tailnet.json",)
+OPTIONAL = SANDBOX_OPTIONAL + RUNTIME_OPTIONAL
+RULES_KEY = "client-rules"
 
 
 def bundle(directory, runtime):
     configuration = {name: read_json(directory / name) for name in REQUIRED}
-    configuration.update({name: read_json(directory / name) for name in OPTIONAL if (directory / name).is_file()})
-    if (runtime / "tailnet.json").is_file():
-        configuration["tailnet.json"] = read_json(runtime / "tailnet.json")
+    configuration.update({name: read_json(directory / name) for name in SANDBOX_OPTIONAL if (directory / name).is_file()})
+    configuration.update({name: read_json(runtime / name) for name in RUNTIME_OPTIONAL if (runtime / name).is_file()})
     rules = approved_rules(directory)
     if rules:
-        configuration["client-rules"] = rules
+        configuration[RULES_KEY] = rules
     return configuration
 
 

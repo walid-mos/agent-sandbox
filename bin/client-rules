@@ -9,7 +9,7 @@ import sys
 REPOSITORY = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(REPOSITORY / "lib"))
-from client_rules import STATE_FILE, RulesRefused, read_json, refuse, regular_file, source_file
+from client_rules import RulesRefused, refuse
 from client_rules_import import approve_rules, import_rules, private_checkout
 
 
@@ -37,32 +37,38 @@ def sandbox_directory():
     return runtime / "sandboxes" / sandbox
 
 
-def main():
-    options = arguments()
+def approve(options):
     try:
         directory = sandbox_directory()
         if options.command == "import":
-            checkout = private_checkout(options.source)
-            recipe = source_file(checkout, options.recipe)
-            state = import_rules(directory, checkout, options.source, options.original, options.file, recipe, options.recipe_sha256)
-        else:
-            state = read_json(regular_file(directory / STATE_FILE))
-            checkout = private_checkout(state["source"])
-            state = approve_rules(directory, checkout, options.sha256)
-        print(json.dumps({"sha256": state["sha256"], "previousSha256": state["previousSha256"],
-                          "localApproval": "stored", "vmInstallation": "pending"}), flush=True)
-        result = subprocess.run([str(REPOSITORY / "bin/vm-config")], check=False)
-        if result.returncode:
-            print("client-rules: local approval is stored. VM installation failed. Retry bin/vm-config before another approval.", file=sys.stderr)
-            return result.returncode
-        print("client-rules: vm-config completed. Verify the loaded hash in the session before claiming runtime evidence.")
-        return 0
+            return import_rules(directory, private_checkout, options.source, options.original, options.file, options.recipe, options.recipe_sha256)
+        return approve_rules(directory, private_checkout, options.sha256)
     except RulesRefused as error:
         print(str(error), file=sys.stderr)
     except (OSError, ValueError, TypeError, KeyError):
         print("client-rules: invalid or inaccessible input. Input text is withheld. No VM command ran.", file=sys.stderr)
-    return 1
+    return None
 
+
+def install():
+    try:
+        returncode = subprocess.run([str(REPOSITORY / "bin/vm-config")], check=False).returncode
+    except OSError:
+        returncode = 1
+    if returncode:
+        print("client-rules: local approval is stored. VM installation failed. Retry bin/vm-config before another approval.", file=sys.stderr)
+        return returncode
+    print("client-rules: vm-config completed. Verify the loaded hash in the session before claiming runtime evidence.")
+    return 0
+
+
+def main():
+    state = approve(arguments())
+    if state is None:
+        return 1
+    print(json.dumps({"sha256": state["sha256"], "previousSha256": state["previousSha256"],
+                      "localApproval": "stored", "vmInstallation": "pending"}), flush=True)
+    return install()
 
 if __name__ == "__main__":
     sys.exit(main())

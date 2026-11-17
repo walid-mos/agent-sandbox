@@ -121,10 +121,21 @@ def state_bytes(state):
     return (json.dumps(state, indent=2) + "\n").encode()
 
 
-def approved_rules(directory):
+def rules_text(content):
+    try:
+        text = content.decode("utf-8")
+    except UnicodeError:
+        text = ""
+    if not text:
+        refuse("rules must be nonempty UTF-8. Input text is withheld.")
+    return text
+
+
+def approved_state(directory):
+    directory = Path(directory).absolute()
     state_path = directory / STATE_FILE
     if not state_path.exists() and not state_path.is_symlink():
-        return {}
+        return None
     state = read_json(regular_file(state_path))
     object_keys(state, ("source", "file", "sha256", "previousSha256", "original"))
     snapshot = regular_file(directory / SNAPSHOT_FILE).read_bytes()
@@ -134,8 +145,41 @@ def approved_rules(directory):
     if not original.is_symlink() or original.readlink() != directory / SNAPSHOT_FILE:
         refuse("original path no longer links to the approved snapshot.")
     require_hash(state["previousSha256"])
-    try:
-        text = snapshot.decode("utf-8")
-    except UnicodeError:
-        refuse("rules must be UTF-8. Input text is withheld.")
+    return state, rules_text(snapshot)
+
+
+def approved_rules(directory):
+    approved = approved_state(directory)
+    if approved is None:
+        return {}
+    state, text = approved
     return {"text": text, "sha256": state["sha256"], "previousSha256": state["previousSha256"]}
+
+
+def rules_target(name, directory):
+    if not isinstance(name, str):
+        refuse("sandbox.rules must name the installed rules file.")
+    target = Path(name)
+    if target.parent != directory or target.suffix != ".md" or target.name.startswith("."):
+        refuse("rules target must be Markdown directly in the configuration directory.")
+    return target
+
+
+def verified_rules(payload, target_name, directory):
+    object_keys(payload, ("text", "sha256", "previousSha256"))
+    if not isinstance(payload["text"], str):
+        refuse("rules text must be a string.")
+    content = payload["text"].encode("utf-8")
+    rules_text(content)
+    expected = require_hash(payload["sha256"])
+    previous = require_hash(payload["previousSha256"])
+    if digest(content) != expected:
+        refuse("rules content differs from the approved hash.")
+    target = rules_target(target_name, directory)
+    if directory.resolve() != directory:
+        refuse("configuration directory must not contain symlinks.")
+    if target.exists() or target.is_symlink():
+        current = regular_file(target).read_bytes()
+        if digest(current) not in (previous, expected):
+            refuse("installed rules differ from the expected previous or approved hash.")
+    return {"target": target, "content": content}
