@@ -1,5 +1,6 @@
 import { DIALOG_ID, DIGEST, discordMessage, MASTERMIND_POT, packet as newPacket, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
-import { isRequestId, Refusal } from './door-messages.mjs';
+import { DIALOG, isRequestId, Refusal } from './door-messages.mjs';
+import { ASKED } from './door-requests.mjs';
 
 const FIELDS = {
   'human.question': ['digest', 'policy', 'scope', 'context', 'questions', 'for'],
@@ -89,7 +90,7 @@ export function checkHumanRoute(need, { caller, isMastermindReceiver, find }) {
   if (packet.type === 'human.answered' && !packet.request.startsWith(`${caller}.`)) throw new Refusal('pots: completion has another owner.');
   if (isPosted) {
     const original = find(packet.request);
-    if (original?.kind !== 'dialog' || original.direction !== 'asked' || original.pot !== caller) throw new Refusal('pots: posted context has no matching dialog request.');
+    if (original?.kind !== DIALOG || original.direction !== ASKED || original.pot !== caller) throw new Refusal('pots: posted context has no matching dialog request.');
     const question = humanPacket(original.need);
     if (question.type !== 'human.question' || question.dialog !== packet.dialog || question.digest !== packet.digest) throw new Refusal('pots: posted context differs from its question.');
   }
