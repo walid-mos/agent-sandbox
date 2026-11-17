@@ -76,10 +76,16 @@ export function humanPacket(need) {
   }
 }
 
+// Mastermind sends only posted context, to an owning pot; every other dialog packet goes from an owning pot to Mastermind.
+export function checkDialogDirection(packet, { fromMastermind, toMastermind }) {
+  const isPosted = packet.type === 'human.posted';
+  if (fromMastermind !== isPosted || toMastermind === isPosted) throw new Refusal('pots: human dialog packet has the wrong direction.');
+}
+
 export function checkHumanRoute(need, { caller, isMastermindReceiver, find }) {
   const packet = humanPacket(need);
   const isPosted = packet.type === 'human.posted';
-  if (isPosted ? caller !== MASTERMIND_POT || isMastermindReceiver : caller === MASTERMIND_POT || !isMastermindReceiver) throw new Refusal('pots: human dialog packet has the wrong direction.');
+  checkDialogDirection(packet, { fromMastermind: caller === MASTERMIND_POT, toMastermind: isMastermindReceiver });
   if (packet.type === 'human.answered' && !packet.request.startsWith(`${caller}.`)) throw new Refusal('pots: completion has another owner.');
   if (isPosted) {
     const original = find(packet.request);

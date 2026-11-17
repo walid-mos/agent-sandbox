@@ -4,10 +4,11 @@ import { knock } from './door-knock.mjs';
 import { DIALOG, dialogMessage, HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, Refusal, replyMessage, requestMessage } from './door-messages.mjs';
 import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, RESENDABLE, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { receiveMessage } from './door-deliveries.mjs';
-import { humanPacket } from './human-door-packets.mjs';
+import { checkDialogDirection, humanPacket } from './human-door-packets.mjs';
 import { main, runOperation } from './main.mjs';
 import { command } from './run.mjs';
 import { sandbox } from './sandbox.mjs';
+import { MASTERMIND_POT } from './human-contract.mjs';
 
 const CONNECTED = 'Running';
 const SETTLED = [ANSWERED, REFUSED];
@@ -78,9 +79,7 @@ function send(request, done) {
 export const prepareAsk = options => prepare(options);
 
 export function prepareHumanAsk(options) {
-  const packet = humanPacket(options.need);
-  const isPosted = packet.type === 'human.posted';
-  if (isPosted ? sandbox.role !== 'mastermind' || options.pot === 'mastermind' : sandbox.role === 'mastermind' || options.pot !== 'mastermind') throw new Error('pots: human dialog packet has the wrong direction.');
+  checkDialogDirection(humanPacket(options.need), { fromMastermind: sandbox.role === 'mastermind', toMastermind: options.pot === MASTERMIND_POT });
   return prepare(options, DIALOG);
 }
 
