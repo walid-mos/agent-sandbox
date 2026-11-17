@@ -54,6 +54,12 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     let proposed;
     try { proposed = noticeOf(message.content); } catch { return; }
     if (proposed.target !== config.name || !config.pots.includes(proposed.pot)) return;
+    store.remember(proposed.launch, { message, applicationId });
+    await offerNotice(message, applicationId, proposed, config);
+    store.forget(proposed.launch);
+  }
+
+  async function offerNotice(message, applicationId, proposed, config) {
     const known = store.get(proposed.launch);
     if (known) return refresh(known);
     if (store.decision(proposed.launch)) return;
@@ -88,18 +94,26 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     saveState({ ...offer, run }, STARTED);
   }
 
+  async function checkedPress(event, offer, action) {
+    try { return verifyPress(event, offer, settings(), clock(), action); }
+    catch (error) { await discord.tell(event, error.message); return undefined; }
+  }
+
   async function press(event) {
     const button = pressedButton(event.data?.custom_id);
     if (!button) return;
     const offer = store.get(button.launch);
     if (!offer || offer.state !== OFFERED || store.decision(button.launch)) return;
-    const evidence = verifyPress(event, offer, settings(), clock(), button.action);
+    const evidence = await checkedPress(event, offer, button.action);
+    if (!evidence) return;
     if (button.action === BUTTON.refuse) { close(offer, 'refused', { evidence }); return; }
     let closure;
     try { closure = await sourceClosure(offer); }
     catch { await discord.tell(event, SOURCE_SILENT); return; }
     if (closure) { close(offer, closure.state, closure); return; }
-    decide(offer, CLAIMED, verifyPress(event, offer, settings(), clock(), button.action));
+    const claim = await checkedPress(event, offer, button.action);
+    if (!claim) return;
+    decide(offer, CLAIMED, claim);
     await start(offer);
   }
 
@@ -126,6 +140,10 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
   }
 
   async function tick() {
+    for (const pending of store.notices(id => warn(`mac-launch: notice ${id} could not be read.`))) {
+      try { await notice(pending.message, pending.applicationId); }
+      catch { warn('mac-launch: a notice could not be offered. It will retry.'); }
+    }
     let offers;
     try { offers = store.all(id => warn(`mac-launch: launch ${id} could not be read. Inspect its record.`)); }
     catch { warn('mac-launch: the records directory could not be read. No pass ran.'); return; }

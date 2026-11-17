@@ -47,6 +47,29 @@ test('a crash after an unoffered closure decision still reports that closure aft
   assert.equal(f.runs.length, 0);
 });
 
+test('a transient source outage retries the notice after the gate restarts', async t => {
+  const f = scenario(t);
+  const show = f.dependencies.pots.show;
+  f.dependencies.pots.show = async () => { throw new Error('source offline'); };
+  await assert.rejects(f.service.notice(f.notice, application), /offline/);
+  f.dependencies.pots.show = show;
+  await launchService(f.dependencies).tick();
+  assert.equal(f.posted.length, 1);
+  await f.service.press(f.press());
+  assert.deepEqual(f.runs, ['Reply ready.']);
+});
+
+test('a stale press gives the operator a reason and leaves approval unused', async t => {
+  const f = scenario(t);
+  await f.service.notice(f.notice, application);
+  const click = f.press();
+  f.source.time += 31_000;
+  await f.service.press(click);
+  assert.equal(f.runs.length, 0);
+  assert.equal(f.store.decision(f.request.launch), undefined);
+  assert.match(f.told[0], /too old/);
+});
+
 test('a refused act is durably reported even when the pot initially cannot receive it', async t => {
   const f = scenario(t);
   const prompt = 'Change the launch-gate settings.';

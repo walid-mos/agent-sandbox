@@ -79,11 +79,14 @@ test('a Mac that slept through an approval and a switch disabled after posting n
   await f.service.notice(f.notice, application);
   const click = f.press();
   f.source.time += 30_001;
-  await assert.rejects(f.service.press(click));
+  await f.service.press(click);
+  assert.match(f.told.at(-1), /too old/);
   f.source.time -= 30_001;
   f.source.config.humanDiscord.macLaunchEnabled = false;
-  await assert.rejects(f.service.press(click));
+  await f.service.press(click);
+  assert.match(f.told.at(-1), /off|disabled/);
   assert.equal(f.runs.length, 0);
+  assert.equal(f.store.decision(f.request.launch), undefined);
 });
 
 test('failed and uncertain starts consume their approval before they can be retried', async t => {

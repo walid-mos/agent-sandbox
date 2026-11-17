@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DIALOG_ID } from '../session/human-contract.mjs';
 import { writePrivateJson } from '../session/private-json.mjs';
@@ -17,6 +17,7 @@ export function readPrivate(path) {
 
 const RECORD = '.json';
 const DECISION = '.decision';
+const NOTICE = '.notice';
 
 export function gateStore(folder) {
   const shelf = join(folder, 'closed');
@@ -29,13 +30,17 @@ export function gateStore(folder) {
   const read = (id, suffix) => existsSync(path(id, suffix)) ? readPrivate(path(id, suffix)) : undefined;
   const get = id => read(id, RECORD);
   const save = offer => { writePrivateJson(path(offer.request.launch, RECORD), offer); return offer; };
-  function all(onUnreadable = (id, error) => { throw error; }) {
-    const names = readdirSync(folder).filter(name => name.endsWith(RECORD) && DIALOG_ID.test(name.slice(0, -RECORD.length)));
+  function entries(suffix, onUnreadable = (id, error) => { throw error; }) {
+    const names = readdirSync(folder).filter(name => name.endsWith(suffix) && DIALOG_ID.test(name.slice(0, -suffix.length)));
     return names.flatMap(name => {
-      const id = name.slice(0, -RECORD.length);
-      try { return [get(id)]; } catch (error) { onUnreadable(id, error); return []; }
+      const id = name.slice(0, -suffix.length);
+      try { return [read(id, suffix)]; } catch (error) { onUnreadable(id, error); return []; }
     });
   }
+  const all = onUnreadable => entries(RECORD, onUnreadable);
+  const notices = onUnreadable => entries(NOTICE, onUnreadable);
+  const remember = (id, notice) => writePrivateJson(path(id, NOTICE), notice);
+  const forget = id => { if (existsSync(path(id, NOTICE))) unlinkSync(path(id, NOTICE)); };
   const decision = id => read(id, DECISION);
   // The first decision written for a launch is its only one: the exclusive create refuses a second, and the file and its name reach the disk before anything acts on it.
   function decide(id, decided) {
@@ -46,5 +51,5 @@ export function gateStore(folder) {
   // Only the record leaves. The decision stays where the exclusive create looks, so a launch ID the Mac decided once is never decided or offered again.
   const shelve = id => renameSync(path(id, RECORD), join(shelf, `${id}${RECORD}`));
   const session = id => path(id, '.session.jsonl');
-  return { get, save, all, decision, decide, shelve, session, folder };
+  return { get, save, all, notices, remember, forget, decision, decide, shelve, session, folder };
 }
