@@ -147,6 +147,11 @@ function sessionArguments(worker, sessionDir, sessionId) {
   return ['--session', worker.sessionFile];
 }
 
+// The launcher hands a worker's Pi its identity through these variables, which worker-agent.mjs reads back.
+const LAUNCH_VARIABLES = { name: 'POTS_WORKER', owner: 'POTS_OWNER', launchId: 'POTS_LAUNCH' };
+export const launchedWorker = environment => Object.fromEntries(Object.entries(LAUNCH_VARIABLES).map(([field, variable]) => [field, environment[variable]]));
+const launchEnvironment = worker => Object.entries(LAUNCH_VARIABLES).map(([field, variable]) => `${variable}=${worker[field]}`);
+
 export function launch(worker, conversation) {
   const launchId = randomUUID();
   if (!worker.owner) throw new Error('dispatch: worker has no recorded Pots owner. Inspect it before relaunching.');
@@ -159,7 +164,7 @@ export function launch(worker, conversation) {
     name: worker.name, cwd: worker.worktree, tab: worker.name, label: 'pots.worker=true',
     labels: [`pots.owner=${worker.owner}`, `pots.launch=${launchId}`, ...(worker.title ? [`agent.title=${worker.title}`] : [])],
     options: ['--no-parent', '--no-notify', '--outlive-parent'],
-    vaultCommand: ['env', `POTS_WORKER=${worker.name}`, `POTS_OWNER=${worker.owner}`, `POTS_LAUNCH=${launchId}`,
+    vaultCommand: ['env', ...launchEnvironment(launched),
       'pi', '--extension', join(import.meta.dirname, 'worker-agent.mjs'), ...session,
       '--provider', 'magpie', '--model', model, ...humanDialogFlags(worker), ...conversation],
   });
