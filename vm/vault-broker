@@ -11,7 +11,8 @@ import urllib.request
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from vault_policy import ROOT, Refused, entries_for, read_root_json
+from vault_policy import ROOT, Refused, entries_for, read_repositories, read_root_json
+from repository_read import bundle_for
 
 LAUNCH = dict(line.split("=", 1) for line in (HERE.parent / "session/launch.env").read_text().splitlines() if line)
 SOCKET = Path(LAUNCH["POTS_VAULT_SOCKET"])
@@ -27,7 +28,7 @@ SOCKET_DIRECTORY_MODE = 0o755
 SOCKET_MODE = 0o666
 NOT_FOUND = 404
 UNREADABLE_REQUEST = "send one JSON request line of at most 4096 bytes."
-LOGGED_KINDS = ("ready", "sandbox", "secret", "source")
+LOGGED_KINDS = ("ready", "sandbox", "secret", "source", "read")
 
 
 class VaultFailure(Exception):
@@ -92,6 +93,10 @@ def secret_value(identity, token, location, path, name):
 
 def secrets_for(request):
     entries = entries_for(request, read_root_json(CONFIG_DIRECTORY / "sandbox.json"), read_root_json(SOURCE_CATALOG))
+    return secret_values(entries)
+
+
+def secret_values(entries):
     location = read_root_json(CONFIG_DIRECTORY / "vault.json")
     if not all(isinstance(location.get(key), str) for key in ("project", "environment")):
         raise VaultFailure("vault.json names no project and environment. Fix it on the Mac and run bin/vm-config.")
@@ -104,6 +109,9 @@ def answer(request):
     if request == {"kind": "ready"}:
         return {"ok": True, "ready": IDENTITY.is_file()}
     try:
+        if isinstance(request, dict) and request.get('kind') == 'read':
+            return bundle_for(request, read_root_json(CONFIG_DIRECTORY / 'sandbox.json'),
+                              lambda path, name: secret_values([(path, name)])[0][1])
         return {"ok": True, "secrets": secrets_for(request)}
     except (urllib.error.URLError, OSError, ValueError):
         raise VaultFailure("the vault could not be reached or sent an unreadable answer. Check the VM's network and vault.json.") from None
@@ -134,6 +142,7 @@ class Server(socketserver.ThreadingUnixStreamServer):
 def serve():
     if os.geteuid() != ROOT:
         raise SystemExit("vault-broker runs as root, the only user that reads the VM's identity.")
+    read_repositories(read_root_json(CONFIG_DIRECTORY / 'sandbox.json'))
     SOCKET.parent.mkdir(mode=SOCKET_DIRECTORY_MODE, parents=True, exist_ok=True)
     SOCKET.parent.chmod(SOCKET_DIRECTORY_MODE)
     SOCKET.unlink(missing_ok=True)
