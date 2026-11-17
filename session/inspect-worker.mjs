@@ -62,7 +62,8 @@ function reportCurrent(worker, terminal, state, canSettle) {
   if (!REPORTABLE.has(status)) return;
   const facts = reportFacts(worker);
   const result = !isWaiting && canSettle && isPublished(facts) ? state.generation : 'open';
-  const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${facts.publication ?? ''}-${result}`;
+  const publication = facts.publication ? `-${facts.publication}` : '';
+  const wake = `${worker.name}-${worker.launchId}-${turn}-${status}${publication}-${result}`;
   if (worker.lastReport === wake) return;
   report(worker, terminal, status, wake, state, facts, canSettle && !isWaiting);
 }

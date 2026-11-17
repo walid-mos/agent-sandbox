@@ -140,6 +140,13 @@ test('local inspection, watcher restart, stop and queued send leave the old star
   assert.equal(workers()[0].result, undefined);
 });
 
+test('an unchanged worker keeps its existing wake ID across watcher deployment', () => {
+  publication.status = ' M unfinished.mjs';
+  save({ ...worker, lastReport: 'owned-launch-1-0-idle-open' });
+  inspect();
+  assert.equal(wakes.length, 0);
+});
+
 test('publication progress is reported without losing state to a stale watcher write', () => {
   const local = { ...worker, publication: 'local' };
   save(local);
