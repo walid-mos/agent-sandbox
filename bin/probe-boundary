@@ -5,6 +5,8 @@ set -eu
 
 REACH="$POTS_SESSION_REPOSITORY/probes/reach.sh"
 SESSION_ATTACKS="$POTS_SESSION_REPOSITORY/probes/session-attacks.sh"
+VAULT_ATTACKS="$POTS_SESSION_REPOSITORY/probes/vault-attacks.sh"
+SESSION_NODE="$POTS_SESSION_HOME/.local/node/bin/node"
 HOST_PATHS="$POTS_SESSION_REPOSITORY/vm/check-host-paths"
 DOOR_DELIVERIES="$POTS_SESSION_REPOSITORY/probes/door-deliveries.sh"
 TAILNET_ATTACKS="$POTS_SESSION_REPOSITORY/probes/tailnet-attacks.sh"
@@ -12,7 +14,6 @@ SESSION_TAILSCALE="$POTS_SESSION_HOME/.local/bin/tailscale"
 DOOR_CLIENT_CONFIG="$POTS_SESSION_REPOSITORY/session/door.ssh_config"
 DOOR_KNOWN_HOSTS="$POTS_SESSION_HOME/.config/agent-sandbox/door/known_hosts"
 DOOR_FILES="/etc/pots-door /etc/sudoers.d/pots-door /etc/sudoers.d/pots-door-bindings /usr/local/sbin/pots-door /usr/local/sbin/pots-door-keys /usr/local/sbin/pots-door-serve"
-TAILNET_NODE="$POTS_SESSION_REPOSITORY/lib/tailnet_node.py"
 SESSION_TAILNET_NODE="$POTS_SESSION_REPOSITORY/session/tailnet-node"
 TAILNET_SERVICE_ADDRESS=100.100.100.100
 TAILNET_ADDRESS='^(100\.[0-9.]+|\[fd7a:115c:a1e0:[0-9a-f:]*\])'
@@ -40,7 +41,7 @@ in_session_as_root() {
 
 judge_forbidden() {
 	views=$(mktemp -d)
-	sandbox_vm bash "$REACH" $forbidden > "$views/vm"
+	run_trusted probes/reach.sh $forbidden > "$views/vm" || { echo "FAIL vm-view (the trusted launcher did not run probes/reach.sh)"; rm -rf "$views"; return 1; }
 	in_session bash "$REACH" $(awk '{ print $2 }' "$views/vm") > "$views/session"
 	paste -d ' ' "$views/vm" "$views/session" | awk '
 		$1 != "open" { print "FAIL untestable " $2 " (closed from the VM too)"; bad++; next }
@@ -70,19 +71,17 @@ judge() {
 	fi
 }
 
-tailnet_drop_precedes_returns() {
-	sandbox_vm sudo "$1" -S DOCKER-USER | awk -v drop="-A DOCKER-USER -o $TAILNET_LINKS -j DROP" '
+family_closes_tailnet() {
+	printf '%s\n' "$1" | awk -v drop="-A DOCKER-USER -o $TAILNET_LINKS -j DROP" '
 		$0 == drop { dropped = NR }
-		/-j RETURN$/ && !returned { returned = NR }
-		END { exit !(dropped && dropped < returned) }'
+		/^-A DOCKER-USER .*-j RETURN$/ && !returned { returned = NR }
+		END { exit !(dropped && dropped < returned) }' || return 1
+	printf '%s\n' "$1" | grep -q -- "^-A POTS-INPUT .*--dport $DOOR_PORT .*--connlimit-above" || return 1
+	! printf '%s\n' "$1" | grep -q -- '^-N ts-'
 }
 
 firewall_closes_tailnet() {
-	for table in iptables ip6tables; do
-		tailnet_drop_precedes_returns "$table" || return 1
-		sandbox_vm sudo "$table" -S POTS-INPUT | grep -q -- "--dport $DOOR_PORT .*--connlimit-above" || return 1
-		! sandbox_vm sudo "$table" -S | grep -q -- '^-N ts-' || return 1
-	done
+	family_closes_tailnet "$(sandbox_vm sudo iptables -S)" && family_closes_tailnet "$(sandbox_vm sudo ip6tables -S)"
 }
 
 door_account_has_no_docker() {
@@ -114,8 +113,16 @@ door_sudo_takes_only_bindings() {
 	! sandbox_vm sudo -u door sudo -n -l /usr/local/sbin/pots-door intruder "$SANDBOX" ask > /dev/null 2>&1
 }
 
-requires_firewall() {
-	sandbox_vm systemctl show "$1" --property Requires --value | tr ' ' '\n' | grep -qx pots-firewall.service
+unit_lists() {
+	sandbox_vm systemctl show "$1" --property "$2" --value | tr ' ' '\n' | grep -qx "$3"
+}
+
+refused() {
+	! "$@" > /dev/null 2>&1
+}
+
+identity_is_root_only() {
+	[ "$(sandbox_vm sudo stat -c '%U %a' "$POTS_VAULT_IDENTITY" "$(dirname "$POTS_VAULT_IDENTITY")" | tr '\n' ' ')" = 'root 600 root 700 ' ]
 }
 
 session=$(running_session)
@@ -126,19 +133,20 @@ if [ "$POTS_LAUNCHER" = sealskin ]; then
 else
 	outer_container=$POTS_SESSION_CONTAINER
 fi
-judge docker-requires-firewall requires_firewall docker.service || status=1
-judge door-requires-firewall requires_firewall pots-door.service || status=1
-judge vm-sees-no-host-path sandbox_vm sh "$HOST_PATHS" || status=1
+judge docker-requires-firewall unit_lists docker.service Requires pots-firewall.service || status=1
+judge door-requires-firewall unit_lists pots-door.service Requires pots-firewall.service || status=1
+judge vm-sees-no-host-path run_trusted vm/check-host-paths || status=1
 judge session-sees-no-host-path in_session sh "$HOST_PATHS" || status=1
 judge firewall-closes-tailnet firewall_closes_tailnet || status=1
 judge door-listens-on-tailnet-only door_listens_on_tailnet_only || status=1
 judge door-account-has-no-docker door_account_has_no_docker || status=1
 judge door-sudo-takes-only-bindings door_sudo_takes_only_bindings || status=1
 tailnet_targets="$operator_node $(peer_pots)"
-judge host-node-matches-policy sandbox_vm sudo python3 "$TAILNET_NODE" check host "$SANDBOX" $tailnet_targets || status=1
+judge host-node-matches-policy run_trusted lib/tailnet_node.py check host "$SANDBOX" $tailnet_targets || status=1
 judge session-node-matches-policy in_session "$SESSION_TAILNET_NODE" check session "$SANDBOX" $tailnet_targets || status=1
 judge tailnet-guard-runs-every-minute guard_runs_every_minute || status=1
-judge tailnet-guard-passes sandbox_vm sudo "$POTS_SESSION_REPOSITORY/vm/tailnet-guard" || status=1
+judge refused-clone-raises-shields unit_lists pots-tailnet-guard.service OnFailure pots-shields-up.service || status=1
+judge tailnet-guard-passes run_trusted vm/tailnet-guard || status=1
 judge_forbidden || status=1
 judge_allowed || status=1
 in_session bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_CONFIGURATION" || status=1
@@ -149,4 +157,9 @@ peer_host=$(in_session awk 'NR == 1 { print $1 }' "$DOOR_KNOWN_HOSTS" 2> /dev/nu
 in_session bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" "$DOOR_KNOWN_HOSTS" || status=1
 in_session_as_root bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" "$DOOR_KNOWN_HOSTS" || status=1
 judge door-files-unchanged-by-session [ "$door_files_before" = "$(door_files_digest)" ] || status=1
+judge vm-identity-root-only identity_is_root_only || status=1
+judge unprivileged-vm-user-cannot-read-identity refused sandbox_vm sudo -u nobody cat "$POTS_VAULT_IDENTITY" || status=1
+run_trusted probes/clone-trust.sh "$POTS_TRUSTED_SOURCE" "$POTS_TRUSTED_SIGNERS" "$POTS_SESSION_REPOSITORY" || status=1
+in_session bash "$VAULT_ATTACKS" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_HOME" "$POTS_VAULT_IDENTITY" "$POTS_VAULT_SOCKET" "$SESSION_NODE" "$POTS_SESSION_CONFIGURATION" || status=1
+in_session_as_root bash "$VAULT_ATTACKS" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_HOME" "$POTS_VAULT_IDENTITY" "$POTS_VAULT_SOCKET" "$SESSION_NODE" "$POTS_SESSION_CONFIGURATION" || status=1
 exit "$status"

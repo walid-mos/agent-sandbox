@@ -1,0 +1,17 @@
+[Unit]
+Description=Answer this VM's session with the vault secrets its sandbox.json lists
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py run vm/vault-broker
+Restart=on-failure
+RestartSec=10
+UMask=0022
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

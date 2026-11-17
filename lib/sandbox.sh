@@ -50,8 +50,6 @@ POTS_SERVER_URL=https://127.0.0.1:$POTS_SERVER_PORT
 POTS_APP_ID=pots
 POTS_HOME_NAME=pots
 POTS_SEALSKIN_CONFIG=/config/.config/sealskin
-POTS_SESSION_USER=abc
-POTS_SESSION_HOME=/config
 
 require_sealskin() {
 	[ "$POTS_LAUNCHER" = sealskin ] || { echo "$(basename "$0"): sandbox ${SANDBOX:-of this VM} uses the docker launcher, which has no SealSkin server" >&2; exit 2; }
@@ -72,6 +70,13 @@ if [ "$POTS_TRANSPORT" = local ]; then
 else
 	. "$POTS_REPO/lib/providers/$POTS_PROVIDER.sh"
 fi
+
+POTS_TRUSTED_LAUNCHER="$POTS_TRUSTED_SOURCE/lib/trusted_source.py"
+
+# Root in a VM runs the clone's code only through the launcher installed outside it, which first verifies the clone.
+run_trusted() {
+	sandbox_vm sudo env POTS_TRANSPORT=local python3 -I "$POTS_TRUSTED_LAUNCHER" run "$@"
+}
 
 session_exec() {
 	input=

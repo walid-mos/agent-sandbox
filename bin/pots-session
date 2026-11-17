@@ -91,7 +91,7 @@ ensure() {
 }
 
 if [ "$POTS_TRANSPORT" = provider ]; then
-	sandbox_vm sudo env POTS_TRANSPORT=local "$POTS_SESSION_REPOSITORY/bin/pots-session" "$@"
+	run_trusted bin/pots-session "$@"
 	exit
 fi
 case "${1:-}" in

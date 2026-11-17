@@ -3,7 +3,7 @@ import { basicEnvironment, RUNTIME_SETTINGS } from './environment.mjs';
 import { main } from './main.mjs';
 import { synchronizeCodex } from './router-codex.mjs';
 import { sandbox } from './sandbox.mjs';
-import { readVault } from './vault.mjs';
+import { readSecret } from './vault.mjs';
 
 const CREDENTIALS = [
   { provider: 'codex', path: '/clients/pi', name: 'PI_OAUTH_CODEX', input: 'file' },
@@ -21,10 +21,11 @@ const INPUTS = {
   accounts: (value, provider) => { magpie(['accounts', 'import', provider, '/dev/stdin', '--yes'], value); },
 };
 
+// The VM's vault broker answers only for a name the sandbox lists, so the sync asks for the listed ones only.
 function credentialsFor() {
-  const configured = new Set(Object.entries(sandbox.secrets).concat(Object.entries(sandbox.onRequest?.claude ?? {}))
-    .flatMap(([path, names]) => names.map(name => `${path}/${name}`)));
-  return CREDENTIALS.filter(entry => entry.input === 'file' || configured.has(`${entry.path}/${entry.name}`));
+  const folders = [sandbox.secrets ?? {}, ...Object.values(sandbox.onRequest ?? {})];
+  const listed = new Set(folders.flatMap(folder => Object.entries(folder)).flatMap(([path, names]) => names.map(name => `${path}/${name}`)));
+  return CREDENTIALS.filter(entry => listed.has(`${entry.path}/${entry.name}`));
 }
 
 // Node gives a child a socket as stdin, which `open('/dev/stdin')` refuses, so `cat` hands Magpie a pipe.
@@ -38,21 +39,17 @@ function magpie(arguments_, input = '') {
   return stdout;
 }
 
-function synchronize(entry) {
-  const [[, value]] = readVault([{ [entry.path]: [entry.name] }]).secrets;
+async function synchronize(entry) {
+  const value = await readSecret(entry.path, entry.name);
   if (!value) throw new Error(`router-credentials: ${entry.path}/${entry.name} is empty in the vault.`);
   return INPUTS[entry.input](value, entry.provider);
 }
 
-main(import.meta, () => {
-  const results = credentialsFor().map(entry => {
-    try {
-      return synchronize(entry);
-    } catch (error) {
-      process.stderr.write(`router-credentials: ${entry.provider} not synchronized: ${error.message}\n`);
-      return { failed: true };
-    }
-  });
+main(import.meta, async () => {
+  const results = await Promise.all(credentialsFor().map(entry => synchronize(entry).catch(error => {
+    process.stderr.write(`router-credentials: ${entry.provider} not synchronized: ${error.message}\n`);
+    return { failed: true };
+  })));
   const report = Object.assign({}, ...results);
   process.stdout.write(`${JSON.stringify(report)}\n`);
   if (report.failed) process.exitCode = 1;

@@ -30,7 +30,7 @@ def configuration():
 
 
 def update_source(name, source, configuration):
-    fetch = () if source.get("url") else (str(REPOSITORY / "session/source-fetch"), source["repository"])
+    fetch = (str(REPOSITORY / "session/source-fetch"), source["repository"]) if source.get("credential") and not source.get("url") else ()
     edits = partial(pi_models, configuration=configuration) if name == "pi" else nullcontext
     return refresh_source(source, configuration, fetch_with=fetch, installer_edits=edits)
 
@@ -83,7 +83,7 @@ def configure_overlay(pi_home, configuration):
         raise RuntimeError(f"{path} must contain an array of overlay paths.")
     managed = str(HOME / configuration["sources"]["nextnode"]["directory"])
     desired = [root for root in roots if root != managed]
-    if configuration["nextnode"]:
+    if configuration["sources"]["nextnode"]["selected"]:
         desired.append(managed)
     if roots != desired:
         path.write_text(json.dumps(desired, indent=2) + "\n")
@@ -113,8 +113,10 @@ def install_file_chooser():
 
 
 def install_sources(sources, configuration, desired):
-    install_pi(sources, configuration)
-    install_herdr(HOME / sources["herdr"]["directory"], configuration["profile"], configuration["herdr"])
+    if sources["pi"]["selected"]:
+        install_pi(sources, configuration)
+    if sources["herdr"]["selected"]:
+        install_herdr(HOME / sources["herdr"]["directory"], configuration["profile"], configuration["herdr"])
     temporary = RECEIPT.with_suffix(".tmp")
     temporary.write_text(json.dumps(desired, indent=2) + "\n")
     temporary.replace(RECEIPT)
@@ -122,11 +124,11 @@ def install_sources(sources, configuration, desired):
 
 
 def provision(configuration):
-    is_desktop = configuration["profile"] == "desktop"
+    sources = configuration["sources"]
+    names = [name for name, source in sources.items() if source["selected"]]
+    is_desktop = configuration["profile"] == "desktop" and "herdr" in names
     if is_desktop:
         require_herdr_initialized()
-    sources = configuration["sources"]
-    names = ["pi", *(["nextnode"] if configuration["nextnode"] else []), "herdr"]
     revisions = {name: update_source(name, sources[name], configuration)["revision"] for name in names}
     applied = json.loads(RECEIPT.read_text()) if RECEIPT.exists() else {}
     desired = {"sources": revisions, "configuration": configuration}

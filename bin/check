@@ -43,12 +43,19 @@ done
 for path in "$root"/sandboxes.example/*/sandbox.json; do
 	jq -e '.role == null or (.role | type == "string")' "$path" > /dev/null || { echo "check: $path needs role as a string, when it has one" >&2; exit 1; }
 done
+# The VM's vault broker refuses a listed name that carries vault access, and each sandbox selects the catalog sources it fetches.
+catalog=$(jq -c keys "$root/session/agent-sources.json")
+for path in "$root"/sandboxes.example/*/sandbox.json; do
+	jq -e --argjson catalog "$catalog" '([.owners[]?, (.secrets // {} | .[][]), (.onRequest // {} | .[][][])] | all(startswith("INFISICAL_") | not)) and (.sources | type == "array" and . - $catalog == [])' "$path" > /dev/null || { echo "check: $path lists a name starting with INFISICAL_, or does not select its sources as a list of session/agent-sources.json names" >&2; exit 1; }
+done
 for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
 	jq empty "$path"
 done
 for path in "$root"/sandboxes.example/*/sandbox.json; do
 	jq -e '.doors == null or (.doors | type == "object" and all(.[]; type == "string"))' "$path" > /dev/null || { echo "check: $path needs doors as an object of pot names to one-line descriptions" >&2; exit 1; }
 done
+# Root in a VM runs the clone's code only through the trusted launcher: a unit starts the launcher or an installed copy, and a VM call runs the launcher, an installed copy or a literal management command.
+python3 -I "$root/lib/check_vm_root.py"
 # The generated pots policy grants only the ports lib/tailnet_node.py accepts, a door only along doors and their replies, and no Funnel, auto-approval or Tailscale SSH rule.
 . "$root/vm/network.env"
 settings=$(mktemp -d)

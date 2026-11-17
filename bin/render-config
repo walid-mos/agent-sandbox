@@ -17,13 +17,18 @@ def assignments(path):
 launch = assignments("session/launch.env")
 
 
-# The session reads the pot's clone and its configuration at the paths the VM keeps them at.
+# The session reads the pot's clone, its configuration and the vault broker's socket at the paths the VM keeps them at.
 def session_binds():
     clone, configuration = launch["POTS_SESSION_REPOSITORY"], launch["POTS_SESSION_CONFIGURATION"]
+    broker = str(Path(launch["POTS_VAULT_SOCKET"]).parent)
+    shared = (clone, configuration, broker)
+    if any(Path(launch["POTS_VAULT_IDENTITY"]).is_relative_to(path) for path in shared):
+        raise SystemExit("render-config: POTS_VAULT_IDENTITY must stay outside every path the session mounts. Fix session/launch.env.")
     return [
         f"{clone}:{clone}:ro",
         f"{clone}/session/services.d:/custom-services.d:ro",
         f"{configuration}:{configuration}:ro",
+        f"{broker}:{broker}:ro",
         f"{launch['POTS_INNER_DOCKER_VOLUME']}:/var/lib/docker:rw",
     ]
 

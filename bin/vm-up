@@ -3,18 +3,20 @@ set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
 
 # The VM's first clone follows the branch of this checkout. An existing clone keeps the branch it is on.
+# The launcher that bin/vm-trust installs lands only a commit an operator key signed.
 clone_source() {
 	if sandbox_vm test -d "$POTS_SESSION_REPOSITORY/.git"; then
-		sandbox_vm sudo "$POTS_SESSION_REPOSITORY/vm/update"
+		sandbox_vm sudo python3 -I "$POTS_TRUSTED_LAUNCHER" update
 		return
 	fi
 	branch=$(git -C "$POTS_REPO" symbolic-ref --quiet --short HEAD) || { echo "vm-up: this checkout is on no branch, so the VM's clone has none to follow. Check out a branch that origin holds." >&2; exit 1; }
-	sandbox_vm sudo python3 -I - "$POTS_SOURCE_URL" "$POTS_SESSION_REPOSITORY" --branch "$branch" < "$POTS_REPO/lib/source_refresh.py"
+	sandbox_vm sudo python3 -I "$POTS_TRUSTED_LAUNCHER" update --branch "$branch"
 }
 
 swap_gib=$(vm_setting swapGiB)
 vm_start
+"$POTS_REPO/bin/vm-trust"
 clone_source
 "$POTS_REPO/bin/vm-config"
-sandbox_vm sudo "$POTS_SESSION_REPOSITORY/vm/setup.sh" "$swap_gib" "$POTS_LAUNCHER"
-sandbox_vm "$POTS_SESSION_REPOSITORY/vm/session-keys" "$SANDBOX" "$POTS_SESSION_REPOSITORY/bin/sandbox-exec" POTS_TRANSPORT=local < "$HOME/.ssh/authorized_keys"
+run_trusted vm/setup.sh "$swap_gib" "$POTS_LAUNCHER"
+sandbox_vm python3 -I "$POTS_TRUSTED_LAUNCHER" run vm/session-keys "$SANDBOX" bin/sandbox-exec POTS_TRANSPORT=local < "$HOME/.ssh/authorized_keys"

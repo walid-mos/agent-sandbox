@@ -1,88 +1,75 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { createConnection } from 'node:net';
 import { assignments, basicEnvironment } from './environment.mjs';
 import { main } from './main.mjs';
 
-const VAULT_CONFIG = '/etc/agent-sandbox/vault.json';
-const GITHUB_PATH = '/tools/github';
-const CLIENT_SECRET = 'INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET';
-const USAGE = 'usage: with-vault [--with GROUP | --source REPOSITORY] command [argument...]';
-const REQUESTS = { '--with': sandboxRequest, '--source': sourceFetchRequest };
+const SOCKET = assignments(readFileSync(new URL('./launch.env', import.meta.url), 'utf8')).POTS_VAULT_SOCKET;
+const ANSWER_TIMEOUT_MS = 120_000;
+const VAULT_ACCESS = /^INFISICAL_/u;
+const USAGE = 'usage: with-vault [--with GROUP | --source REPOSITORY] command [argument...] | with-vault --ready';
 
-function infisical(arguments_, env) {
-  return execFileSync('infisical', arguments_, { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'inherit'] }).trim();
-}
+const withoutVaultAccess = environment => Object.fromEntries(Object.entries(environment).filter(([name]) => !VAULT_ACCESS.test(name)));
 
-function vaultConfig() {
-  if (!existsSync(VAULT_CONFIG)) throw new Error('with-vault: add vault.json, with project and environment, to this sandbox\'s directory under ~/.config/agent-sandbox/sandboxes.');
-  const { project, environment } = JSON.parse(readFileSync(VAULT_CONFIG, 'utf8'));
-  if (!project || !environment) throw new Error(`with-vault: set project and environment in ${VAULT_CONFIG}.`);
-  return { project, environment };
-}
+const REQUESTS = {
+  '--with': group => ({ request: { kind: 'sandbox', group }, environment: withoutVaultAccess(process.env) }),
+  '--source': repository => ({ request: { kind: 'source', repository }, environment: basicEnvironment(process.env) }),
+};
 
-function folder(path, env, vault) {
-  const output = infisical(['export', '--projectId', vault.project, '--env', vault.environment, '--path', path, '--format', 'json', '--silent'], env);
-  // A parse error quotes its input, which holds secret values, so a fixed message replaces it.
+// A parse error quotes its input, which holds secret values, so a fixed message replaces it.
+function parsedAnswer(text) {
   try {
-    return new Map(JSON.parse(output).map(secret => [secret.key, secret.value]));
+    return JSON.parse(text);
   } catch {
-    throw new Error(`with-vault: the vault returned no readable secret list for ${path}`);
+    throw new Error('with-vault: the VM\'s vault broker sent an unreadable answer.');
   }
 }
 
-function listed(path, names, env, vault) {
-  const secrets = folder(path, env, vault);
-  const missing = names.filter(name => typeof secrets.get(name) !== 'string');
-  if (missing.length > 0) {
-    throw new Error(`with-vault: ${missing.join(', ')} not found in ${path}. Add it to the vault or remove it from the sandbox's list.`);
+function checkedAnswer(text) {
+  const answer = parsedAnswer(text);
+  if (answer?.ok === true) return answer;
+  throw new Error(`with-vault: the VM's vault broker refused: ${typeof answer?.error === 'string' ? answer.error : 'no reason given.'}`);
+}
+
+export function askVault(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const connection = createConnection(SOCKET);
+    connection.setTimeout(ANSWER_TIMEOUT_MS, () => connection.destroy(new Error('no answer in time')));
+    connection.on('connect', () => connection.end(`${JSON.stringify(request)}\n`));
+    connection.on('data', chunk => chunks.push(chunk));
+    connection.on('error', error => reject(new Error(`with-vault: the VM's vault broker at ${SOCKET} did not answer (${error.code ?? error.message}). Check pots-vault.service in the VM.`)));
+    connection.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+  }).then(checkedAnswer);
+}
+
+function secretPairs({ secrets }) {
+  const isPair = pair => Array.isArray(pair) && pair.length === 2 && pair.every(part => typeof part === 'string');
+  if (!Array.isArray(secrets) || !secrets.every(isPair)) throw new Error('with-vault: the VM\'s vault broker sent no secret list.');
+  return secrets;
+}
+
+export async function readSecret(path, name) {
+  const [[, value]] = secretPairs(await askVault({ kind: 'secret', path, name }));
+  return value;
+}
+
+async function requireReady() {
+  const { ready } = await askVault({ kind: 'ready' });
+  if (ready !== true) throw new Error('with-vault: the VM holds no vault identity yet. Run bin/session-bootstrap for this pot.');
+}
+
+function parsedArguments([flag, value, ...rest]) {
+  if (!Object.hasOwn(REQUESTS, flag ?? '')) {
+    return { request: { kind: 'sandbox' }, environment: withoutVaultAccess(process.env), commandLine: [flag, value, ...rest].filter(word => word !== undefined) };
   }
-  return names.map(name => [name, secrets.get(name)]);
-}
-
-function onRequest(group, sandbox) {
-  if (group === undefined) return {};
-  const folders = sandbox.onRequest?.[group];
-  if (!folders) throw new Error(`with-vault: the sandbox names no secrets under onRequest.${group}. Add them to its sandbox.json.`);
-  return folders;
-}
-
-function vaultSession() {
-  const credentialsFile = process.env.POTS_VAULT_CREDENTIALS;
-  const login = { ...process.env, ...(credentialsFile && existsSync(credentialsFile) ? assignments(readFileSync(credentialsFile, 'utf8')) : {}) };
-  const session = { ...login, INFISICAL_TOKEN: infisical(['login', '--method=universal-auth', '--silent', '--plain'], login) };
-  delete session[CLIENT_SECRET];
-  return session;
-}
-
-async function sourceFetchRequest(repository) {
-  const source = (await import('./agent-sources.mjs')).sourceFor(repository);
-  if (!source) throw new Error('with-vault: repository is outside the approved agent sources.');
-  return {
-    groups: [{ [GITHUB_PATH]: [source.credential] }],
-    environment: basicEnvironment,
-  };
-}
-
-async function sandboxRequest(group) {
-  const { sandbox } = await import('./sandbox.mjs');
-  return {
-    groups: [{ [GITHUB_PATH]: Object.values(sandbox.owners) }, sandbox.secrets, onRequest(group, sandbox)],
-    environment: session => session,
-  };
-}
-
-export function readVault(groups) {
-  const vault = vaultConfig();
-  const session = vaultSession();
-  return { session, secrets: groups.flatMap(Object.entries).flatMap(([path, names]) => listed(path, names, session, vault)) };
+  if (!value) throw new Error(USAGE);
+  return { ...REQUESTS[flag](value), commandLine: rest };
 }
 
 main(import.meta, async () => {
-  const arguments_ = process.argv.slice(2);
-  const [request, requestArgument, commandLine] = Object.hasOwn(REQUESTS, arguments_[0]) ?
-    [REQUESTS[arguments_[0]], arguments_[1], arguments_.slice(2)] : [sandboxRequest, undefined, arguments_];
+  if (process.argv[2] === '--ready') return requireReady();
+  const { request, environment, commandLine } = parsedArguments(process.argv.slice(2));
   if (commandLine.length === 0) throw new Error(USAGE);
-  const { groups, environment } = await request(requestArgument);
-  const { session, secrets } = readVault(groups);
-  process.execve('/usr/bin/env', ['env', ...commandLine], { ...environment(session), ...Object.fromEntries(secrets) });
+  const secrets = secretPairs(await askVault(request));
+  process.execve('/usr/bin/env', ['env', ...commandLine], { ...environment, ...Object.fromEntries(secrets) });
 });

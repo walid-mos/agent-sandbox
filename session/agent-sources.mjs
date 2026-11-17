@@ -12,7 +12,6 @@ export const provisioning = existsSync(PROVISIONING_FILE) ? JSON.parse(readFileS
 const sandboxFile = '/etc/agent-sandbox/sandbox.json';
 const sandbox = existsSync(sandboxFile) ? JSON.parse(readFileSync(sandboxFile, 'utf8')) : undefined;
 export const effectiveProvisioning = {
-  nextnode: sandbox ? Object.hasOwn(sandbox.owners, 'NextNodeSolutions') : false,
   ...provisioning,
   herdr: {
     sandboxes: sandbox ? [{ machine: '', bot: sandbox.bot }] : [],
@@ -21,13 +20,24 @@ export const effectiveProvisioning = {
   },
 };
 const sourceCatalog = JSON.parse(readFileSync(SOURCE_FILE, 'utf8'));
+
+function selectedSources(config) {
+  const names = config.sources;
+  if (!Array.isArray(names) || !names.every(name => Object.hasOwn(sourceCatalog, name))) {
+    throw new Error(`agent-sources: sandbox.json must select the sources this pot fetches, as a list of names from ${SOURCE_FILE}: ${Object.keys(sourceCatalog).join(', ')}. Fix it on the Mac and run bin/vm-config.`);
+  }
+  return names;
+}
+
+// The pot fetches only the sources its sandbox.json selects. A source with a credential in the catalog is private and fetched with that token from the VM's vault broker; any other is public and cloned anonymously.
+const selected = new Set(sandbox ? selectedSources(sandbox) : []);
 export const agentSources = Object.fromEntries(Object.entries(sourceCatalog).map(([name, source]) => [name, {
-  ...source, ...provisioning.sources?.[name], directory: source.directory,
+  ...source, ...provisioning.sources?.[name], directory: source.directory, credential: source.credential, selected: selected.has(name),
 }]));
 for (const [name, source] of Object.entries(agentSources)) {
-  if (!REPOSITORY.test(source.repository) || !CREDENTIAL.test(source.credential)
+  if (!REPOSITORY.test(source.repository) || (source.credential !== undefined && !CREDENTIAL.test(source.credential))
     || typeof source.directory !== 'string' || source.directory.startsWith('/') || source.directory.split('/').includes('..')) {
-    throw new Error(`agent-sources: invalid ${name} in ${SOURCE_FILE}. Use owner/repository, a credential variable name and a home-relative directory.`);
+    throw new Error(`agent-sources: invalid ${name} in ${SOURCE_FILE}. Use owner/repository, a credential variable name for a private source only, and a home-relative directory.`);
   }
 }
 

@@ -2,7 +2,7 @@
 set -eu
 . "$(dirname "$0")/lib.sh"
 
-if ! command -v pots > /dev/null || ! "$(dirname "$0")/has-credentials"; then
+if ! command -v pots > /dev/null || ! "$(dirname "$0")/with-vault" --ready; then
 	idle_until_bootstrap pots-gateway
 fi
 exec "$(dirname "$0")/with-vault" pots start

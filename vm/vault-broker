@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import socketserver
+import stat
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from vault_policy import ROOT, Refused, entries_for, read_root_json
+
+LAUNCH = dict(line.split("=", 1) for line in (HERE.parent / "session/launch.env").read_text().splitlines() if line)
+SOCKET = Path(LAUNCH["POTS_VAULT_SOCKET"])
+IDENTITY = Path(LAUNCH["POTS_VAULT_IDENTITY"])
+CONFIG_DIRECTORY = Path(LAUNCH["POTS_SESSION_CONFIGURATION"])
+SOURCE_CATALOG = HERE.parent / "session/agent-sources.json"
+IDENTITY_NAMES = ("INFISICAL_API_URL", "INFISICAL_UNIVERSAL_AUTH_CLIENT_ID", "INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET")
+READABLE_BY_OTHERS = stat.S_IRWXG | stat.S_IRWXO
+REQUEST_LIMIT_BYTES = 4096
+REQUEST_SECONDS = 10
+VAULT_SECONDS = 30
+SOCKET_DIRECTORY_MODE = 0o755
+SOCKET_MODE = 0o666
+NOT_FOUND = 404
+UNREADABLE_REQUEST = "send one JSON request line of at most 4096 bytes."
+LOGGED_KINDS = ("ready", "sandbox", "secret", "source")
+
+
+class VaultFailure(Exception):
+    pass
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *arguments):
+        return None
+
+
+VAULT = urllib.request.build_opener(NoRedirect)
+
+
+def vault_call(url, token="", body=None):
+    headers = {"Accept": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})}
+    payload = None if body is None else json.dumps(body).encode()
+    if payload:
+        headers["Content-Type"] = "application/json"
+    with VAULT.open(urllib.request.Request(url, data=payload, headers=headers), timeout=VAULT_SECONDS) as response:
+        reply = json.load(response)
+    if not isinstance(reply, dict):
+        raise ValueError("the vault answered with no JSON object")
+    return reply
+
+
+def read_identity():
+    if not IDENTITY.is_file():
+        raise VaultFailure("the VM holds no vault identity yet. Run bin/session-bootstrap for this pot.")
+    identity = read_root_json(IDENTITY)
+    if os.lstat(IDENTITY).st_mode & READABLE_BY_OTHERS or not all(isinstance(identity.get(name), str) for name in IDENTITY_NAMES):
+        raise VaultFailure(f"{IDENTITY} must be root-only and hold the VM's identity. Run bin/session-credentials for this pot.")
+    return identity
+
+
+def access_token(identity):
+    login = {"clientId": identity["INFISICAL_UNIVERSAL_AUTH_CLIENT_ID"], "clientSecret": identity["INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET"]}
+    try:
+        token = vault_call(f"{identity['INFISICAL_API_URL']}/v1/auth/universal-auth/login", body=login).get("accessToken")
+    except urllib.error.HTTPError as error:
+        raise VaultFailure(f"the vault refused the VM's identity (HTTP {error.code}). Run bin/session-credentials for this pot.") from None
+    if not isinstance(token, str) or not token:
+        raise VaultFailure("the vault login returned no access token.")
+    return token
+
+
+def secret_value(identity, token, location, path, name):
+    query = urllib.parse.urlencode({"workspaceId": location.get("project"), "environment": location.get("environment"), "secretPath": path,
+                                    "type": "shared", "include_imports": "true", "expandSecretReferences": "true"})
+    try:
+        answer = vault_call(f"{identity['INFISICAL_API_URL']}/v3/secrets/raw/{urllib.parse.quote(name)}?{query}", token)
+    except urllib.error.HTTPError as error:
+        if error.code == NOT_FOUND:
+            raise VaultFailure(f"{name} not found in {path}. Add it to the vault or remove it from the sandbox's list.") from None
+        raise VaultFailure(f"the vault answered HTTP {error.code} for {name} in {path}.") from None
+    secret = answer.get("secret")
+    value = secret.get("secretValue") if isinstance(secret, dict) else None
+    if not isinstance(value, str) or value == identity["INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET"]:
+        raise VaultFailure(f"the vault returned no usable value for {name} in {path}.")
+    return value
+
+
+def secrets_for(request):
+    entries = entries_for(request, read_root_json(CONFIG_DIRECTORY / "sandbox.json"), read_root_json(SOURCE_CATALOG))
+    location = read_root_json(CONFIG_DIRECTORY / "vault.json")
+    if not all(isinstance(location.get(key), str) for key in ("project", "environment")):
+        raise VaultFailure("vault.json names no project and environment. Fix it on the Mac and run bin/vm-config.")
+    identity = read_identity()
+    token = access_token(identity)
+    return [[name, secret_value(identity, token, location, path, name)] for path, name in entries]
+
+
+def answer(request):
+    if request == {"kind": "ready"}:
+        return {"ok": True, "ready": IDENTITY.is_file()}
+    try:
+        return {"ok": True, "secrets": secrets_for(request)}
+    except (urllib.error.URLError, OSError, ValueError):
+        raise VaultFailure("the vault could not be reached or sent an unreadable answer. Check the VM's network and vault.json.") from None
+
+
+class Broker(socketserver.StreamRequestHandler):
+    timeout = REQUEST_SECONDS
+
+    def handle(self):
+        request = None
+        try:
+            request = json.loads(self.rfile.readline(REQUEST_LIMIT_BYTES))
+            reply = answer(request)
+        except (Refused, VaultFailure) as error:
+            reply = {"ok": False, "error": str(error)}
+        except (ValueError, OSError):
+            reply = {"ok": False, "error": UNREADABLE_REQUEST}
+        kind = request.get("kind") if isinstance(request, dict) else None
+        outcome = "answered" if reply["ok"] else f"refused: {reply['error']}"
+        print(f"vault-broker: {kind if kind in LOGGED_KINDS else 'unknown'} request {outcome}", file=sys.stderr, flush=True)
+        self.wfile.write((json.dumps(reply) + "\n").encode())
+
+
+class Server(socketserver.ThreadingUnixStreamServer):
+    daemon_threads = True
+
+
+def serve():
+    if os.geteuid() != ROOT:
+        raise SystemExit("vault-broker runs as root, the only user that reads the VM's identity.")
+    SOCKET.parent.mkdir(mode=SOCKET_DIRECTORY_MODE, parents=True, exist_ok=True)
+    SOCKET.parent.chmod(SOCKET_DIRECTORY_MODE)
+    SOCKET.unlink(missing_ok=True)
+    with Server(str(SOCKET), Broker) as server:
+        SOCKET.chmod(SOCKET_MODE)
+        server.serve_forever()
+
+
+if __name__ == "__main__":
+    serve()

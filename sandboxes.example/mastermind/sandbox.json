@@ -17,12 +17,21 @@
     ]
   },
   "onRequest": {
+    "router": {
+      "/clients/pi": [
+        "PI_OAUTH_CODEX"
+      ]
+    },
     "claude": {
       "/clients/claude": [
         "CLAUDE_CODE_OAUTH_TOKEN"
       ]
     }
   },
+  "sources": [
+    "pi",
+    "herdr"
+  ],
   "doors": {
     "nextnode": "NextNodeSolutions and walid-mos repositories, and their PR factory",
     "accor": "Accor client work, where every push waits for the person's yes",

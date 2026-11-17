@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import sys
+
+HERE = Path(__file__).resolve().parent
+LAUNCH = dict(line.split("=", 1) for line in (HERE.parent / "session/launch.env").read_text().splitlines() if line)
+IDENTITY = Path(LAUNCH["POTS_VAULT_IDENTITY"])
+NAMES = ("INFISICAL_API_URL", "INFISICAL_UNIVERSAL_AUTH_CLIENT_ID", "INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET")
+INPUT_LIMIT_BYTES = 8192
+ROOT_ONLY_DIRECTORY = 0o700
+ROOT_ONLY_FILE = 0o600
+ROOT = 0
+
+
+def refuse(reason):
+    raise SystemExit(f"store-vault-identity: {reason} Nothing was changed.")
+
+
+# Messages name the expected keys only: the input holds the identity's secret.
+def read_identity(stream):
+    text = stream.read(INPUT_LIMIT_BYTES + 1)
+    if len(text) > INPUT_LIMIT_BYTES:
+        refuse(f"standard input exceeds {INPUT_LIMIT_BYTES} bytes.")
+    pairs = [line.split("=", 1) for line in text.splitlines() if line]
+    identity = dict(pair for pair in pairs if len(pair) == 2)
+    if len(pairs) != len(NAMES) or sorted(identity) != sorted(NAMES):
+        refuse(f"expected exactly the lines {', '.join(name + '=VALUE' for name in NAMES)}.")
+    if not all(value and not any(character.isspace() for character in value) for value in identity.values()):
+        refuse("every value must be one non-empty word.")
+    if not identity["INFISICAL_API_URL"].startswith("https://"):
+        refuse("INFISICAL_API_URL must be an https URL.")
+    return identity
+
+
+def replace(identity):
+    IDENTITY.parent.mkdir(mode=ROOT_ONLY_DIRECTORY, parents=True, exist_ok=True)
+    IDENTITY.parent.chmod(ROOT_ONLY_DIRECTORY)
+    pending = IDENTITY.with_name(f".{IDENTITY.name}.next")
+    pending.unlink(missing_ok=True)
+    descriptor = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, ROOT_ONLY_FILE)
+    with os.fdopen(descriptor, "w") as file:
+        json.dump(identity, file)
+    pending.replace(IDENTITY)
+
+
+def main():
+    if os.geteuid() != ROOT or len(sys.argv) != 1:
+        raise SystemExit("usage: sudo store-vault-identity < identity (NAME=VALUE lines)")
+    replace(read_identity(sys.stdin))
+    print(f"store-vault-identity: stored the VM's vault identity at {IDENTITY}, readable by root only.")
+
+
+main()
