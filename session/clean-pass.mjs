@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { link } from './link.mjs';
 import { main } from './main.mjs';
+import { readJson, writePrivateJson } from './private-json.mjs';
 import { command } from './run.mjs';
 import { liveTerminals, openTerminal, recordPass, terminalName, workers } from './workers.mjs';
 
@@ -30,10 +31,9 @@ function prepareClaude(worktree) {
   mkdirSync(join(CLAUDE_HOME, 'skills'), { recursive: true });
   link(join(SESSION, 'claude/settings.json'), join(CLAUDE_HOME, 'settings.json'));
   link(join(HARNESS_SKILLS, UNTANGLE_SKILL), join(CLAUDE_HOME, 'skills', UNTANGLE_SKILL));
-  const state = existsSync(CLAUDE_STATE) ? JSON.parse(readFileSync(CLAUDE_STATE, 'utf8')) : {};
+  const state = readJson(CLAUDE_STATE) ?? {};
   const projects = { ...state.projects, [worktree]: { ...state.projects?.[worktree], hasTrustDialogAccepted: true } };
-  writeFileSync(`${CLAUDE_STATE}.tmp`, JSON.stringify({ ...state, hasCompletedOnboarding: true, projects }), { mode: 0o600 });
-  renameSync(`${CLAUDE_STATE}.tmp`, CLAUDE_STATE);
+  writePrivateJson(CLAUDE_STATE, { ...state, hasCompletedOnboarding: true, projects });
 }
 
 function open(pass, area) {

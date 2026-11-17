@@ -1,78 +1,98 @@
-import { enqueue } from './queue.mjs';
+import { dequeue, enqueue, requestsFor } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { closeTerminal, endTerminal, isStopped, keepScreen, passes, save, terminalOf } from './workers.mjs';
+import { endTerminal, isLive, isStopped, passes, save, terminalOf } from './workers.mjs';
+import { canFinish, isPublished, lifecycleOf, publication, readyAt } from './worker-lifecycle.mjs';
+import { keepResult } from './worker-results.mjs';
 
-const STARTUP_GRACE_MS = 120000;
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
 const TITLE_LABEL = 'agent.title';
-const resumed = new Set();
 
 function gitFacts(worker) {
   const options = { cwd: worker.worktree };
   return {
     branch: command('git', ['branch', '--show-current'], options),
     commit: command('git', ['rev-parse', '--short', 'HEAD'], options),
-    uncommitted: command('git', ['status', '--porcelain'], options).split('\n').filter(Boolean).length,
-    unpushed: Number(command('git', ['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'], options)),
+    ...publication(worker.worktree),
   };
 }
 
-const terminalDetails = terminal => JSON.parse(command('hc', ['get', '--json', terminal.address]));
-
-// hc shows no status and no pi agent while with-vault logs in, so a terminal that just started is not lost yet.
-// No event marks the end of that wait, so the terminal carries the time a pass must look at it again.
-function terminalState(worker, terminals, now) {
-  const terminal = terminalOf(worker, terminals);
-  if (!terminal) return { state: 'finished' };
-  if (terminal.status || terminal.agent === 'pi') return terminal;
-  const graceEnd = worker.startedAt + STARTUP_GRACE_MS;
-  return now < graceEnd ? { ...terminal, lookAgainAt: graceEnd } : { state: 'finished' };
-}
-
-// The screen is kept before the bot wakes, because a done worker's terminal closes right after.
-function report(worker, terminal, status, wake) {
-  const facts = gitFacts(worker);
-  const title = terminal.address && terminalDetails(terminal).labels?.[TITLE_LABEL];
-  const screen = status === 'done' ? keepScreen(worker, terminal) : undefined;
-  const note = { worker: worker.name, title, terminal: terminal.address, status, ...facts, cleanPass: passes(worker), pullRequest: worker.pullRequest, screen };
-  const isComplete = status === 'done' && facts.uncommitted === 0 && facts.unpushed === 0;
+function report(worker, terminal, status, wake, state, facts, isSettled) {
+  const title = terminal.labels[TITLE_LABEL];
+  const isFinished = isSettled && isPublished(facts);
+  const result = isFinished ? keepResult(worker, terminal, state) : undefined;
+  const note = { worker: worker.name, title, terminal: terminal.address, status, ...facts, cleanPass: passes(worker), pullRequest: worker.pullRequest, result };
+  save({ ...worker, status, result, ...facts });
   command('pots', ['wake', '--bot', botId, '--id', wake, '--note', JSON.stringify(note)]);
-  const reported = { ...worker, status, lastReport: wake, isComplete, ...facts };
-  save(reported);
-  return reported;
+  save({ ...worker, status, lastReport: wake, result, ...facts });
 }
 
-// A message that reached the worker while it was reported starts a new turn, and the worker then keeps its terminal.
-function closeIfStillDone(worker, terminal) {
-  const current = terminalDetails(terminal);
-  if (current.status?.state !== 'done' || current.turn !== terminal.turn) return;
-  closeTerminal(worker, terminal);
-  save({ ...worker, isClosed: true });
+// A launch whose terminal never opened failed to start, which the bot hears about and answers with a send, so only a crash resumes.
+function recover(worker, state, pending) {
+  if (state?.phase === 'closing') {
+    if (!worker.isClosed) save({ ...worker, isClosed: true });
+    return;
+  }
+  if ([!worker.terminal, worker.isClosed, pending.has(worker.name), worker.recoveryAttempted].some(Boolean)) return;
+  save({ ...worker, recoveryAttempted: true });
+  enqueue({ worker: worker.name });
 }
 
-/** Reports and repairs one worker, and resolves to the time it needs another look, if any. */
-export function inspectWorker(worker, { terminals, now, pending }) {
-  // A stop can land while a resume is under way, so a stopped worker's terminal is ended whenever it is seen live.
+// Pi records the follow-ups it accepted per launch, and a resume starts a new launch, so the ended launch's are dropped before they are sent again.
+function forgetReceived(worker, state, { queue, pending }) {
+  if (!state?.received?.length || !pending.has(worker.name)) return;
+  const isAccepted = request => state.received.includes(request.file);
+  const requests = requestsFor(worker.name, queue);
+  requests.filter(isAccepted).forEach(dequeue);
+  if (requests.every(isAccepted)) pending.delete(worker.name);
+}
+
+function recordSession(worker, state) {
+  if (!state?.sessionFile || state.sessionFile === worker.sessionFile) return worker;
+  const current = { ...worker, sessionFile: state.sessionFile, sessionId: state.sessionId };
+  save(current);
+  return current;
+}
+
+// A closing worker had its result acknowledged and is exiting, so it has nothing new to report.
+function inspectLive(worker, terminal, state, { now, terminals }) {
+  if (state?.phase === 'closing') return undefined;
+  const due = readyAt(state);
+  if (now < due) return due;
+  reportCurrent(worker, terminal, state, canFinish(state, terminal, terminals, now));
+  return undefined;
+}
+
+function reportCurrent(worker, terminal, state, isSettled) {
+  const { status = 'starting', turn = 0 } = terminal;
+  if (!REPORTABLE.has(status)) return;
+  const facts = gitFacts(worker);
+  const result = isSettled && isPublished(facts) ? state.generation : 'open';
+  const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${result}`;
+  if (worker.lastReport === wake) return;
+  report(worker, terminal, status, wake, state, facts, isSettled);
+}
+
+function inspectLaunch(worker, view) {
+  const state = lifecycleOf(worker);
+  const current = recordSession(worker, state);
+  const terminal = terminalOf(current, view.terminals);
+  if (!terminal || terminal.state === 'finished') {
+    forgetReceived(current, state, view);
+    recover(current, state, view.pending);
+    return undefined;
+  }
+  const observed = state?.phase === 'settled' && current.recoveryAttempted ? { ...current, recoveryAttempted: false } : current;
+  if (observed !== current) save(observed);
+  return inspectLive(observed, terminal, state, view);
+}
+
+export function inspectWorker(worker, view) {
+  if (worker.owner !== botId || !worker.launchId) return undefined;
+  // The watcher's sweep has already removed a stopped worker's ended terminal, so only a live one is ended here.
   if (isStopped(worker)) {
-    endTerminal(worker, terminals);
+    endTerminal(worker, view.terminals.filter(isLive));
     return undefined;
   }
-  const terminal = terminalState(worker, terminals, now);
-  if (terminal.state === 'finished' && (worker.isComplete || worker.isClosed || pending.has(worker.name))) return undefined;
-  // A worker whose record was saved but never queued, after a crash between the two, starts through this request too.
-  if (terminal.state === 'finished' && !resumed.has(worker.name)) {
-    endTerminal(worker, terminals);
-    enqueue({ worker: worker.name });
-    resumed.add(worker.name);
-    return undefined;
-  }
-  const status = terminal.state === 'finished' ? 'finished' : terminal.status ?? 'starting';
-  if (status === 'working' && worker.isComplete) save({ ...worker, status, isComplete: false });
-  // startedAt changes with every launch, so a resumed terminal never repeats a wake ID of the one before it.
-  const wake = `${worker.name}-${worker.startedAt}-${terminal.turn ?? 0}-${status}`;
-  if (!REPORTABLE.has(status) || worker.lastReport === wake) return terminal.lookAgainAt;
-  const reported = report(worker, terminal, status, wake);
-  if (status === 'done') closeIfStillDone(reported, terminal);
-  return terminal.lookAgainAt;
+  return inspectLaunch(worker, view);
 }
