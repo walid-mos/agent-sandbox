@@ -13,7 +13,7 @@ install_hc() {
 	fi
 }
 
-if ! session_exec "$session" "$POTS_SESSION_REPOSITORY/session/has-credentials"; then
+if ! sandbox_vm sudo test -s "$POTS_VAULT_IDENTITY"; then
 	"$POTS_REPO/bin/session-credentials"
 fi
 session_exec "$session" "$POTS_SESSION_REPOSITORY/session/bootstrap"

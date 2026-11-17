@@ -21,8 +21,10 @@ export const effectiveProvisioning = {
   },
 };
 const sourceCatalog = JSON.parse(readFileSync(SOURCE_FILE, 'utf8'));
+// A source the sandbox lists under sources is fetched with its token from the VM's vault broker; any other is cloned anonymously, so it must be public.
+const tokenSources = new Set(sandbox?.sources ?? []);
 export const agentSources = Object.fromEntries(Object.entries(sourceCatalog).map(([name, source]) => [name, {
-  ...source, ...provisioning.sources?.[name], directory: source.directory,
+  ...source, ...provisioning.sources?.[name], directory: source.directory, usesToken: tokenSources.has(name),
 }]));
 for (const [name, source] of Object.entries(agentSources)) {
   if (!REPOSITORY.test(source.repository) || !CREDENTIAL.test(source.credential)

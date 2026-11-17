@@ -1,7 +1,8 @@
 [Unit]
 Description=Keep the Pots session of this VM running
 Requires=docker.service
-After=docker.service
+Wants=pots-vault.service
+After=docker.service pots-vault.service
 
 [Service]
 Type=oneshot

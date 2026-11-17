@@ -30,7 +30,7 @@ def configuration():
 
 
 def update_source(name, source, configuration):
-    fetch = () if source.get("url") else (str(REPOSITORY / "session/source-fetch"), source["repository"])
+    fetch = (str(REPOSITORY / "session/source-fetch"), source["repository"]) if source["usesToken"] and not source.get("url") else ()
     edits = partial(pi_models, configuration=configuration) if name == "pi" else nullcontext
     return refresh_source(source, configuration, fetch_with=fetch, installer_edits=edits)
 

@@ -55,14 +55,6 @@ install_firewall() {
 	systemctl start pots-firewall.service
 }
 
-# The units run this VM's clone in place, so a fast-forward reaches them with no reinstall. Only a changed unit file waits for the next vm-up.
-install_timers() {
-	install -m 0644 "$here/pots-keeper.service" "$here/pots-keeper.timer" "$here/pots-update.service" "$here/pots-update.timer" \
-		"$here/pots-tailnet-guard.service" "$here/pots-tailnet-guard.timer" /etc/systemd/system/
-	systemctl daemon-reload
-	systemctl enable --now pots-keeper.timer pots-update.timer pots-tailnet-guard.timer
-}
-
 install_tailscale() {
 	if tailscale_is_current /usr/bin/tailscale /usr/sbin/tailscaled; then
 		systemctl start tailscaled.service
@@ -98,6 +90,17 @@ install_door() {
 	systemctl daemon-reload
 	systemctl enable pots-door.service
 	systemctl restart pots-door.service
+}
+
+# The units run this VM's clone in place through the trusted launcher, so a fast-forward reaches the timers' services with no reinstall.
+# A changed unit file waits for the next vm-up, and the long-running broker takes new code at its restart here.
+install_units() {
+	install -m 0644 "$here/pots-keeper.service" "$here/pots-keeper.timer" "$here/pots-update.service" "$here/pots-update.timer" \
+		"$here/pots-tailnet-guard.service" "$here/pots-tailnet-guard.timer" "$here/pots-vault.service" /etc/systemd/system/
+	systemctl daemon-reload
+	systemctl enable pots-vault.service
+	systemctl restart pots-vault.service
+	systemctl enable --now pots-keeper.timer pots-update.timer pots-tailnet-guard.timer
 }
 
 swap_file_gib() {
@@ -142,4 +145,4 @@ install_firewall
 install_tailscale
 install_door
 configure_swap "$swap_gib"
-install_timers
+install_units

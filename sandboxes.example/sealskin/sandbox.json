@@ -25,6 +25,14 @@
       "/clients/claude": [
         "CLAUDE_CODE_OAUTH_TOKEN"
       ]
+    },
+    "router": {
+      "/clients/pi": [
+        "PI_OAUTH_CODEX"
+      ]
     }
-  }
+  },
+  "sources": [
+    "nextnode"
+  ]
 }

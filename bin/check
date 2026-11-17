@@ -43,6 +43,11 @@ done
 for path in "$root"/sandboxes.example/*/sandbox.json; do
 	jq -e '.role == null or (.role | type == "string")' "$path" > /dev/null || { echo "check: $path needs role as a string, when it has one" >&2; exit 1; }
 done
+# The VM's vault broker refuses a listed name that carries vault access and a source the catalog lacks.
+catalog=$(jq -c keys "$root/session/agent-sources.json")
+for path in "$root"/sandboxes.example/*/sandbox.json; do
+	jq -e --argjson catalog "$catalog" '([.owners[]?, (.secrets // {} | .[][]), (.onRequest // {} | .[][][])] | all(startswith("INFISICAL_") | not)) and ((.sources // []) - $catalog == [])' "$path" > /dev/null || { echo "check: $path lists a name starting with INFISICAL_ or a source outside session/agent-sources.json" >&2; exit 1; }
+done
 for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
 	jq empty "$path"
 done
