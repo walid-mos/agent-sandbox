@@ -3,6 +3,10 @@ import json
 from pathlib import Path
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from client_rules import RulesRefused, replace_file, unique_keys
+from store_rules import BUNDLE_KEY, rules_replacement
+
 REQUIRED = ("sandbox.json", "vault.json")
 OPTIONAL = ("git-identity.json", "tailnet.json")
 SESSION_READABLE_DIRECTORY = 0o755
@@ -15,24 +19,16 @@ def refuse(reason):
 
 def read_bundle(stream):
     try:
-        bundle = json.load(stream)
-    except ValueError as error:
-        refuse(f"standard input is not JSON ({error}).")
+        bundle = json.load(stream, object_pairs_hook=unique_keys)
+    except (ValueError, RulesRefused):
+        refuse("standard input is not unambiguous JSON.")
     if not isinstance(bundle, dict) or not all(isinstance(content, dict) for content in bundle.values()):
         refuse("expected one JSON object per file name.")
     missing = [name for name in REQUIRED if name not in bundle]
-    unknown = [name for name in bundle if name not in REQUIRED + OPTIONAL]
+    unknown = [name for name in bundle if name not in (*REQUIRED, *OPTIONAL, BUNDLE_KEY)]
     if missing or unknown:
-        refuse(f"expected {', '.join(REQUIRED)} and optionally {', '.join(OPTIONAL)}, got missing {missing} and unknown {unknown}.")
+        refuse("bundle has missing or unexpected file names.")
     return bundle
-
-
-# A session command can read a file while it changes, so each file is replaced whole.
-def replace(target, content):
-    pending = target.with_name(f".{target.name}.next")
-    pending.write_text(json.dumps(content, indent=2) + "\n")
-    pending.chmod(SESSION_READABLE_FILE)
-    pending.replace(target)
 
 
 def main():
@@ -40,13 +36,20 @@ def main():
         raise SystemExit("usage: store-config DIRECTORY < bundle.json")
     directory = Path(sys.argv[1])
     bundle = read_bundle(sys.stdin)
+    try:
+        rules = rules_replacement(bundle, directory)
+    except (RulesRefused, OSError, ValueError):
+        refuse("client rules failed path, content or previous-hash validation.")
+    bundle.pop(BUNDLE_KEY, None)
     directory.mkdir(parents=True, exist_ok=True)
     directory.chmod(SESSION_READABLE_DIRECTORY)
     for name, content in bundle.items():
-        replace(directory / name, content)
+        replace_file(directory / name, (json.dumps(content, indent=2) + "\n").encode(), SESSION_READABLE_FILE)
     for name in OPTIONAL:
         if name not in bundle:
             (directory / name).unlink(missing_ok=True)
+    if rules:
+        replace_file(rules["target"], rules["content"], SESSION_READABLE_FILE)
 
 
 main()

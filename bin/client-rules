@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+REPOSITORY = Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(REPOSITORY / "lib"))
+from client_rules import STATE_FILE, RulesRefused, read_json, refuse, regular_file, source_file
+from client_rules_import import approve_rules, import_rules, private_checkout
+
+
+def arguments():
+    parser = argparse.ArgumentParser(description="Import private client rules or activate an explicitly reviewed source hash through vm-config.")
+    commands = parser.add_subparsers(dest="command", required=True)
+    initial = commands.add_parser("import", help="apply a private exact-anchor recipe, create the canonical source and replace the original with an approved-snapshot link")
+    initial.add_argument("original", type=Path)
+    initial.add_argument("--source", required=True)
+    initial.add_argument("--file", required=True, help="new Markdown file relative to the selected private source checkout")
+    initial.add_argument("--recipe", required=True, help="JSON recipe relative to the selected private source checkout")
+    initial.add_argument("--recipe-sha256", required=True, help="hash of the privately reviewed recipe bytes")
+    approve = commands.add_parser("approve", help="activate a private source update only at this explicitly approved hash")
+    approve.add_argument("--sha256", required=True)
+    return parser.parse_args()
+
+
+def sandbox_directory():
+    if os.environ.get("POTS_TRANSPORT", "provider") != "provider":
+        refuse("run from the operator's checkout, outside a VM or pot.")
+    sandbox = os.environ.get("SANDBOX", "")
+    if not sandbox or Path(sandbox).name != sandbox or sandbox in (".", ".."):
+        refuse("set SANDBOX to a sandbox directory name.")
+    runtime = Path(os.environ.get("POTS_RUNTIME", str(Path.home() / ".config/agent-sandbox"))).absolute()
+    return runtime / "sandboxes" / sandbox
+
+
+def main():
+    options = arguments()
+    try:
+        directory = sandbox_directory()
+        if options.command == "import":
+            checkout = private_checkout(options.source)
+            recipe = source_file(checkout, options.recipe)
+            state = import_rules(directory, checkout, options.source, options.original, options.file, recipe, options.recipe_sha256)
+        else:
+            state = read_json(regular_file(directory / STATE_FILE))
+            checkout = private_checkout(state["source"])
+            state = approve_rules(directory, checkout, options.sha256)
+        print(json.dumps({"sha256": state["sha256"], "previousSha256": state["previousSha256"],
+                          "localApproval": "stored", "vmInstallation": "pending"}), flush=True)
+        result = subprocess.run([str(REPOSITORY / "bin/vm-config")], check=False)
+        if result.returncode:
+            print("client-rules: local approval is stored. VM installation failed. Retry bin/vm-config before another approval.", file=sys.stderr)
+            return result.returncode
+        print("client-rules: vm-config completed. Verify the loaded hash in the session before claiming runtime evidence.")
+        return 0
+    except RulesRefused as error:
+        print(str(error), file=sys.stderr)
+    except (OSError, ValueError, TypeError, KeyError):
+        print("client-rules: invalid or inaccessible input. Input text is withheld. No VM command ran.", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

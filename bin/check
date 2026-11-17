@@ -78,5 +78,6 @@ fi
 node --disable-warning=ExperimentalWarning --experimental-test-module-mocks --test "$root"/session/worker-*.test.mjs
 node --disable-warning=ExperimentalWarning --experimental-test-module-mocks --test "$root"/probes/human-*.mjs
 node "$root/probes/dispatch-branches.mjs"
+python3 -B "$root/probes/client-rules.py"
 git -C "$root" diff --check
 printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'
