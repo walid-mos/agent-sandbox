@@ -88,6 +88,24 @@ test('a scope larger than the old cap still gets approval while its message fits
   assert.equal(proof.prepared.message.content.length <= 2000, true);
 });
 
+test('a click inside the approval window decides it even after the window closes', async t => {
+  const proof = await setup(t);
+  await proof.approvals.register(proof.registration);
+  assert.equal((await proof.click(0, {}, new Date(Date.now() - 60_000).toISOString())).status, 'accepted');
+  await proof.pending.patch(proof.input.approval, { expiresAt: Date.now() - 30_000 });
+  assert.equal((await administerDiscord(proof.input, proof.dependencies)).status, 'completed');
+  assert.equal(proof.dependencies.mutations.length, 1);
+});
+
+test('a click made after the approval window expired authorizes nothing', async t => {
+  const proof = await setup(t);
+  await proof.approvals.register(proof.registration);
+  assert.equal((await proof.click()).status, 'accepted');
+  await proof.pending.patch(proof.input.approval, { expiresAt: Date.now() - 30_000 });
+  await assert.rejects(administerDiscord(proof.input, proof.dependencies), /expired/);
+  assert.equal(proof.dependencies.mutations.length, 0);
+});
+
 test('a text-only click without its canonical message snapshot claims nothing', async t => {
   const proof = await setup(t);
   await proof.approvals.register(proof.registration);
@@ -145,7 +163,7 @@ test('concurrent approval consumers can issue only one mutation', async t => {
 test('unknown, expired and unregistered prose approvals are refused', async t => {
   const proof = await setup(t);
   await assert.rejects(proof.approvals.authorize({ ...proof.input, approval: 'yes' }, { ownerId }), /dialog ID/);
-  await assert.rejects(proof.approvals.authorize({ ...proof.input, approval: 'f'.repeat(32) }, { ownerId }), /unknown/);
+  await assert.rejects(proof.approvals.authorize({ ...proof.input, approval: 'f'.repeat(32) }, { ownerId }), /expired or already used/);
   const id = proof.input.approval;
   await proof.pending.patch(id, { expiresAt: 0 });
   await assert.rejects(administerDiscord(proof.input, proof.dependencies), /expired/);

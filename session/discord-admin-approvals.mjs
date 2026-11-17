@@ -15,7 +15,9 @@ const TOO_LONG = 'discord-admin: approval scope is too long for one Discord ques
 
 const operationScope = ({ approval: _approval, ...request }) => canonicalJson(request);
 const requestId = dialog => `${MASTERMIND_POT}.${dialog}`;
-const isUnused = prepared => prepared && !prepared.consumed && prepared.expiresAt > Date.now();
+const EXPIRED = 'discord-admin: the approval is expired or already used, or the guild owner changed. Ask for a new approval.';
+const isUnused = prepared => prepared && !prepared.consumed;
+const isWithinWindow = (prepared, pick) => prepared.expiresAt > Date.parse(pick.at);
 
 function approvalQuestion(id, request) {
   const scope = operationScope(request);
@@ -65,7 +67,11 @@ async function decideApproval(request, ownerId, { pending, clicks, guildId }) {
     const prepared = get(request.approval);
     requirePendingApproval(prepared, ownerId, request);
     const pick = registeredPick(clicks.get(prepared.id), prepared.question);
-    if (!pick) return { status: 'approval_pending', approval: prepared.id };
+    if (!pick) {
+      if (prepared.expiresAt <= Date.now()) throw new Error(EXPIRED);
+      return { status: 'approval_pending', approval: prepared.id };
+    }
+    if (!isWithinWindow(prepared, pick)) throw new Error(EXPIRED);
     const label = clickedLabel(pick, { ownerId, guildId });
     save({ ...prepared, consumed: { at: new Date().toISOString(), label, evidence: pick.evidence } });
     return { status: label === APPROVE ? 'authorized' : 'declined', approval: prepared.id, question: prepared.question, answer: pick.answer };
@@ -73,7 +79,7 @@ async function decideApproval(request, ownerId, { pending, clicks, guildId }) {
 }
 
 function requirePendingApproval(prepared, ownerId, request) {
-  if (!isUnused(prepared) || prepared.ownerId !== ownerId) throw new Error('discord-admin: the approval is unknown, expired or already used, or the guild owner changed. Ask for a new approval.');
+  if (!isUnused(prepared) || prepared.ownerId !== ownerId) throw new Error(EXPIRED);
   if (prepared.question.scope !== operationScope(request)) throw new Error('discord-admin: the approval covers another guild, resource, action or payload. Ask for a new approval.');
 }
 
@@ -97,7 +103,7 @@ async function verifiedMessage(input, question, api) {
 
 async function registerApproval(input, { pending, clicks, channelAccount, guildId, api }) {
   const prepared = pendingApproval(input?.dialog, pending);
-  if (!isUnused(prepared)) throw new Error('discord-admin: no unused approval has that dialog ID.');
+  if (!isUnused(prepared) || prepared.expiresAt <= Date.now()) throw new Error(EXPIRED);
   const question = questionPacket(prepared.question);
   const message = await verifiedMessage(input, question, api);
   const registration = { question, request: requestId(prepared.id), pot: MASTERMIND_POT, channelAccount, guildId, messages: [message] };
