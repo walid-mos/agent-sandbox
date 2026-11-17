@@ -8,6 +8,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from tailnet_sources import OPERATOR, POT_SESSIONS, inbound_grants, source_problems, trusted_addresses
+
 NETWORK_ENV = Path(__file__).resolve().parent.parent / "vm/network.env"
 LAUNCH_ENV = Path(__file__).resolve().parent.parent / "session/launch.env"
 DOOR_PORT = int(re.search(r"^DOOR_PORT=([0-9]+)$", NETWORK_ENV.read_text(), re.MULTILINE).group(1))
@@ -17,6 +19,7 @@ LOGIN = re.compile(r"[^@\s]+@[^@\s]+")
 POT_NAME = re.compile(r"[a-z](?:[a-z0-9-]{0,29}[a-z0-9])?")
 HOST_SUFFIX = "-host"
 TAG_PREFIX = "tag:pot-"
+KEYS_TAG = "tag:pot-keys"
 HOST_TAG = re.compile(r"tag:pot-([a-z0-9-]+)-host")
 KEY = re.compile(r"tskey-auth-[A-Za-z0-9-]+")
 SERVE_PORT = 443
@@ -26,9 +29,10 @@ PREVIEW_RANGES = [(10001, FILE_SERVER_PORT - 1), (FILE_SERVER_PORT + 1, 65535)]
 ADMIN_PORT = 22
 ROLES = {
     "host": {"suffix": HOST_SUFFIX, "flags": ["--netfilter-mode=off", "--accept-dns=false"],
-             "inbound": [(ADMIN_PORT, ADMIN_PORT), (DOOR_PORT, DOOR_PORT)], "required": ADMIN_PORT},
+             "inbound": [(ADMIN_PORT, ADMIN_PORT, OPERATOR), (DOOR_PORT, DOOR_PORT, POT_SESSIONS)], "required": ADMIN_PORT},
     "session": {"suffix": "", "flags": ["--accept-dns=false"],
-                "inbound": [(SERVE_PORT, SERVE_PORT), *PREVIEW_RANGES], "required": SERVE_PORT},
+                "inbound": [(first, last, OPERATOR) for first, last in [(SERVE_PORT, SERVE_PORT), *PREVIEW_RANGES]],
+                "required": SERVE_PORT},
 }
 PROBE_PORTS = (22, 80, 443, 3000, 3001, 3425, 5432, 8006, 8443, FILE_SERVER_PORT, DOOR_PORT)
 PROBE_SECONDS = 5
@@ -116,35 +120,32 @@ def join(role, pot):
     node_state(role, pot)
 
 
-def is_allowed_inbound(role, ports):
-    return any(first <= ports["First"] and ports["Last"] <= last for first, last in ROLES[role]["inbound"])
+def allowed_sources(role, ports):
+    return next((sources for first, last, sources in ROLES[role]["inbound"]
+                 if first <= ports["First"] and ports["Last"] <= last), None)
 
 
-def covers_own_address(destination, own_addresses):
-    if destination == "*":
-        return True
-    try:
-        network = ipaddress.ip_network(destination, strict=False)
-    except ValueError:
-        return True
-    return any(address in network for address in own_addresses)
+# A node without its own pot tag trusts no session, so a door grant fails closed.
+def other_session_check(own_tags):
+    own_session = next((tag.removesuffix(HOST_SUFFIX) for tag in own_tags if tag.startswith(TAG_PREFIX)), None)
 
-
-def inbound_grants(own_addresses):
-    rules = tailscale_json("debug", "netmap").get("PacketFilterRules") or []
-    return [(rule.get("SrcIPs") or [], port["Ports"]) for rule in rules for port in rule.get("DstPorts") or []
-            if covers_own_address(port["IP"], own_addresses)]
+    def is_other_session(tags):
+        return (own_session is not None and len(tags) == 1 and tags[0] not in (own_session, KEYS_TAG)
+                and tags[0].startswith(TAG_PREFIX) and not tags[0].endswith(HOST_SUFFIX))
+    return is_other_session
 
 
 # A userspace node hands every port without a Serve handler to its own loopback, so the filter the control server sent is the only gate.
-def inbound_problems(role, own_addresses):
-    grants = inbound_grants(own_addresses)
-    problems = [f"any node may reach ports {ports['First']}-{ports['Last']}" for sources, ports in grants if "*" in sources]
-    problems += [f"the policy lets {sources} reach ports {ports['First']}-{ports['Last']}"
-                 for sources, ports in grants if not is_allowed_inbound(role, ports)]
+def inbound_problems(role, own):
+    own_addresses = [ipaddress.ip_address(address) for address in own.get("TailscaleIPs") or []]
+    grants = inbound_grants(tailscale_json("debug", "netmap"), own_addresses)
+    login = read_operator_login(INSTALLED_SETTINGS)
+    trusted = trusted_addresses(tailscale_json("status", "--json"), login, other_session_check(own.get("Tags") or []))
+    problems = [] if login else [login_guidance(INSTALLED_SETTINGS)]
+    problems += source_problems(grants, lambda ports: allowed_sources(role, ports), trusted)
     required = ROLES[role]["required"]
     if not any(ports["First"] <= required <= ports["Last"] for _, ports in grants):
-        problems.append(f"the policy grants the human's devices no port {required} on this node yet")
+        problems.append(f"the policy grants the operator's devices no port {required} on this node yet")
     return problems
 
 
@@ -187,8 +188,7 @@ def exposure_problems(role, pot, named_targets):
     if node_state(role, pot) != "joined":
         fail("this node has not joined the tailnet; run bin/tailnet-up")
     own = daemon_status().get("Self") or {}
-    own_addresses = [ipaddress.ip_address(address) for address in own.get("TailscaleIPs") or []]
-    return inbound_problems(role, own_addresses) + capability_problems(own) + outbound_problems(role, pot, named_targets)
+    return inbound_problems(role, own) + capability_problems(own) + outbound_problems(role, pot, named_targets)
 
 
 def check(role, pot, *named_targets):
@@ -212,8 +212,7 @@ def guard(role):
     if status.get("BackendState") in UNJOINED_STATES:
         return
     own = status.get("Self") or {}
-    own_addresses = [ipaddress.ip_address(address) for address in own.get("TailscaleIPs") or []]
-    problems = inbound_problems(role, own_addresses) + capability_problems(own)
+    problems = inbound_problems(role, own) + capability_problems(own)
     if problems:
         subprocess.run(["tailscale", "set", "--shields-up=true"], check=True)
         fail("shields raised: " + "; ".join(problems) + ". " + POLICY_GUIDANCE)

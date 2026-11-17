@@ -2,9 +2,8 @@
 import json
 import sys
 
-from tailnet_node import ADMIN_PORT, DOOR_PORT, ROLES, login_guidance, node_tag, read_operator_login
+from tailnet_node import ADMIN_PORT, DOOR_PORT, KEYS_TAG, ROLES, login_guidance, node_tag, read_operator_login
 
-KEYS_TAG = "tag:pot-keys"
 KEYS_TAG_OWNER = "autogroup:admin"
 ASK = "ask"
 REPLY = "reply"
@@ -57,7 +56,7 @@ def policy(doors, settings):
     pots = sorted(doors)
     owners = {KEYS_TAG: [KEYS_TAG_OWNER]} | {node_tag(role, pot): [KEYS_TAG] for pot in pots for role in ("session", "host")}
     members = [
-        {"src": [login], "dst": [node_tag("session", pot) for pot in pots], "ip": [tcp(ports) for ports in ROLES["session"]["inbound"]]},
+        {"src": [login], "dst": [node_tag("session", pot) for pot in pots], "ip": [tcp(entry[:2]) for entry in ROLES["session"]["inbound"]]},
         {"src": [login], "dst": [node_tag("host", pot) for pot in pots], "ip": [tcp((ADMIN_PORT, ADMIN_PORT))]},
     ]
     return {"tagOwners": owners, "grants": members + door_grants(doors)}
