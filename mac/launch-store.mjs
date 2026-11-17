@@ -39,7 +39,7 @@ export function gateStore(folder) {
   }
   const all = onUnreadable => entries(RECORD, onUnreadable);
   const notices = onUnreadable => entries(NOTICE, onUnreadable);
-  const remember = (id, notice) => writePrivateJson(path(id, NOTICE), notice);
+  const remember = (id, notice) => writePrivateJson(path(id, NOTICE), read(id, NOTICE) ?? notice);
   const forget = id => rmSync(path(id, NOTICE), { force: true });
   const decision = id => read(id, DECISION);
   // The first decision written for a launch is its only one: the exclusive create refuses a second, and the file and its name reach the disk before anything acts on it.

@@ -69,6 +69,26 @@ test('a transient source outage retries the notice after the gate restarts', asy
   assert.deepEqual(f.runs, ['Reply ready.']);
 });
 
+test('a notice for an unreachable pot stops retrying when its lifetime ends', async t => {
+  const f = scenario(t);
+  let fetches = 0;
+  f.dependencies.pots.show = async () => { fetches++; throw new Error('source offline'); };
+  await assert.rejects(f.service.notice(f.notice, application), /offline/);
+  f.source.time += 1_800_000;
+  await launchService(f.dependencies).tick();
+  assert.equal(fetches, 1);
+  assert.deepEqual(f.store.notices(), []);
+});
+
+test('a closed source answer for another Mac is dropped without a retry loop', async t => {
+  const f = scenario(t);
+  f.source.shown = { ...f.source.shown, target: 'other-mac', state: 'superseded' };
+  await f.service.notice(f.notice, application);
+  assert.deepEqual(f.store.notices(), []);
+  assert.equal(f.store.decision(f.request.launch), undefined);
+  assert.equal(f.runs.length, 0);
+});
+
 test('a stale press gives the operator a reason and leaves approval unused', async t => {
   const f = scenario(t);
   await f.service.notice(f.notice, application);

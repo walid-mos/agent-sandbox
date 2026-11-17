@@ -1,5 +1,5 @@
 import { discordMessageUrl } from '../session/human-contract.mjs';
-import { EXPIRED, launchStatus, noticeOf, OFFERED, OPEN, STARTED } from '../session/launch-contract.mjs';
+import { EXPIRED, LAUNCH_TTL_MS, launchStatus, noticeOf, OFFERED, OPEN, STARTED } from '../session/launch-contract.mjs';
 import { boundRequest, BUTTON, CLAIMED, pressedButton, verifyOffer, verifyPress } from './launch-approval.mjs';
 import { closedMessage, offerMessage } from './launch-messages.mjs';
 
@@ -54,7 +54,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     let proposed;
     try { proposed = noticeOf(message.content); } catch { return; }
     if (proposed.target !== config.name || !config.pots.includes(proposed.pot)) return;
-    store.remember(proposed.launch, { message, applicationId });
+    store.remember(proposed.launch, { message, applicationId, expiresAt: clock() + LAUNCH_TTL_MS });
     await offerNotice(message, applicationId, proposed, config);
     store.forget(proposed.launch);
   }
@@ -64,6 +64,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     if (known) return refresh(known);
     if (store.decision(proposed.launch)) return;
     const shown = await pots.show(proposed.pot, proposed.launch);
+    try { boundRequest(shown, proposed, config); } catch { return; }
     if (SOURCE_CLOSURES.includes(shown.state)) return closeUnoffered(shown, proposed);
     let verified;
     try { verified = verifyOffer(shown, proposed, config, clock()); }
@@ -145,6 +146,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
 
   async function tick() {
     for (const pending of store.notices(id => warn(`mac-launch: notice ${id} could not be read.`))) {
+      if (clock() >= pending.expiresAt) { store.forget(noticeOf(pending.message.content).launch); continue; }
       try { await notice(pending.message, pending.applicationId); }
       catch { warn('mac-launch: a notice could not be offered. It will retry.'); }
     }
