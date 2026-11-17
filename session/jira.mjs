@@ -1,10 +1,12 @@
 import { chmodSync, mkdirSync, lstatSync, readFileSync, renameSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assignments } from './environment.mjs';
 import { main, runOperation } from './main.mjs';
 import { readSecret } from './vault.mjs';
 
-const SANDBOX = '/etc/agent-sandbox/sandbox.json';
+const LAUNCH = assignments(readFileSync(new URL('./launch.env', import.meta.url), 'utf8'));
+const SANDBOX = join(LAUNCH.POTS_SESSION_CONFIGURATION, 'sandbox.json');
 const CREDENTIAL_NAMES = { email: 'ATLASSIAN_EMAIL', token: 'ATLASSIAN_API_TOKEN' };
 const GROUP = /^[a-z][a-z0-9-]*$/u;
 const FOLDER = /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/u;
