@@ -75,8 +75,7 @@ if [ -n "$skipped" ]; then
 	printf 'check: the config sync between Macs skips these pane files. Rename them:\n%s\n' "$skipped" >&2
 	exit 1
 fi
-node --test "$root"/session/router-answers.test.mjs
-node --disable-warning=ExperimentalWarning --experimental-test-module-mocks --test "$root"/session/worker-*.test.mjs
+node --disable-warning=ExperimentalWarning --experimental-test-module-mocks --test "$root"/session/*.test.mjs
 node --disable-warning=ExperimentalWarning --experimental-test-module-mocks --test "$root"/probes/human-*.mjs
 PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 "$root/probes/human-door-vm.py"
 node "$root/probes/dispatch-branches.mjs"
