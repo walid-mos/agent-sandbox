@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { rmSync, watch } from 'node:fs';
-import { join } from 'node:path';
+import { basename } from 'node:path';
 import { allTerminals } from './workers.mjs';
 import { hasQueued } from './queue.mjs';
 import { canFinish, followUp, isPublished, LIFECYCLE, publication, receiptPath, resultId, statePath } from './worker-lifecycle.mjs';
@@ -63,8 +63,9 @@ export class WorkerRuntime {
 
   start(context) {
     this.#publish(context, 'starting');
+    const receipt = basename(receiptPath(this.#worker));
     this.#observer = watch(LIFECYCLE, (_event, file) => {
-      if (join(LIFECYCLE, `${file}`) === receiptPath(this.#worker)) this.finish(context);
+      if (`${file}` === receipt) this.finish(context);
     });
     // Only a published result can be invalidated, so input on an active session writes nothing and starts no watcher pass.
     this.#removeInput = context.ui.onTerminalInput(() => {
@@ -118,7 +119,7 @@ export class WorkerRuntime {
     const terminals = allTerminals();
     const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
     if (!terminal) return false;
-    return [canFinish(this.#state, terminal, terminals, Date.now()), isPublished(publication(context.cwd))].every(Boolean);
+    return canFinish(this.#state, terminal, terminals, Date.now()) && isPublished(publication(context.cwd));
   }
 
   stop() {

@@ -49,7 +49,8 @@ function pass() {
     const terminals = allTerminals();
     const records = workers();
     sweep(terminals, new Map(records.map(worker => [worker.name, worker])));
-    const view = { terminals, now: Date.now(), pending: new Set(queued().map(request => request.worker)) };
+    const queue = queued();
+    const view = { terminals, now: Date.now(), queue, pending: new Set(queue.map(request => request.worker)) };
     const times = records.map(worker => logged(worker.name, () => inspectWorker(worker, view)));
     // Inspection ends terminals, so the queue is served from a fresh list where their slots are free.
     const live = liveTerminals();

@@ -23,7 +23,9 @@ export function queued() {
     .map(file => ({ ...JSON.parse(readFileSync(join(QUEUE, file), 'utf8')), file }));
 }
 
-export const hasQueued = name => queued().some(request => request.worker === name);
+export const requestsFor = (name, requests = queued()) => requests.filter(request => request.worker === name);
+
+export const hasQueued = name => requestsFor(name).length > 0;
 
 export function updateRequest(request, changes) {
   writePrivateJson(join(QUEUE, request.file), { ...request, ...changes });

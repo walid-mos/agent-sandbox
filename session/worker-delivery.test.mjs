@@ -63,7 +63,7 @@ function settle() {
     sessionId: 'exact', received: [], settledAt: Date.now() - SETTLED_GRACE_MS });
 }
 function inspect() {
-  inspectWorker(workers()[0], { terminals: boundary().terminals, now: Date.now(), pending: new Set() });
+  inspectWorker(workers()[0], { terminals: boundary().terminals, now: Date.now(), queue: queued(), pending: new Set() });
 }
 function serve() {
   serveQueue(boundary().terminals, (_subject, error) => { throw error; });
@@ -211,7 +211,7 @@ test('a follow-up Pi accepted before it crashed is not sent again to the resumed
   const request = queued()[0];
   writePrivateJson(statePath(worker), { ...worker, phase: 'active', received: [request.file] });
   setTerminals([{ ...terminal, state: 'finished' }]);
-  inspectWorker(workers()[0], { terminals: boundary().terminals, now: Date.now(), pending: new Set([worker.name]) });
+  inspectWorker(workers()[0], { terminals: boundary().terminals, now: Date.now(), queue: queued(), pending: new Set([worker.name]) });
   assert.equal(queued().some(queuedRequest => queuedRequest.file === request.file), false);
   assert.equal(queued().length, 1);
   assert.equal(queued()[0].message, undefined);
