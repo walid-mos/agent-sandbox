@@ -34,8 +34,10 @@ function guardDestination(request, snapshot) {
   if (snapshot.parent.type !== CHANNEL.category) throw new Error('discord-admin: parent_id must name a category in this guild.');
 }
 
+const protectedRoleIds = snapshot => new Set([...snapshot.protection.botRoleIds, ...snapshot.botMember.roles]);
+
 function isBotOverwrite(item, snapshot) {
-  return snapshot.protection.botRoleIds.includes(item.id) || (item.type === OVERWRITE.member && item.id === snapshot.bot.id);
+  return protectedRoleIds(snapshot).has(item.id) || (item.type === OVERWRITE.member && item.id === snapshot.bot.id);
 }
 
 function guardOverwrites(request, snapshot) {
@@ -76,10 +78,10 @@ function requireStandaloneThread(request, channel) {
   if (channel.type !== CHANNEL.text) throw new Error('discord-admin: announcement threads require a parent message.');
 }
 
-function guardProtectedRoles(request, { protection, botMember, bot }) {
-  const protectedRoles = new Set([...protection.botRoleIds, ...botMember.roles]);
+function guardProtectedRoles(request, snapshot) {
+  const protectedRoles = protectedRoleIds(snapshot);
   if (protectedRoles.has(request.roleId)) rejectProtected();
-  if (request.userId === bot.id) rejectProtected();
+  if (request.userId === snapshot.bot.id) rejectProtected();
   return protectedRoles;
 }
 

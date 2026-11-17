@@ -63,6 +63,16 @@ test('missing application permission reports its name without using broader cred
   assert.equal(dependencies.mutations.length, 0);
 });
 
+test('overwrites cannot target any role the bot holds', async () => {
+  const dependencies = fixture();
+  const member = await dependencies.api('GET', `/guilds/${guildId}/members/${botId}`);
+  member.roles.push(roleId);
+  await assert.rejects(administerDiscord(request('channel.edit', { channelId, payload: {
+    permission_overwrites: [{ id: roleId, type: 0, allow: '0', deny: '1024' }],
+  } }), dependencies), /protected/);
+  assert.equal(dependencies.mutations.length, 0);
+});
+
 test('arbitrary routes and hidden payload fields never reach Discord', async () => {
   const dependencies = fixture();
   for (const input of [request('webhook.delete'), request('channel.edit', { channelId, payload: { name: 'new', webhook_id: managedRoleId } }), request('channel.delete', { channelId, path: '/webhooks/anything' })]) {
