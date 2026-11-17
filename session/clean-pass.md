@@ -13,7 +13,7 @@ node "$AGENT_SANDBOX_REPO/session/clean-pass.mjs" simplify
 1. Start `untangle` from your worktree, with the area your task touched. The command prints the pass's terminal.
 2. `hc wait` that terminal until it stops, then `hc read` what it reports. A pass that stops on a question for the person has finished its work. Keep the question for your final response and answer nothing in its place.
 3. Merge the `refactor/untangle-*` branch the pass left into your branch with `git merge --no-ff`.
-4. Close the terminal with `hc kill`, then run `review` and then `simplify` the same way, one at a time. Commit what each one changed.
+4. Close the terminal with `hc kill`, then remove it with `hc rm`, then run `review` and then `simplify` the same way, one at a time. Commit what each one changed.
 5. Run the project's checks and your own proof again on the result.
 
 The clean pass is done when the three passes have reported, the untangle branch is merged, and the checks pass on your last commit. Your final response names that commit, what each pass reported in one line, and the question the untangle pass ended on.

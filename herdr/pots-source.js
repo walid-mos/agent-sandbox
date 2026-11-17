@@ -39,7 +39,7 @@ export const sendCommand = (sandbox, request) => control(sandbox, "command", JSO
 /** Answers a blocked worker's question in its own dialog, and resolves to what the worker received. */
 export const answerDialog = (sandbox, worker, dialog, answers) => control(sandbox, "answer-dialog", JSON.stringify({ worker, dialog, answers }));
 
-export const openWorker = (sandbox, worker) => run("terminal.peek", { terminal: `${sandbox.machine}/${worker.terminal ?? worker.name}` });
+export const openWorker = (sandbox, worker) => run("terminal.peek", { terminal: `${sandbox.machine}/${worker.terminal}` });
 
 /** Runs one control operation that reads the file at `path` on its standard input, through the `shell` that opens it. */
 async function controlFed(sandbox, shell, { operation, argument, path, failure }) {

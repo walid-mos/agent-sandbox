@@ -92,7 +92,7 @@ async function snapshot() {
     const isQueued = !terminal && waiting.has(worker.name);
     const status = isStopped(worker) ? 'offline' : terminal?.status ?? (isQueued ? 'starting' : worker.status ?? 'starting');
     const dialog = status === 'blocked' && terminal ? waitingDialog(terminal) : null;
-    return { ...worker, title: worker.name.slice(WORKER_PREFIX.length), terminal: terminal?.address ?? worker.terminal, status, dialog, isQueued };
+    return { ...worker, title: worker.name.slice(WORKER_PREFIX.length), terminal: terminal?.address ?? null, status, dialog, isQueued };
   });
   const [status, children, routines, trace] = await sections;
   return {

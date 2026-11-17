@@ -43,7 +43,7 @@ function open(pass, area) {
   // The pass leads, so a name shortened to hc's limit still says which pass it is.
   const name = terminalName(`${pass}-${owner}`);
   if (liveTerminals().some(terminal => terminal.name === name)) {
-    throw new Error(`clean-pass: ${name} is still open. Read it, then close it with hc kill ${name}.`);
+    throw new Error(`clean-pass: ${name} is still open. Read it, then close it with hc kill ${name} and hc rm ${name}.`);
   }
   prepareClaude(worktree);
   const terminal = openTerminal({
