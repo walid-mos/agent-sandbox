@@ -87,16 +87,9 @@ export function terminalOf(worker, terminals) {
     .find(terminal => ownsTerminal(worker, terminal));
 }
 
-/** Writes the terminal's screen beside the worker's record, and resolves to that file. */
-export function keepScreen(worker, terminal) {
-  const path = join(WORKERS, `${worker.name}.screen`);
-  writeFileSync(path, command('hc', ['read', terminal.address]), { mode: 0o600 });
-  return path;
-}
-
 // hc keeps an ended terminal in its list until it is removed, so every end of a worker's terminal removes it.
 export function closeTerminal(worker, terminal) {
-  keepScreen(worker, terminal);
+  writeFileSync(join(WORKERS, `${worker.name}.screen`), command('hc', ['read', terminal.address]), { mode: 0o600 });
   if (isLive(terminal)) command('hc', ['kill', terminal.address]);
   command('hc', ['rm', terminal.address]);
 }
