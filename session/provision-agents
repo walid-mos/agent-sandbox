@@ -134,6 +134,7 @@ def provision(configuration):
     desired = {"sources": revisions, "configuration": configuration}
     if desired != applied:
         install_sources(sources, configuration, desired)
+    subprocess.run(["node", str(REPOSITORY / "session/jira.mjs"), "configure", str(HOME / sources["pi"]["directory"])], check=True, env=INSTALL_ENV)
     if is_desktop:
         install_file_chooser()
 

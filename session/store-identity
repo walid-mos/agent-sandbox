@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import private_file
+
+LAUNCH = dict(line.split("=", 1) for line in (HERE / "launch.env").read_text().splitlines() if line)
+DIRECTORY = LAUNCH["POTS_SESSION_VAULT_DIRECTORY"]
+CREDENTIAL_NAMES = ("INFISICAL_API_URL", "INFISICAL_UNIVERSAL_AUTH_CLIENT_ID", "INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET")
+BINDING_NAMES = ("domain", "identityId", "projectId", "environment")
+METADATA_NAMES = ("exports", "clients", "tools")
+INPUT_LIMIT_BYTES = 65536
+PRIVATE_DIRECTORY = 0o700
+PRIVATE_FILE = 0o600
+PATH_REFUSAL = "store-identity: expected session-owned directories and regular shell hooks without symlinks. Repair the session home and rerun bin/session-credentials."
+
+
+def is_word(value):
+    return isinstance(value, str) and bool(value) and not any(character.isspace() for character in value)
+
+
+def is_string_object(value):
+    return isinstance(value, dict) and all(is_word(key) and is_word(word) for key, word in value.items())
+
+
+def is_metadata_entry(value):
+    return isinstance(value, dict) and all(is_word(key) and (is_word(item) or is_string_object(item)) for key, item in value.items())
+
+
+def validate_metadata(binding):
+    exports = binding.get("exports", {})
+    if not isinstance(exports, dict) or not all(is_word(path) and isinstance(names, list) and all(is_word(name) for name in names) for path, names in exports.items()):
+        raise ValueError()
+    for name in ("clients", "tools"):
+        entries = binding.get(name, {})
+        if not isinstance(entries, dict) or not all(is_word(key) and is_metadata_entry(entry) for key, entry in entries.items()):
+            raise ValueError()
+
+
+def read_payload():
+    text = sys.stdin.read(INPUT_LIMIT_BYTES + 1)
+    if len(text) > INPUT_LIMIT_BYTES:
+        raise ValueError()
+    payload = json.loads(text)
+    credentials, binding = payload["credentials"], payload["binding"]
+    if set(payload) != {"credentials", "binding"} or not set(BINDING_NAMES) <= set(binding) <= set(BINDING_NAMES + METADATA_NAMES) or sorted(credentials) != sorted(CREDENTIAL_NAMES):
+        raise ValueError()
+    validate_metadata(binding)
+    words = [*credentials.values(), *(binding[key] for key in BINDING_NAMES)]
+    if not all(is_word(word) for word in words):
+        raise ValueError()
+    if not binding["domain"].startswith("https://") or credentials["INFISICAL_API_URL"] != binding["domain"]:
+        raise ValueError()
+    return credentials, binding
+
+
+def install_credentials(directory_descriptor, credentials, binding):
+    payloads = {LAUNCH["POTS_SESSION_VAULT_FILE"]: "".join(f"{name}={value}\n" for name, value in credentials.items()), "core-vault.json": f"{json.dumps(binding)}\n"}
+    for name, text in payloads.items():
+        private_file.replace_file(name, text, directory_descriptor)
+
+
+def install_shell_hook(name, home):
+    descriptor = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, PRIVATE_FILE, dir_fd=home)
+    with os.fdopen(descriptor, "r+") as output:
+        details = os.fstat(output.fileno())
+        if not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid() or details.st_nlink != 1:
+            raise SystemExit(PATH_REFUSAL)
+        os.fchmod(output.fileno(), PRIVATE_FILE)
+        hook = f'. "{LAUNCH["POTS_SESSION_REPOSITORY"]}/session/lib.sh"'
+        if hook not in output.read().splitlines():
+            output.seek(0, os.SEEK_END)
+            output.write(f"\n{hook}\n")
+
+
+def install_shell_hooks():
+    home = private_file.owned_directory(os.environ["HOME"])
+    try:
+        for name in (".profile", ".bashrc"):
+            install_shell_hook(name, home)
+    finally:
+        os.close(home)
+
+
+def main():
+    credentials, binding = read_payload()
+    try:
+        descriptor = private_file.directory_descriptor(DIRECTORY)
+    except PermissionError:
+        raise SystemExit(PATH_REFUSAL) from None
+    os.fchmod(descriptor, PRIVATE_DIRECTORY)
+    try:
+        install_credentials(descriptor, credentials, binding)
+    finally:
+        os.close(descriptor)
+    install_shell_hooks()
+    print("store-identity: installed the session login and vault binding, mode 600, with shell hooks.")
+
+
+try:
+    main()
+except OSError:
+    raise SystemExit(PATH_REFUSAL) from None
+except Exception:
+    raise SystemExit("store-identity: installation failed. Check the input, session home and permissions; rerun bin/session-credentials.") from None

@@ -10,6 +10,20 @@ POTS_ROUTER_API="http://$POTS_ROUTER_ADDRESS/v1"
 MAGPIE_API_KEY=magpie
 export NPM_CONFIG_PREFIX PATH MAGPIE_API_KEY POTS_UPSTREAM
 
+. "${POTS_REPO:-/opt/agent-sandbox}/session/launch.env"
+session_identity="$HOME/$POTS_SESSION_VAULT_DIRECTORY/$POTS_SESSION_VAULT_FILE"
+if [ -f "$session_identity" ]; then
+	while IFS='=' read -r name value; do
+		case "$name" in
+			INFISICAL_API_URL | INFISICAL_UNIVERSAL_AUTH_CLIENT_ID | INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET) export "$name=$value" ;;
+			*) echo "session/lib.sh: unexpected session credential name; rerun bin/session-credentials" >&2; return 1 ;;
+		esac
+	done < "$session_identity"
+fi
+INFISICAL_MASK_SECRET_VALUES=true
+export INFISICAL_MASK_SECRET_VALUES
+unset name value session_identity
+
 # session-bootstrap restarts each service once it has installed what the service runs.
 idle_until_bootstrap() {
 	echo "$1: waiting for bin/session-bootstrap" >&2

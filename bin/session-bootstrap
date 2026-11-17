@@ -13,7 +13,9 @@ install_hc() {
 	fi
 }
 
-if ! sandbox_vm sudo test -s "$POTS_VAULT_IDENTITY"; then
+if ! sandbox_vm sudo test -s "$POTS_VAULT_IDENTITY" ||
+	! session_exec "$session" test -s "$POTS_SESSION_HOME/$POTS_SESSION_VAULT_DIRECTORY/$POTS_SESSION_VAULT_FILE" ||
+	! session_exec "$session" test -s "$POTS_SESSION_HOME/$POTS_SESSION_VAULT_DIRECTORY/core-vault.json"; then
 	"$POTS_REPO/bin/session-credentials"
 fi
 session_exec "$session" "$POTS_SESSION_REPOSITORY/session/bootstrap"

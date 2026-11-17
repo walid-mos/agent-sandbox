@@ -20,7 +20,7 @@ if (process.argv[2] === 'run') writeFileSync(process.env.PROOF_LOG, JSON.stringi
 console.log(JSON.stringify({address:'t-proof'}));
 `, { mode: 0o700 });
   const script = `import { launch } from ${JSON.stringify(workers)};
-launch({name:'pots-exact-worker',worktree:'/tmp/worktree',model:'group/proof'}, ['--continue']);`;
+launch({name:'pots-exact-worker',owner:'proof',worktree:'/tmp/worktree',model:'group/proof'}, ['Read the brief.']);`;
   const result = spawnSync('node', ['--input-type=module', '-e', script], { encoding: 'utf8', env: { ...process.env, HOME: directory, PATH: `${directory}:${process.env.PATH}`, PROOF_LOG: log } });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(readFileSync(log, 'utf8'));
@@ -33,12 +33,14 @@ test('a supported installed Pi gets the exact worker and absolute installed brok
   assert.equal(arguments_[workerFlag + 1], 'pots-exact-worker');
   assert.equal(arguments_[workerFlag + 2], '--human-dialog-broker');
   assert.equal(arguments_[workerFlag + 3], broker);
-  assert.equal(arguments_.at(-1), '--continue');
+  assert.equal(arguments_.includes('--extension'), true);
+  assert.equal(arguments_.includes('--session-id'), true);
+  assert.equal(arguments_.at(-1), 'Read the brief.');
 });
 
 test('an older Pi gets no unsupported worker flags and the bot bridge remains independent', t => {
   const arguments_ = launch(t, '--provider --model');
   assert.equal(arguments_.includes('--human-dialog-worker'), false);
   assert.equal(arguments_.includes('--human-dialog-broker'), false);
-  assert.equal(arguments_.at(-1), '--continue');
+  assert.equal(arguments_.at(-1), 'Read the brief.');
 });
