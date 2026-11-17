@@ -26,7 +26,7 @@ export function herdrRunner(store, program = [process.execPath, fileURLToPath(ne
       '--label', `mac-launch.id=${request.launch}`, '--', ...program, store.folder, request.launch];
     try {
       command('hc', arguments_, { timeout: 10_000 });
-      const terminal = JSON.parse(command('hc', ['get', '--json', name]));
+      const terminal = JSON.parse(command('hc', ['get', '--json', name], { timeout: STATUS_MS }));
       if (terminal.labels?.['mac-launch.id'] !== request.launch) throw new Error('wrong terminal');
       return { name, session, createdMs: terminal.created_ms };
     } catch {
@@ -35,9 +35,10 @@ export function herdrRunner(store, program = [process.execPath, fileURLToPath(ne
   }
   function result(run) {
     const terminal = terminalNamed(run.name);
-    const reply = finalReply(run.session);
+    const ended = lastTurn(run.session);
     const isGone = !terminal || terminal.created_ms !== run.createdMs;
-    if (reply && (isGone || IDLE.includes(terminal.status) || terminal.state === 'finished')) return { status: 'finished', report: reply };
+    const hasStopped = isGone || IDLE.includes(terminal.status) || terminal.state === 'finished';
+    if (ended && hasStopped) return ended;
     if (isGone) return { status: 'failed', detail: 'The Herdr terminal is gone and Pi left no final reply.' };
     if (terminal.state === 'finished') return { status: 'failed', detail: 'Pi stopped without a final reply.' };
     return undefined;
@@ -45,13 +46,18 @@ export function herdrRunner(store, program = [process.execPath, fileURLToPath(ne
   return { start, result };
 }
 
-function finalReply(path) {
+const textOf = message => (message.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n').slice(0, REPORT_CHARACTERS);
+
+// A turn that ended on something else than a clean stop reports why, so a launch never waits for a reply that will not come.
+function lastTurn(path) {
   if (!existsSync(path)) return undefined;
   const messages = readFileSync(path, 'utf8').split('\n').filter(Boolean).flatMap(line => {
     try { return [JSON.parse(line)]; } catch { return []; }
   });
   const last = messages.findLast(entry => entry.type === 'message' && entry.message?.role === 'assistant')?.message;
-  if (!last || last.stopReason !== FINAL_STOP) return undefined;
-  const reply = last.content.filter(part => part.type === 'text').map(part => part.text).join('\n');
-  return reply.slice(0, REPORT_CHARACTERS) || last.errorMessage?.slice(0, LAST_ERROR_CHARACTERS);
+  if (!last) return undefined;
+  const error = last.errorMessage?.slice(0, LAST_ERROR_CHARACTERS);
+  if (last.stopReason === FINAL_STOP) return textOf(last) ? { status: 'finished', report: textOf(last) } : undefined;
+  if (last.stopReason === undefined || last.stopReason === 'toolUse') return undefined;
+  return { status: 'failed', detail: error || textOf(last).slice(0, LAST_ERROR_CHARACTERS) || `Pi ended its turn with ${last.stopReason}.` };
 }
