@@ -39,7 +39,7 @@ DAEMON_ATTEMPTS = 30
 DAEMON_RETRY_SECONDS = 1
 UNJOINED_STATES = {"NeedsLogin", "NoState"}
 POLICY_GUIDANCE = "Apply the policy bin/tailnet-policy prints, as docs/tailnet-setup.md says, then run bin/tailnet-up again."
-USAGE = "usage: tailnet_node.py name|tag|state|join|check|verify host|session POT [TARGET...]"
+USAGE = "usage: tailnet_node.py name|tag|state|join|check|verify host|session POT [TARGET...] | guard host|session"
 
 
 def fail(message):
@@ -206,6 +206,19 @@ def verify(role, pot, *named_targets):
     print(f"tailnet_node: {node_name(role, pot)} matches the pots policy; shields down")
 
 
+# Run every minute from the VM: shields only go up here, and only verify, from bin/tailnet-up, lowers them once every check passes.
+def guard(role):
+    status = daemon_status()
+    if status.get("BackendState") in UNJOINED_STATES:
+        return
+    own = status.get("Self") or {}
+    own_addresses = [ipaddress.ip_address(address) for address in own.get("TailscaleIPs") or []]
+    problems = inbound_problems(role, own_addresses) + capability_problems(own)
+    if problems:
+        subprocess.run(["tailscale", "set", "--shields-up=true"], check=True)
+        fail("shields raised: " + "; ".join(problems) + ". " + POLICY_GUIDANCE)
+
+
 ACTIONS = {
     "name": lambda role, pot: print(node_name(role, pot)),
     "tag": lambda role, pot: print(node_tag(role, pot)),
@@ -213,11 +226,15 @@ ACTIONS = {
     "join": join,
     "check": check,
     "verify": verify,
+    "guard": guard,
 }
 TARGETED_ACTIONS = {"check", "verify"}
+POTLESS_ACTIONS = {"guard"}
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4 or sys.argv[1] not in ACTIONS or sys.argv[2] not in ROLES or (
-            len(sys.argv) > 4 and sys.argv[1] not in TARGETED_ACTIONS):
+    action = sys.argv[1] if len(sys.argv) > 1 else ""
+    arity = 3 if action in POTLESS_ACTIONS else 4
+    if action not in ACTIONS or len(sys.argv) < arity or sys.argv[2] not in ROLES or (
+            len(sys.argv) > arity and action not in TARGETED_ACTIONS):
         fail(USAGE)
-    ACTIONS[sys.argv[1]](*sys.argv[2:])
+    ACTIONS[action](*sys.argv[2:])

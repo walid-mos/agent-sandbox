@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+export POTS_TRANSPORT=local
+. "$(dirname "$0")/../lib/sandbox.sh"
+
+status=0
+python3 "$POTS_REPO/lib/tailnet_node.py" guard host || status=1
+session=$(session_container)
+if [ -n "$session" ] && session_exec "$session" test -x "$POTS_SESSION_HOME/.local/bin/tailscale"; then
+	session_exec "$session" "$POTS_SESSION_REPOSITORY/session/tailnet-node" guard session || status=1
+fi
+exit "$status"

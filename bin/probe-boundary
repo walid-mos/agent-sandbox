@@ -101,6 +101,10 @@ door_files_digest() {
 	sandbox_vm sudo find $DOOR_FILES -type f -exec sha256sum {} + | sort
 }
 
+guard_runs_every_minute() {
+	sandbox_vm systemctl is-active --quiet pots-tailnet-guard.timer
+}
+
 docker_requires_firewall() {
 	sandbox_vm systemctl show docker.service --property Requires --value | tr ' ' '\n' | grep -qx pots-firewall.service
 }
@@ -122,6 +126,8 @@ judge door-account-has-no-docker door_account_has_no_docker || status=1
 tailnet_targets="$operator_node $(peer_pots)"
 judge host-node-matches-policy sandbox_vm sudo python3 "$TAILNET_NODE" check host "$SANDBOX" $tailnet_targets || status=1
 judge session-node-matches-policy in_session "$SESSION_TAILNET_NODE" check session "$SANDBOX" $tailnet_targets || status=1
+judge tailnet-guard-runs-every-minute guard_runs_every_minute || status=1
+judge tailnet-guard-passes sandbox_vm sudo "$POTS_SESSION_REPOSITORY/vm/tailnet-guard" || status=1
 judge_forbidden || status=1
 judge_allowed || status=1
 in_session bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_CONFIGURATION" || status=1

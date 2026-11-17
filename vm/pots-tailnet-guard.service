@@ -1,0 +1,9 @@
+[Unit]
+Description=Raise the shields of this VM's pot nodes when the tailnet policy opens more than the pots policy
+Requires=tailscaled.service
+After=tailscaled.service docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/agent-sandbox/vm/tailnet-guard
+TimeoutStartSec=2min
