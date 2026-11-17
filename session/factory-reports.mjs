@@ -48,8 +48,8 @@ export function flushReports() {
     try {
       askFactory('reports', JSON.parse(readFileSync(file, 'utf8')));
       unlinkSync(file);
-    } catch {
-      process.stderr.write('factory: a Principal report remains queued in the isolated outbox.\n');
+    } catch (error) {
+      process.stderr.write(`factory: a Principal report remains queued in the isolated outbox: ${error instanceof Error ? error.message : String(error)}\n`);
       return;
     }
   }
