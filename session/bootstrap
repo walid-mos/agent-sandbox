@@ -18,6 +18,10 @@ case "$architecture" in
 	*) echo "session/bootstrap: no pinned tools for the $architecture architecture; add its release names beside NODE_VERSION" >&2; exit 1 ;;
 esac
 
+staging=
+# The keeper reruns a failed install every minute, so the staging directory of the install in progress goes when the script exits, whatever stopped it.
+trap '[ -z "$staging" ] || rm -rf "$staging"' EXIT
+
 download_verified() {
 	archive_url=$1 sums_url=$2 download_directory=$3
 	archive=$(basename "$archive_url")
