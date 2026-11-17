@@ -1,0 +1,75 @@
+# Automation noticeboard preservation
+
+This branch contains an isolated preservation worker and deterministic service pass. It has no production Discord adapter, gateway reader, startup hook or enabled runtime configuration. Nothing here removes a Discord message. The parent reviewed this boundary after design checkpoint 690. PR #45 stays draft for parent review and rollout coordination.
+
+The intended feeds remain writable. The requested outcome is PR entries in the pull-request feed, server events in the server-log feed, and acknowledged discussion below legitimate parents. Automatic removal cannot meet the strict no-loss requirement with the known Discord API. Message deletion has no version precondition that atomically binds it to the archived snapshot. An edit can arrive between a final GET and DELETE. Verified archives therefore retain the original and expose `conditional-delete-unavailable`. Permission changes, a delay or a final read do not close that race.
+
+## State and ownership
+
+`noticeboardServicePass` reads normalized event references from an injected owner adapter, commits them to the local inbox, and runs `noticeboardPass` without a model turn. This is a callable service unit, not an installed daemon. It must not be connected to guessed `gw_events` columns or a speculative upload protocol.
+
+The SQLite store owns the inbox cursor, pending references, revision records and outbox. SQLite transactions publish changes with WAL journaling and FULL synchronization. A per-database `flock` serializes worker side effects across processes. The worker writes the uncertain-send state before requesting a copy. Attachment bytes live in the same committed record as their metadata and hashes.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Observed: Valid human message snapshot committed
+    Observed --> Captured: All attachment bytes downloaded and stored
+    Captured --> Acknowledged: Idempotent reaction confirmed
+    Acknowledged --> CopyUnknown: Commit send intent before POST
+    CopyUnknown --> Copied: POST response or verified existing identity
+    CopyUnknown --> CopyUnknown: Unknown outcome or bounded search inconclusive
+    Copied --> Verified: Read back exact text and attachment bytes
+    Copied --> Held: Verification mismatch
+    Verified --> Retained: Local payload retention expires
+    Verified --> Verified: Original retained because conditional delete unavailable
+```
+
+A source revision key hashes canonical JSON with sorted object fields, including original channel/message identity and timestamps. Repeated events for the same snapshot reuse that record. An edited snapshot gets a separate record. The 24-character nonce derives from that key. Discord's recent nonce enforcement is additional protection, not an exactly-once guarantee. An uncertain send never causes another create request, even after the nonce window expires. Bounded reconciliation may prove a matching existing copy. Failure to find one proves no absence and leaves the record uncertain.
+
+Edits during preservation cannot cause data loss through this code because there is no delete operation. A source deleted before it can be read cannot be recovered from an event reference. Existing snapshots remain available after a source deletion. Missing or oversized attachments leave the snapshot pending without a partial copy. Components, embeds, pinned messages, webhook messages and all bot-authored messages are left untouched. Bot identity alone proves neither a legitimate entry nor conversation. No manual provenance registry or author allowlist is introduced.
+
+The copy identifies automation as the copier, names the original author ID, username and display name, and includes the original and edited timestamps and message link. Its attached JSON contains the exact original text, reply/thread references and supported attachment metadata. Each original attachment is uploaded with a unique archive filename and its original filename remains in the manifest. The worker disables mentions. Verification compares the entire rendered content and every downloaded attachment's bytes by SHA-256, including the manifest. A same-length replacement or missing file fails verification.
+
+## Trust boundary
+
+| Trusted principal | Untrusted principal |
+| --- | --- |
+| Versioned service code and its owner adapter. The existing shared-app gateway owns the Discord credential. This unit neither reads nor receives it. | Gateway event envelopes, Discord message text, author names, attachment metadata, attachment bytes and API responses. |
+
+Message text never becomes executable code, shell arguments or model instructions. The only subprocess here is a fixed `flock` invocation with an inherited file descriptor. Normalized inbox records contain only event ID, channel ID, message ID and event kind, plus retry bookkeeping. Raw hooks and transport tokens are excluded. Unsupported snapshot metadata is held rather than silently copied as understood. The future adapter must compute app ownership from authenticated Discord reads rather than trusting an event's ownership claim.
+
+The archive intentionally preserves arbitrary user bytes, which can contain private or secret content. There is no content scan, redaction, or claim that archived user content is free of secrets. Service credentials must never enter records, packets or logs. Results expose fixed status/reason codes rather than message bodies or provider errors. The directory must be owned and mode 0700, and database/lock files must be owned regular files with mode 0600. SQLite WAL files inherit the database permissions. This is same-user file protection, not isolation from other processes under that user, root or backups.
+
+The downloader contract permits only Discord attachment CDN hosts over HTTPS, no credentials in URLs, no redirects, and a bounded response. Tests exercise rejection of a loopback URL before any downloader call. The adapter must enforce those transport constraints while streaming, not merely after allocating a response. This branch does not claim a network isolation guarantee before that adapter exists.
+
+## Limits and retention
+
+`NOTICEBOARD_LIMITS` owns the limits. Configuration is off unless `enabled` is exactly true. At most two explicit feed routes are accepted. Each route supplies its guild, channel, discussion thread, parent message ID and feed kind. A thread started from a message has the same ID as that starter message. The route therefore requires `threadId === parentMessageId`. IDs belong only in private runtime configuration. Each actual parent/thread relationship must be authenticated by the future owner adapter. The worker does not create discussion parents in a feed.
+
+The limits are 1,024 revision records, 1,024 pending events, 64 MiB of serialized archive/inbox payload, 64 KiB per message snapshot, nine original attachments, 8 MiB per attachment and 16 events per batch. The manifest is the tenth possible upload. SQLite files, WAL overhead and allocated free pages can exceed the logical payload limit. Metadata validation and the downloader bound memory allocation independently. A full store rejects intake transactionally without advancing the cursor or discarding earlier work.
+
+Each operation allows at most five attempts with exponential delays starting at two seconds. A bounded rate-limit delay up to one hour takes precedence. An invalid or longer delay holds the operation for reconciliation. Copy creation is attempted once per revision, while safe reads, verification and idempotent reactions may retry. Unknown copies remain unknown after their retry budget and require owner reconciliation.
+
+After 30 days, verified local snapshot and attachment payloads are logically removed, while the revision key, copy identity and duplicate-suppression metadata remain. This is logical retention, not secure erasure from storage or backups. The Discord archive remains. Unverified and uncertain content is never automatically expired. It occupies the bounded capacity and eventually stops intake rather than losing evidence. Export, resolution or disposal of held content requires a separately defined owner procedure. No purge command is provided.
+
+## Owner integration still required
+
+Mastermind supplied sanitized runtime observations at 23:19 UTC. `gw_events.raw` contains a Discord message payload directly, not a `{t,d}` gateway envelope. Updates may be partial, so a current message GET is needed. Deletes contain only message, channel and guild IDs. `gw_events.id` is local arrival order, not a Discord revision or proof that all earlier mutations arrived. `at` is Unix milliseconds and cannot authorize deletion. No event-retention guarantee or gapless delivery guarantee was established. Cached received files can disappear after 30 days, and large or unavailable files may have only a URL.
+
+Confirmed Pots operations include message GET, POST, PATCH and DELETE, starting a thread from a message, a single local-file upload, and refreshing signed attachment URLs. A single-file upload does not prove support for this unit's multi-file archive request. Refresh responses contain bearer URLs and must remain private to the adapter. No generic attachment download or permanent copy-reconciliation primitive was proved. Nonce deduplication lasts minutes. These observations do not authorize a live integration test.
+
+The current pinned board is protected by its pin. Shared-bot identity, `from_me`, display names, webhook identity and content keywords do not prove semantic publication. PR #44's automatic board is not installed and PR #41's Server Admin producer is not activated. There is no owned semantic publication field or manual legitimacy registry to consume. Their versioned producers must define the publication signal before classification or suppression is wired.
+
+The runtime-owned `pot-voice` helper's `post` always writes top level. `say` can target an existing thread or create/reuse one on a supplied message. `open` emits a conversational origin notice. The helper has no semantic event field, durable copy key, unknown-outcome reconciler or suppression switch. Its HTTP 429 retry loop does not prove permanent idempotence. This branch does not edit that runtime helper. Preventing conversational feed duplicates requires a separately reviewed change at its owning writer/control path.
+
+Production integration still needs authenticated attachment streaming/upload/readback, exact app ownership checks, bounded copy reconciliation or permanent holding of uncertain sends, owned PR/server publication provenance, protected dialog placement, and integration with the owner-controlled writer. It must verify real thread/parent relationships. The core's abstract adapter is tested only with fakes. No absent-result search can authorize a fresh send or destructive retry.
+
+Approval dialogs remain on the protected shared-app path. This code does not move, rewrite, register or enable them. Setup must prevent unsupported dialog placement or leave it safely until resolved.
+
+Activation also requires a separately authorized private enable setting, verified Manage Messages and read/write/attach permissions, verified thread relationships, and an approved service installation/restart window. Mastermind reports that Manage Messages and Pin Messages are now present, which grants no removal authority. Missing permissions produce read-only Discord behavior. Disabling the switch stops processing and keeps originals, copies and local evidence. Rollback does not attempt to undo external posts or recover deleted source content.
+
+PR #41 and #44 remain separate. Their source overlap must be checked when wiring shared gateway/bootstrap/dialog behavior. This branch has not changed their code or the protected human-dialog transport. This worker has performed no live verification of Discord behavior, rate limits, nonce windows, upload/readback, role permissions, event retention or runtime voice behavior. Those require the owner contract and a separately authorized integration check.
+
+## Offline verification
+
+`./bin/check` runs the `session/noticeboard-*.test.mjs` files with the repository's existing Node test runner. The fixtures use invented identifiers and text. They exercise exact attribution, sensitive user text preservation, attachments, corrupt copies, duplicate/reordered events, edits, restart recovery, durable cursor semantics, uncertain outcomes, permission denial, unsupported messages, bounded retries and disabled behavior. No external credentials or network access are needed.
