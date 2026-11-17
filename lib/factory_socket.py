@@ -56,7 +56,7 @@ def ask(path, request):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(CLIENT_SECONDS)
         connection.connect(str(path))
-        connection.sendall(token_file(path).read_bytes() + (json.dumps(request) + "\n").encode())
+        connection.sendall(token_file(path).read_bytes() + (json.dumps(request, ensure_ascii=False) + "\n").encode())
         connection.shutdown(socket.SHUT_WR)
         with connection.makefile("rb") as incoming:
             response = incoming.readline(RESPONSE_LIMIT + 1)
