@@ -9,6 +9,7 @@ SWAP_FILE=/swapfile
 APT_LOCK_WAIT_SECONDS=300
 GIB_BYTES=1073741824
 here=$(dirname "$(readlink -f "$0")")
+. "$here/../lib/tailscale.sh"
 
 # A fresh cloud image runs apt on its own timers right after boot, so apt waits for their lock instead of failing.
 apt_get() {
@@ -61,6 +62,23 @@ install_timers() {
 	systemctl enable --now pots-keeper.timer pots-update.timer
 }
 
+install_tailscale() {
+	if tailscale_is_current /usr/bin/tailscale /usr/sbin/tailscaled; then
+		systemctl start tailscaled.service
+		return 0
+	fi
+	package_dir=$(mktemp -d)
+	tailscale_unpack "$(dpkg --print-architecture)" "$package_dir"
+	install -m 0755 "$package_dir/tailscale" /usr/bin/tailscale
+	install -m 0755 "$package_dir/tailscaled" /usr/sbin/tailscaled
+	install -m 0644 "$package_dir/systemd/tailscaled.service" /etc/systemd/system/
+	[ -f /etc/default/tailscaled ] || install -m 0644 "$package_dir/systemd/tailscaled.defaults" /etc/default/tailscaled
+	rm -rf "$package_dir"
+	systemctl daemon-reload
+	systemctl enable tailscaled.service
+	systemctl restart tailscaled.service
+}
+
 swap_file_gib() {
 	[ -f "$SWAP_FILE" ] || { echo 0; return; }
 	bytes=$(stat -c %s "$SWAP_FILE")
@@ -100,5 +118,6 @@ esac
 install_docker
 install_sysbox
 install_firewall
+install_tailscale
 configure_swap "$swap_gib"
 install_timers

@@ -39,9 +39,12 @@ for path in "$root"/sandboxes.example/*/sandbox.json; do
 	problems=$(jq -r --arg sandbox "$(basename "$(dirname "$path")")" -f "$root/proxmox/config.jq" "$path")
 	[ -z "$problems" ] || { printf 'check: %s is not a valid Proxmox sandbox:\n%s\n' "$path" "$problems" >&2; exit 1; }
 done
-for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
+for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json "$root"/docs/tailnet-policy.json; do
 	jq empty "$path"
 done
+# The pots policy grants only the ports lib/tailnet_node.py accepts, and no Funnel, auto-approval or Tailscale SSH rule.
+. "$root/vm/network.env"
+jq -e --arg door "tcp:$DOOR_PORT" '([.grants[].ip[]] - ["tcp:443", "tcp:10001-18790", "tcp:18792-65535", "tcp:22", $door] | length == 0) and ([.grants[].src[]] | index("*") == null) and (has("nodeAttrs") or has("autoApprovers") or has("ssh") | not)' "$root/docs/tailnet-policy.json" > /dev/null || { echo "check: docs/tailnet-policy.json grants more than the Serve, admin and door ports, or holds nodeAttrs, autoApprovers or ssh" >&2; exit 1; }
 # The operator's config sync carries the installed pane to their other Mac and leaves out a file named like a credential, so the pane fails there on the missing module.
 skipped=$(cd "$root/herdr" && find . -type f | grep -iE 'credential|secret|token|password|cookie|auth|\.old-|\.reset-|\.corrupt-|\.(pem|key|p12|pfx|log|sqlite|db)$' || true)
 if [ -n "$skipped" ]; then

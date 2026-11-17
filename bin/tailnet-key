@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+import json
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+BINDING = Path.home() / ".config/agent-secrets/core-vault.json"
+MACHINE_CLI = Path.home() / ".pi/agent/bin/infisical"
+CLIENT_SECRET_NAME = "TAILSCALE_POTS_OAUTH_CLIENT_SECRET"
+CLIENT_SECRET_PREFIX = "tskey-client-"
+API = "https://api.tailscale.com/api/v2"
+TOKEN_URL = API + "/oauth/token"
+KEYS_URL = API + "/tailnet/-/keys"
+POT_TAG = re.compile(r"tag:pot-[a-z0-9-]{1,40}")
+KEY_LIFETIME_SECONDS = 600
+KEY_DESCRIPTION = "agent-sandbox pot node"
+VAULT_SECONDS = 30
+API_SECONDS = 20
+USAGE = "usage: tailnet-key TAG... | <command that joins with the key on its standard input>"
+NO_CLIENT_SECRET = (f"The vault did not return {CLIENT_SECRET_NAME}. Check docs/tailnet-setup.md, that this shell exports "
+                    f"INFISICAL_UNIVERSAL_AUTH_CLIENT_ID and its secret, and the path {BINDING} names as tools.tailscale.path.")
+NO_ANSWER = "Tailscale did not answer the key request. Run it again."
+CLIENT_REFUSED = f"Tailscale refused the OAuth client (HTTP {{status}}). Check that {CLIENT_SECRET_NAME} belongs to a client that still exists."
+KEY_REFUSED = ("Tailscale refused a key for {tags} (HTTP {status}). Check that the tailnet policy of docs/tailnet-policy.json "
+               "is applied and that the OAuth client holds tag:pot-keys with the auth_keys scope.")
+
+
+def fail(message):
+    print("tailnet-key: " + message, file=sys.stderr)
+    sys.exit(1)
+
+
+def vault_command():
+    try:
+        binding = json.loads(BINDING.read_text())
+        location = ["--projectId", binding["projectId"], "--env", binding["environment"],
+                    "--path", binding["tools"]["tailscale"]["path"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        fail(f"{BINDING} names no vault path for Tailscale. Record it as tools.tailscale.path.")
+    return [str(MACHINE_CLI), "secrets", "get", CLIENT_SECRET_NAME, *location, "--plain", "--silent"]
+
+
+# Whatever the vault command prints may hold the secret, so a failure reports a fixed message only.
+def client_secret():
+    try:
+        result = subprocess.run(vault_command(), capture_output=True, text=True, timeout=VAULT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        fail(NO_CLIENT_SECRET)
+    words = result.stdout.split()
+    if result.returncode or len(words) != 1 or not words[0].startswith(CLIENT_SECRET_PREFIX):
+        fail(NO_CLIENT_SECRET)
+    return words[0]
+
+
+def ask(request, refusal, field):
+    try:
+        with urllib.request.urlopen(request, timeout=API_SECONDS) as response:
+            return json.load(response)[field]
+    except urllib.error.HTTPError as error:
+        fail(refusal.format(status=error.code))
+    except (OSError, ValueError, KeyError, TypeError):
+        fail(NO_ANSWER)
+
+
+def access_token():
+    grant = {"grant_type": "client_credentials", "client_secret": client_secret()}
+    request = urllib.request.Request(TOKEN_URL, data=urllib.parse.urlencode(grant).encode())
+    return ask(request, CLIENT_REFUSED, "access_token")
+
+
+def mint(tags):
+    device = {"reusable": False, "ephemeral": False, "preauthorized": True, "tags": tags}
+    order = {"capabilities": {"devices": {"create": device}}, "expirySeconds": KEY_LIFETIME_SECONDS,
+             "description": KEY_DESCRIPTION}
+    headers = {"Authorization": "Bearer " + access_token(), "Content-Type": "application/json"}
+    request = urllib.request.Request(KEYS_URL, data=json.dumps(order).encode(), headers=headers)
+    return ask(request, KEY_REFUSED.replace("{tags}", " ".join(tags)), "key")
+
+
+tags = sys.argv[1:]
+if not tags or not all(POT_TAG.fullmatch(tag) for tag in tags):
+    fail(USAGE)
+if sys.stdout.isatty():
+    fail("the key is a credential: pipe it into the command that joins, never to a terminal")
+sys.stdout.write(mint(tags))
