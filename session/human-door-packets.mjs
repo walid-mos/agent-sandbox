@@ -1,5 +1,6 @@
-import { DIALOG_ID, DIGEST, discordMessage, MASTERMIND_POT, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
-import { isRequestId, Refusal } from './door-messages.mjs';
+import { DIALOG_ID, DIGEST, discordMessage, MASTERMIND_POT, packet as newPacket, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
+import { DIALOG, isRequestId, Refusal } from './door-messages.mjs';
+import { ASKED } from './door-requests.mjs';
 
 const FIELDS = {
   'human.question': ['digest', 'policy', 'scope', 'context', 'questions', 'for'],
@@ -8,6 +9,7 @@ const FIELDS = {
   'human.answered': ['request', 'digest', 'status', 'origin', 'answers'],
 };
 const INITIAL = ['human.question', 'human.secret-link'];
+const ACKNOWLEDGEMENTS = { 'human.posted': 'human.posted-ack', 'human.answered': 'human.answered-ack' };
 const STATUSES = ['answered', 'cancelled', 'paused', 'expired', 'stored'];
 const ORIGINS = ['terminal', 'discord', 'page'];
 const text = value => typeof value === 'string' && value.trim().length > 0;
@@ -75,18 +77,34 @@ export function humanPacket(need) {
   }
 }
 
+// Mastermind sends only posted context, to an owning pot; every other dialog packet goes from an owning pot to Mastermind.
+export function checkDialogDirection(packet, { fromMastermind, toMastermind }) {
+  const isPosted = packet.type === 'human.posted';
+  if (fromMastermind !== isPosted || toMastermind === isPosted) throw new Refusal('pots: human dialog packet has the wrong direction.');
+}
+
 export function checkHumanRoute(need, { caller, isMastermindReceiver, find }) {
   const packet = humanPacket(need);
   const isPosted = packet.type === 'human.posted';
-  if (isPosted ? caller !== MASTERMIND_POT || isMastermindReceiver : caller === MASTERMIND_POT || !isMastermindReceiver) throw new Refusal('pots: human dialog packet has the wrong direction.');
+  checkDialogDirection(packet, { fromMastermind: caller === MASTERMIND_POT, toMastermind: isMastermindReceiver });
   if (packet.type === 'human.answered' && !packet.request.startsWith(`${caller}.`)) throw new Refusal('pots: completion has another owner.');
   if (isPosted) {
     const original = find(packet.request);
-    if (original?.kind !== 'dialog' || original.direction !== 'asked' || original.pot !== caller) throw new Refusal('pots: posted context has no matching dialog request.');
+    if (original?.kind !== DIALOG || original.direction !== ASKED || original.pot !== caller) throw new Refusal('pots: posted context has no matching dialog request.');
     const question = humanPacket(original.need);
     if (question.type !== 'human.question' || question.dialog !== packet.dialog || question.digest !== packet.digest) throw new Refusal('pots: posted context differs from its question.');
   }
   return packet;
+}
+
+// The door admitted every stored dialog through humanPacket, so a record that no longer parses is damaged and is skipped, not allowed to stop the other dialogs.
+export function storedPacket(request, type) {
+  try {
+    const packet = humanPacket(request.need);
+    return packet.type === type ? packet : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export const isInitialHumanPacket = need => INITIAL.includes(humanPacket(need).type);
@@ -95,8 +113,7 @@ export function checkHumanReply(request, reply) {
   try {
     const original = humanPacket(request.need);
     const answer = JSON.parse(reply);
-    const acknowledgements = { 'human.posted': 'human.posted-ack', 'human.answered': 'human.answered-ack' };
-    const expected = acknowledgements[original.type];
+    const expected = ACKNOWLEDGEMENTS[original.type];
     if (expected) {
       if (answer.type !== expected || answer.version !== VERSION || Object.keys(answer).length !== 2) throw new Error('invalid acknowledgement');
       return;
@@ -106,4 +123,10 @@ export function checkHumanReply(request, reply) {
   } catch (cause) {
     throw new Refusal(`pots: invalid human dialog reply: ${cause.message}`);
   }
+}
+
+export function acknowledgementOf(need) {
+  const type = ACKNOWLEDGEMENTS[humanPacket(need).type];
+  if (!type) throw new Error('pots: this human dialog request takes an answer, not an acknowledgement.');
+  return JSON.stringify(newPacket(type, {}));
 }

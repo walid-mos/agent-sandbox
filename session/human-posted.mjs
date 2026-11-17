@@ -1,7 +1,8 @@
 import { discordMessage, MASTERMIND_POT, onlyFor, VERSION } from './human-contract.mjs';
 import { questionDigest } from './human-dialogs.mjs';
 import { DIALOG } from './door-messages.mjs';
-import { RECEIVED } from './door-requests.mjs';
+import { ANSWERED, RECEIVED, REFUSED } from './door-requests.mjs';
+import { storedPacket } from './human-door-packets.mjs';
 import { humanStore } from './human-store.mjs';
 
 export async function registerPosted(posted, store = humanStore()) {
@@ -22,14 +23,8 @@ export async function registerPosted(posted, store = humanStore()) {
   }, posted.dialog);
 }
 
-function postedPacket(request) {
-  let posted;
-  try { posted = JSON.parse(request.need); } catch { return undefined; }
-  return posted?.type === 'human.posted' ? posted : undefined;
-}
-
 async function acknowledgePosted(request, { store, doors, onError }) {
-  const posted = postedPacket(request);
+  const posted = storedPacket(request, 'human.posted');
   if (!posted) return;
   try {
     await registerPosted(posted, store);
@@ -38,6 +33,6 @@ async function acknowledgePosted(request, { store, doors, onError }) {
 }
 
 export async function reconcilePosted(options) {
-  const received = options.doors.all().filter(item => item.kind === DIALOG && item.direction === RECEIVED && item.pot === MASTERMIND_POT);
+  const received = options.doors.all().filter(item => item.kind === DIALOG && item.direction === RECEIVED && item.pot === MASTERMIND_POT && ![ANSWERED, REFUSED].includes(item.state));
   for (const request of received) await acknowledgePosted(request, options);
 }

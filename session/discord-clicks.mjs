@@ -104,6 +104,8 @@ function withdrawn(record, question, message, save) {
   return { status: 'stale', dialog: record.id, update: update.body, channelId: message.channelId, messageId: message.messageId };
 }
 
+export const registeredPot = record => (record.registration ?? record.savedRegistration)?.pot ?? record.expectedPot;
+
 export async function closeDiscordQuestion(completion, store, originPot) {
   if (!originPot || !completion?.request?.startsWith(`${originPot}.`)) throw new Error('discord-human: completion has no matching pot origin.');
   if (completion?.type !== 'human.answered' || completion.version !== VERSION) throw new Error('discord-human: invalid completion.');
@@ -112,8 +114,7 @@ export async function closeDiscordQuestion(completion, store, originPot) {
     if (!record) return save({ id: completion.dialog, expectedPot: originPot, closed: completion });
     const registration = record.registration ?? record.savedRegistration;
     const expectedRequest = registration?.request ?? record.closed.request;
-    const expectedPot = registration?.pot ?? record.expectedPot;
-    if (expectedRequest !== completion.request || expectedPot !== originPot) throw new Error('discord-human: completion does not match the originating request.');
+    if (expectedRequest !== completion.request || registeredPot(record) !== originPot) throw new Error('discord-human: completion does not match the originating request.');
     if (JSON.stringify(record.closed) === JSON.stringify(completion)) return record;
     if (record.closed) throw new Error('discord-human: this question already has its final answer.');
     if (!registration) return save({ ...record, closed: completion });

@@ -1,12 +1,10 @@
 import { registerDiscordQuestion } from './discord-clicks.mjs';
 import { DIALOG } from './door-messages.mjs';
-import { ANSWERED, find, OPEN, RECEIVED, RESENDABLE, UNKNOWN } from './door-requests.mjs';
-import { prepareHumanAsk, transmitAsk } from './doors.mjs';
+import { ANSWERED, OPEN, RECEIVED, RESENDABLE, UNKNOWN } from './door-requests.mjs';
 import { discordMessageUrl, packet } from './human-contract.mjs';
 import { checkHumanReply, humanPacket } from './human-door-packets.mjs';
-import { DOOR_RETRY_MS } from './human-doors.mjs';
+import { dialogDoors, DOOR_RETRY_MS } from './human-doors.mjs';
 
-const transport = { find, prepare: prepareHumanAsk, transmit: transmitAsk };
 export const REGISTRATION_EXIT = { saved: 1, pending: 2, acknowledged: 0 };
 
 function registrationRequest(registration, doors) {
@@ -36,27 +34,30 @@ async function settleRegistration(record, store, doors) {
     if (current.closed || current.registered === true) return current;
     if (delivered.state !== ANSWERED) {
       const registrationState = [OPEN, UNKNOWN].includes(delivered.state) ? 'pending' : 'saved';
-      return save({ ...current, registrationState, postedState: delivered.state, registered: false, failure: delivered.failure });
+      return save({ ...current, registrationState, registered: false, failure: delivered.failure });
     }
     checkHumanReply(delivered, delivered.reply);
     return save({ ...current, registration: current.savedRegistration, savedRegistration: undefined,
-      registrationState: 'acknowledged', postedState: delivered.state, registered: true, failure: undefined });
+      registrationState: 'acknowledged', registered: true, failure: undefined });
   }, record.id);
 }
 
-export async function registerQuestion(registration, { store, identity, doors = transport }) {
+export async function registerQuestion(registration, { store, identity, doors = dialogDoors }) {
   registrationRequest(registration, doors);
   const record = await registerDiscordQuestion(registration, store, identity);
   try {
     const settled = await settleRegistration(record, store, doors);
     return { dialog: settled.id, registered: settled.registered === true, state: settled.registrationState, postedRequest: settled.postedRequest, failure: settled.failure };
   } catch (error) {
-    const failed = await store.patch(record.id, { registered: false, failure: error.message });
-    return { dialog: failed.id, registered: false, state: failed.registrationState, postedRequest: failed.postedRequest, failure: failed.failure };
+    const failed = await store.locked(({ get, save }) => {
+      const current = get(record.id);
+      return current.registered === true ? current : save({ ...current, registered: false, failure: error.message });
+    }, record.id);
+    return { dialog: failed.id, registered: failed.registered === true, state: failed.registrationState, postedRequest: failed.postedRequest, failure: failed.failure };
   }
 }
 
-export async function reconcileRegistrations(store, onError, doors = transport) {
+export async function reconcileRegistrations(store, onError, doors = dialogDoors) {
   for (const record of store.all().filter(record => record.savedRegistration && !record.closed)) {
     try { await settleRegistration(record, store, doors); } catch { onError('Posted context is not acknowledged. Keep question controls disabled.'); }
   }

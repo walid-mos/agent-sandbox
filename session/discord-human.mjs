@@ -1,12 +1,12 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { acceptDiscordClick, closeDiscordQuestion } from './discord-clicks.mjs';
+import { acceptDiscordClick, closeDiscordQuestion, registeredPot } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
-import { all, ANSWERED, find, RECEIVED } from './door-requests.mjs';
+import { ANSWERED, RECEIVED } from './door-requests.mjs';
 import { DIALOG } from './door-messages.mjs';
-import { DIALOG_ID, packet } from './human-contract.mjs';
+import { storedPacket } from './human-door-packets.mjs';
 import { reconcileRegistrations, registerQuestion, REGISTRATION_EXIT } from './discord-registration.mjs';
-import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
+import { dialogDoors, DOOR_RETRY_MS } from './human-doors.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
 import { main } from './main.mjs';
 import { commandWithInput } from './run.mjs';
@@ -15,7 +15,6 @@ import { botHome, botId, isMastermind, sandbox } from './sandbox.mjs';
 const FOLDER = join(HUMAN_HOME, 'discord');
 const POLL_MS = 100;
 const DELIVERY_MS = 2000;
-const ANSWERED_ACK = JSON.stringify(packet('human.answered-ack', {}));
 const store = humanStore(FOLDER);
 
 function callDiscord(channel, method, body) {
@@ -40,23 +39,12 @@ async function settle(record) {
   for (const [id, update] of Object.entries(record.updates ?? {})) await updateMessage(record.id, id, update);
 }
 
-function completionPacket(request) {
-  let completion;
-  try { completion = JSON.parse(request.need); } catch { return undefined; }
-  if (completion?.type !== 'human.answered') return undefined;
-  return completion;
-}
-
-function completionOrigin(completion, pot) {
-  return DIALOG_ID.test(completion.dialog) && completion.request?.startsWith(`${pot}.`);
-}
-
-const isCompletionOwner = (record, pot) => !record?.registration || record.registration.pot === pot;
+const isCompletionOwner = (record, pot) => !record || registeredPot(record) === pot;
 const isCompletionAcknowledged = (request, record, completion) => request.state === ANSWERED && JSON.stringify(record?.closed) === JSON.stringify(completion);
 
 function currentCompletion(request) {
-  const completion = completionPacket(request);
-  if (!completion || !completionOrigin(completion, request.pot)) return undefined;
+  const completion = storedPacket(request, 'human.answered');
+  if (!completion) return undefined;
   const record = store.get(completion.dialog);
   const canComplete = [isCompletionOwner(record, request.pot), !isCompletionAcknowledged(request, record, completion)].every(Boolean);
   return canComplete ? completion : undefined;
@@ -67,21 +55,21 @@ async function completeRequest(request, onError) {
   if (!completion) return;
   try {
     await closeDiscordQuestion(completion, store, request.pot);
-    await replyReceived(request, ANSWERED_ACK);
+    await dialogDoors.acknowledge(request);
   } catch { onError('A question completion remains pending.'); }
 }
 
 async function completions(onError) {
-  for (const request of all().filter(item => item.kind === DIALOG && item.direction === RECEIVED)) await completeRequest(request, onError);
+  for (const request of dialogDoors.all().filter(item => item.kind === DIALOG && item.direction === RECEIVED)) await completeRequest(request, onError);
 }
 
 async function deliverAnswer(record) {
   const isWaiting = !record.outbox || record.replySent || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS;
   if (isWaiting) return;
   await store.patch(record.id, { attemptedAt: Date.now() });
-  const request = find(record.registration.request);
-  await replyReceived(request, JSON.stringify(record.outbox));
-  await store.patch(record.id, { replySent: find(request.id).state === ANSWERED });
+  const { request } = record.registration;
+  await dialogDoors.reply(request, JSON.stringify(record.outbox));
+  await store.patch(record.id, { replySent: dialogDoors.find(request).state === ANSWERED });
 }
 
 function startDiscordHuman({ onError = () => {} } = {}) {
