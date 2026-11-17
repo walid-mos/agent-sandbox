@@ -44,7 +44,7 @@ const publicationRecord = worker => join(WORKERS, `${worker.name}${PUBLICATION_S
 export const isPublicationRecord = file => `${file}`.endsWith(PUBLICATION_SUFFIX);
 // Publication is its own file, which the watcher never rewrites, so it wins over the copy in the worker's record.
 export const withPublication = worker => ({ ...worker, ...readJson(publicationRecord(worker)) });
-export const recordPublication = (worker, state) => writePrivateJson(publicationRecord(worker), state);
+export const recordPublication = (worker, changes) => writePrivateJson(publicationRecord(worker), { ...readJson(publicationRecord(worker)), ...changes });
 
 export function writeBrief(name, text) {
   mkdirSync(WORKERS, { recursive: true });

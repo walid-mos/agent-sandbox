@@ -72,6 +72,6 @@ export function openWorkerPR([name]) {
   if (remote !== worker.publishedHead) throw new Error('dispatch: the remote head changed before draft PR creation. Inspect it.');
   const existing = command('gh', ['pr', 'list', '--repo', worker.repository, '--head', worker.branch, '--state', 'open', '--json', 'url', '--jq', '.[0].url // empty'], options);
   const pullRequest = existing || command('gh', ['pr', 'create', '--repo', worker.repository, '--draft', '--base', worker.base, '--head', worker.branch, '--title', worker.title, '--body', ''], options);
-  recordPublication(worker, { publication: PUBLICATION.published, publishedHead: worker.publishedHead, pullRequest });
+  recordPublication(worker, { publication: PUBLICATION.published, pullRequest });
   return pullRequest;
 }
