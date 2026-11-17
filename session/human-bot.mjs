@@ -36,8 +36,8 @@ export async function syncBotDialogs(store = humanStore(), snapshot = conversati
     const reply = replyTo(record, records.slice(index + 1));
     const existing = store.get(botDialogId(record.id));
     if (reply && !existing) continue;
-    const dialog = await openDialog(input, store);
-    if (!dialog.result && reply) await recordLocalReply(dialog, reply, store);
+    const dialog = existing ?? await openDialog(input, store).catch(() => undefined);
+    if (dialog && !dialog.result && reply) await recordLocalReply(dialog, reply, store);
   }
 }
 

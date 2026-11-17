@@ -67,6 +67,8 @@ const click = (dialog, userId = OPERATOR, option = 0) => ({ channel: 'discord', 
   raw: JSON.stringify({ id: `i-${option}-${userId}`, type: 3, guild_id: GUILD, channel_id: CHANNEL, member: { user: { id: userId } }, message: { id: MESSAGE },
     data: { custom_id: `human:${dialog.id}:0:${option}`, values: [] } }) });
 const pick = (f, userId, option) => acceptDiscordClick(click(f.dialog, userId, option), { store: f.discord, identity: IDENTITY, channelAccount: 'discord', at: '2026-01-01T00:00:00Z' });
+const selectStore = f => f.select ??= humanStore(folder());
+const humanStoreFor = f => selectStore(f);
 const returnedDoor = f => ({ ...f.doors.find(f.dialog.delivery.id), state: 'answered', reply: JSON.stringify(f.discord.get(f.dialog.id).outbox) });
 
 test('bot-origin startup push goes from immutable question to scoped receipt without a Pi worker', async () => {
@@ -235,6 +237,38 @@ test('ordinary, negative and canceled results cannot be consumed as affirmative 
   const canceled = await fixture();
   await cancelDialog(canceled.dialog.id, 'cancelled', canceled.store);
   await assert.rejects(consume(canceled, { scope: SCOPE, label: choices[0] }), /answered/);
+});
+
+test('a select menu answers from its registered options, including several at once', async () => {
+  const f = await fixture('ordinary');
+  const record = f.discord.get(f.dialog.id);
+  const select = { type: 1, components: [{ type: 3, custom_id: `human:${f.dialog.id}:0:select`,
+    options: choices.map((label, index) => ({ label, value: String(index) })) }] };
+  await import('../session/discord-clicks.mjs').then(({ registerDiscordQuestion }) => registerDiscordQuestion(
+    { ...f.registration, question: { ...f.registration.question, questions: [{ ...f.registration.question.questions[0], multiple: true }] },
+      messages: [{ channelId: CHANNEL, messageId: MESSAGE, components: [select] }] }, humanStoreFor(f), { userId: OPERATOR }));
+  assert.equal(record.registration.messages.length, 1);
+  const row = { channel: 'discord', at: Date.parse('2026-01-01T00:00:00Z'), person: `discord:@${OPERATOR}`, message: `discord:#${CHANNEL}/${MESSAGE}`,
+    text: `chose in menu human:${f.dialog.id}:0:select: "${choices[0]}" (value 0)`,
+    raw: JSON.stringify({ type: 3, guild_id: GUILD, channel_id: CHANNEL, member: { user: { id: OPERATOR } }, message: { id: MESSAGE },
+      data: { custom_id: `human:${f.dialog.id}:0:select`, values: ['0', '1'] } }) };
+  const result = await acceptDiscordClick(row, { store: selectStore(f), identity: IDENTITY, channelAccount: 'discord' });
+  assert.equal(result.status, 'accepted');
+  assert.deepEqual(selectStore(f).get(f.dialog.id).picks.answer.answer.labels, choices);
+});
+
+test('a select value that is not a registered option claims nothing', async () => {
+  const f = await fixture('ordinary');
+  const select = { type: 1, components: [{ type: 3, custom_id: `human:${f.dialog.id}:0:select`, options: [{ label: choices[0], value: '0' }] }] };
+  const registered = await import('../session/discord-clicks.mjs').then(({ registerDiscordQuestion }) => registerDiscordQuestion(
+    { ...f.registration, messages: [{ channelId: CHANNEL, messageId: MESSAGE, components: [select] }] }, selectStore(f), IDENTITY));
+  assert.equal(registered.id, f.dialog.id);
+  const row = { channel: 'discord', at: Date.parse('2026-01-01T00:00:00Z'), person: '', message: '', text: '',
+    raw: JSON.stringify({ type: 3, guild_id: GUILD, channel_id: CHANNEL, member: { user: { id: OPERATOR } }, message: { id: MESSAGE },
+      data: { custom_id: `human:${f.dialog.id}:0:select`, values: ['1'] } }) };
+  const outcome = await acceptDiscordClick(row, { store: selectStore(f), identity: IDENTITY, channelAccount: 'discord' }).catch(error => ({ status: error.message }));
+  assert.notEqual(outcome.status, 'accepted');
+  assert.deepEqual(selectStore(f).get(f.dialog.id).picks, {});
 });
 
 for (const state of ['unknown', 'undelivered', 'refused']) {

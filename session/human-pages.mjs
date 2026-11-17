@@ -51,8 +51,9 @@ export async function ensureSecretPage(id, store = humanStore()) {
   }, id);
 }
 
-function stagedValues(dialog) {
-  const pairs = readFileSync(stagePath(dialog.id), 'utf8').split('\n').filter(Boolean).map(line => {
+// Pots' page writes its own claim line beside the values, marked with a leading #.
+export function stagedValues(dialog) {
+  const pairs = readFileSync(stagePath(dialog.id), 'utf8').split('\n').filter(line => line && !line.startsWith('#')).map(line => {
     const separator = line.indexOf('=');
     return [line.slice(0, separator), line.slice(separator + 1)];
   });

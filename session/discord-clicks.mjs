@@ -41,10 +41,10 @@ function chosenAnswer(question, row, event) {
     return { id: question.id, labels: [], text: formText(interaction.data?.components) };
   }
   if (interaction && interaction.type !== 3) throw new Error('discord-human: unsupported answer interaction.');
-  const indexes = event.option === 'select' ? [event.optionText] : [event.option];
-  if (!indexes.every(index => /^\d+$/.test(index ?? '') && question.options[Number(index)])) throw new Error('discord-human: unknown selection.');
-  if (event.option === 'select' && !question.multiple) throw new Error('discord-human: this question is not multiple choice.');
-  return { id: question.id, labels: indexes.map(index => question.options[Number(index)].label), text: '' };
+  const values = event.option === 'select' ? (event.values ?? []) : [event.option];
+  if (!values.length || !values.every(value => /^\d+$/.test(value ?? '') && question.options[Number(value)])) throw new Error('discord-human: unknown selection.');
+  if (event.option === 'select' && !question.multiple && values.length !== 1) throw new Error('discord-human: this question is not multiple choice.');
+  return { id: question.id, labels: values.map(value => question.options[Number(value)].label), text: '' };
 }
 
 function disabled(components = []) {
