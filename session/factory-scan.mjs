@@ -1,10 +1,11 @@
 import { probe, runChecks } from './factory-checks.mjs';
-import { draftPulls, FACTORY_TOPIC, readyPulls, watchedRepositories } from './factory-github.mjs';
+import { FACTORY_TOPIC, openPulls, watchedRepositories } from './factory-github.mjs';
 import { branchTip, mergeBase, refreshMirror } from './factory-mirror.mjs';
-import { logDirectory, pullUrl, readRecord, recordedHeads, writeRecord } from './factory-records.mjs';
+import { logDirectory, readRecord, recordedHeads, writeRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { flushReports, handToFactory, reportToPrincipal } from './factory-reports.mjs';
-import { isLandingPull, requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
+import { isLandingPull, isRetiredSessionFactory, LANDING_BRANCH, requireLandingAuthority } from './factory-authority.mjs';
 import { finishPublication } from './factory-publication.mjs';
 
 // GitHub computes mergeability in the background, so a pull request it has not computed yet waits for the next scan.
@@ -24,15 +25,15 @@ function nextGeneration(pull) {
   return (record?.generation ?? 0) + (record?.stage === HELD ? 1 : 0);
 }
 
-function newHeads(repository, isChecked) {
-  return readyPulls(repository)
+function newHeads(repository, pulls, isChecked) {
+  return pulls.filter(pull => !pull.isDraft)
     .map(pull => ({ repository, number: pull.number, head: pull.headRefOid, base: pull.baseRefName, branch: pull.headRefName, mergeable: pull.mergeable }))
     .filter(pull => isDecidable(pull) && isNew(pull, isChecked))
     .map(pull => ({ ...pull, generation: nextGeneration(pull) }));
 }
 
-function holdDrafts(repository) {
-  for (const pull of draftPulls(repository)) {
+function holdDrafts(repository, pulls) {
+  for (const pull of pulls.filter(pull => pull.isDraft)) {
     const record = readRecord({ repository, number: pull.number, head: pull.headRefOid });
     if (record && record.stage !== HELD) writeRecord({ ...record, stage: HELD });
   }
@@ -56,9 +57,9 @@ function failedCheckText(pull, failed) {
 function check(subject) {
   requireLandingAuthority(subject.repository);
   const base = mergeBase(subject.repository, subject.base, subject.head);
-  const releaseBase = isLandingPull(subject) ? branchTip(subject.repository, 'main') : undefined;
+  const releaseBase = isLandingPull(subject) ? branchTip(subject.repository, LANDING_BRANCH) : undefined;
   if (releaseBase && releaseBase !== base) {
-    return reportToPrincipal({ ...subject, stage: 'stale-base' }, `PR factory requires a new head of ${pullUrl(subject)} containing current main ${releaseBase} before checking a signed release.`);
+    return reportToPrincipal({ ...subject, stage: 'stale-base' }, `PR factory requires a new head of ${pullUrl(subject)} containing current ${LANDING_BRANCH} ${releaseBase} before checking a signed release.`);
   }
   const checks = runChecks(subject, base, logDirectory(subject));
   const failed = checks.find(result => !result.isPassed);
@@ -86,7 +87,7 @@ function handleLogged(pull, step) {
 }
 
 export function scan() {
-  if (ownsSigningFactory && !isIsolatedFactory) {
+  if (isRetiredSessionFactory) {
     process.stdout.write('factory: this pot runs its factory outside the worker session, so this scan does nothing.\n');
     return;
   }
@@ -95,9 +96,10 @@ export function scan() {
   const repositories = watchedRepositories();
   holdUnwatched(repositories);
   const { checked = [], unchecked = [] } = Object.groupBy(repositories, repository => (hasChecks(repository) ? 'checked' : 'unchecked'));
-  for (const pull of unchecked.flatMap(repository => newHeads(repository, false))) handleLogged(pull, reportMissingChecks);
-  for (const repository of checked) holdDrafts(repository);
-  const pending = checked.flatMap(repository => newHeads(repository, true));
+  for (const pull of unchecked.flatMap(repository => newHeads(repository, openPulls(repository), false))) handleLogged(pull, reportMissingChecks);
+  const listed = checked.map(repository => [repository, openPulls(repository)]);
+  for (const [repository, pulls] of listed) holdDrafts(repository, pulls);
+  const pending = listed.flatMap(([repository, pulls]) => newHeads(repository, pulls, true));
   if (pending.length === 0) return;
   process.stdout.write(`${probe()}\n`);
   for (const repository of new Set(pending.map(pull => pull.repository))) refreshMirror(repository);

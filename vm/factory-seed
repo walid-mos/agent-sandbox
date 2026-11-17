@@ -6,7 +6,10 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from landing import LAUNCH, Refused, private_directory
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from factory_root import private_directory
+from factory_state import FACTORY_SEED, FACTORY_STATE
+from factory_socket import Refused
 
 SEED_LIMIT = 16 * 1024 * 1024
 PASSPHRASE = re.compile(rb"[0-9a-f]{48}\n")
@@ -19,19 +22,17 @@ def main():
     seed = sys.stdin.buffer.read(SEED_LIMIT + 1)
     if not PASSPHRASE.fullmatch(passphrase) or not seed or len(seed) > SEED_LIMIT:
         raise Refused("factory-seed: malformed or oversized operator seed. Nothing was installed.")
-    state = Path(LAUNCH["POTS_FACTORY_STATE"])
-    private_directory(state)
-    destination = state / "bootstrap"
-    if destination.exists():
+    private_directory(FACTORY_STATE)
+    if FACTORY_SEED.exists():
         raise Refused("factory-seed: a seed is already installed. Preserve it and use a separately reviewed rotation.")
-    with tempfile.TemporaryDirectory(prefix=".bootstrap-", dir=state) as staging:
-        pending = Path(staging) / "bootstrap"
+    with tempfile.TemporaryDirectory(prefix=f".{FACTORY_SEED.name}-", dir=FACTORY_STATE) as staging:
+        pending = Path(staging) / FACTORY_SEED.name
         pending.mkdir(mode=0o700)
         (pending / "seed").write_bytes(seed)
         (pending / "passphrase").write_bytes(passphrase)
         (pending / "seed").chmod(0o600)
         (pending / "passphrase").chmod(0o600)
-        pending.rename(destination)
+        pending.rename(FACTORY_SEED)
     print("factory-seed: operator seed stored outside the session. No factory key was created.")
 
 

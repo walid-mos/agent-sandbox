@@ -1,22 +1,24 @@
-import json
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
+import threading
 
-HOME = Path("/config")
-SESSION = Path("/opt/agent-sandbox/session")
-TOOLCHAIN = "/opt/factory-tools/.local"
-ENVIRONMENT = {"PATH": f"{TOOLCHAIN}/bin:/usr/local/bin:/usr/bin:/bin", "HOME": str(HOME), "POTS_TOOLCHAIN": TOOLCHAIN, "POTS_ISOLATED_FACTORY": "1", "MAGPIE_API_KEY": "magpie", "LANG": "C.UTF-8"}
-FACTORY_UID = int(dict(line.split("=", 1) for line in (SESSION / "launch.env").read_text().splitlines() if line)["POTS_FACTORY_UID"])
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
+from launch import LAUNCH
+
+SESSION = Path(__file__).resolve().parents[1]
+ENVIRONMENT = {**{name: os.environ[name] for name in ("PATH", "HOME", "POTS_TOOLCHAIN")}, "POTS_ISOLATED_FACTORY": "1", "MAGPIE_API_KEY": "magpie", "LANG": "C.UTF-8"}
+HOME = Path(ENVIRONMENT["HOME"])
+FACTORY_UID = int(LAUNCH["POTS_FACTORY_UID"])
 CHILDREN = []
-BOOTSTRAP = Path("/run/pots-factory/bootstrap")
+BOOTSTRAP = Path(LAUNCH["POTS_FACTORY_BOOTSTRAP"])
 
 
-def spawn(arguments, *, privilege, stdout=None):
+def spawn(arguments, *, privilege, stderr=None):
     options = {"user": FACTORY_UID, "group": FACTORY_UID, "extra_groups": []} if privilege == "factory" else {}
-    child = subprocess.Popen(arguments, env=ENVIRONMENT, start_new_session=True, stdout=stdout, **options)
+    child = subprocess.Popen(arguments, env=ENVIRONMENT, start_new_session=True, stderr=stderr, **options)
     CHILDREN.append(child)
     return child
 
@@ -27,16 +29,11 @@ def command(arguments, *, input=None):
         raise RuntimeError(f"factory: {Path(arguments[0]).name} failed. Check the isolated factory's bootstrap and credentials.")
 
 
-def wait_for_router():
-    command(["/usr/bin/curl", "--silent", "--fail", "--max-time", "1", "--retry", "60", "--retry-delay", "1", "--retry-connrefused", "--retry-max-time", "60", "http://127.0.0.1:3425/v1/models"])
-
-
 def prepare_home():
     if HOME.is_symlink():
         raise RuntimeError("factory: the private home must not be a symlink.")
     os.chown(HOME, FACTORY_UID, FACTORY_UID)
     os.chmod(HOME, 0o700)
-    command(["node", str(SESSION / "factory-runtime/init.mjs")])
 
 
 def seed_router():
@@ -64,10 +61,20 @@ def wait_for_docker():
     os.chown("/var/run/docker.sock", FACTORY_UID, FACTORY_UID)
 
 
+def forward(lines):
+    for line in lines:
+        sys.stderr.buffer.write(line)
+        sys.stderr.flush()
+
+
+# dockerd logs to stderr; the log keeps being read after readiness so a full pipe never blocks the daemon.
 def start_docker():
-    daemon = spawn(["/usr/sbin/dockerd", "--data-root=/var/lib/docker"], privilege="root", stdout=subprocess.PIPE)
-    for line in iter(daemon.stdout.readline, b""):
+    daemon = spawn(["/usr/sbin/dockerd", "--data-root=/var/lib/docker"], privilege="root", stderr=subprocess.PIPE)
+    lines = iter(daemon.stderr.readline, b"")
+    for line in lines:
+        sys.stderr.buffer.write(line)
         if b"API listen on /var/run/docker.sock" in line:
+            threading.Thread(target=forward, args=(lines,), daemon=True).start()
             wait_for_docker()
             return
     raise RuntimeError("factory: the private check engine exited before readiness.")
@@ -92,7 +99,7 @@ def main():
         prepare_home()
         start_docker()
         spawn([str(SESSION / "router")], privilege="factory")
-        wait_for_router()
+        command([str(SESSION / "factory-runtime/wait-for-router")])
         seed_router()
         command([str(SESSION / "factory-runtime/initialize-bot")])
         gateway = spawn([str(SESSION / "with-vault"), "pots", "start"], privilege="factory")

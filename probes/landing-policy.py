@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
-import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -80,15 +80,15 @@ class LandingPolicy(unittest.TestCase):
 
     def prepare_source(self):
         source = self.root / "source"
-        for relative in ("vm/landing.py", "lib/signed_commit.py", "lib/source_refresh.py"):
-            target = source / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(REPOSITORY / relative, target)
+        for relative in ("vm", "lib"):
+            shutil.copytree(REPOSITORY / relative, source / relative, ignore=shutil.ignore_patterns("__pycache__"))
         trust = self.root / "public.asc"
         trust.write_text("\n".join(run("gpg", "--no-options", "--homedir", str(home), "--armor", "--export", key) for home, key in ((self.operator, self.operator_key), (self.factory, self.factory_key))))
         settings = {"POTS_LANDING_KEY_HOME": str(self.factory), "POTS_LANDING_STATE": str(self.root / "state"), "POTS_SOURCE_URL": f"http://127.0.0.1:{self.server.server_port}/remote.git", "POTS_TRUSTED_SIGNERS": str(trust), "POTS_SESSION_REPOSITORY": str(self.clone)}
         (source / "session").mkdir()
         (source / "session/launch.env").write_text("".join(f"{name}={value}\n" for name, value in settings.items()))
+        # Each case writes its own launch.env, which lib/launch.py reads once per import.
+        sys.modules.pop("launch", None)
         specification = importlib.util.spec_from_file_location("landing_probe", source / "vm/landing.py")
         self.module = importlib.util.module_from_spec(specification)
         specification.loader.exec_module(self.module)

@@ -10,10 +10,6 @@ export function pullKey({ repository, number, head }) {
   return `${repository.replace('/', '-')}-${number}-${head}`;
 }
 
-export function pullUrl({ repository, number }) {
-  return `https://github.com/${repository}/pull/${number}`;
-}
-
 export function pullArguments([repository, number, head]) {
   if (!/^[^/\s]+\/[a-zA-Z0-9_.-]+$/.test(repository ?? '')) throw new Error(`factory: expected OWNER/REPOSITORY, got ${repository}`);
   if (!/^[1-9][0-9]*$/.test(number ?? '')) throw new Error(`factory: expected a pull request number, got ${number}`);

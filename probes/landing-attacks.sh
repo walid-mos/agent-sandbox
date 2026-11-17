@@ -1,6 +1,6 @@
 #!/bin/bash
 # Session: the worker session, as its user and as its root, holds no factory path and no signer socket.
-# VM: VM root is refused a signature, because only a process of the isolated factory may ask for one.
+# VM: the signer refuses a caller without the token, which only VM root and the isolated factory can read.
 set -u
 
 where=$1

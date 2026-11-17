@@ -1,10 +1,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { comment, pullFacts, requireActionable, squashMerge } from './factory-github.mjs';
-import { logDirectory, pullArguments, pullUrl, requireRecord, writeRecord } from './factory-records.mjs';
+import { logDirectory, pullArguments, requireRecord, writeRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { reportToPrincipal } from './factory-reports.mjs';
 import { signPublication } from './factory-publication.mjs';
-import { isLandingPull } from './factory-authority.mjs';
+import { isLandingPull, LANDING_BRANCH } from './factory-authority.mjs';
 
 const VERDICTS = ['PASS', 'PASS+NOTES', 'FAIL'];
 const MERGED = 'MERGED';
@@ -27,13 +28,13 @@ function postVerdict(record, decision, notes) {
 function land(record) {
   const before = requireActionable(record);
   if (isLandingPull(record) && before.baseRefOid !== record.releaseBase) {
-    throw new Error('factory: main moved after the checks. A new checked head is required before merging.');
+    throw new Error(`factory: ${LANDING_BRANCH} moved after the checks. A new checked head is required before merging.`);
   }
-  const merge = squashMerge(record);
+  const mergeOutput = squashMerge(record);
   const after = pullFacts(record);
   if (after.state !== MERGED) {
-    return reportToPrincipal({ ...record, stage: 'refused', mergeOutput: merge.output },
-      `PR factory could not merge ${pullUrl(record)} at head ${record.head} after its ${record.verdict} verdict. GitHub answered: ${merge.output || after.state}. The factory does not retry this head.`);
+    return reportToPrincipal({ ...record, stage: 'refused', mergeOutput },
+      `PR factory could not merge ${pullUrl(record)} at head ${record.head} after its ${record.verdict} verdict. GitHub answered: ${mergeOutput || after.state}. The factory does not retry this head.`);
   }
   return signPublication(record, after);
 }

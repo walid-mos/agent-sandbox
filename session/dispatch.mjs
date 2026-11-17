@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { remoteUrl } from './github-url.mjs';
 import { main, runOperation } from './main.mjs';
 import { idleStackMinutes, maxWorkers } from './limits.mjs';
 import { MAX_MODEL } from './models.mjs';
@@ -28,7 +29,7 @@ function validate(repository, branch) {
 function workspace(repository, branch, base) {
   const checkout = join(WORKSPACES, repository);
   mkdirSync(join(checkout, '..'), { recursive: true });
-  if (!existsSync(join(checkout, '.git'))) command('git', ['clone', '--quiet', `https://github.com/${repository}.git`, checkout]);
+  if (!existsSync(join(checkout, '.git'))) command('git', ['clone', '--quiet', remoteUrl(repository), checkout]);
   const config = JSON.parse(readFileSync(join(homedir(), '.pi/agent/extensions/subagent/config.json'), 'utf8'));
   const worktree = join(checkout, config.worktreeBaseDir, repository.split('/')[1], branch.replaceAll('/', '-'));
   if (existsSync(worktree)) throw new Error('dispatch: worktree exists. Send to its worker or choose a new branch.');

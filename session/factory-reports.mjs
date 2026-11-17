@@ -1,7 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { assignments } from './environment.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FACTORY_HOME, pullKey, pullUrl, writeRecord } from './factory-records.mjs';
+import { FACTORY_HOME, pullKey, writeRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { isIsolatedFactory } from './factory-authority.mjs';
 import { askFactory } from './factory-channel.mjs';
 import { command, WITH_VAULT } from './run.mjs';
@@ -11,6 +13,7 @@ export const FACTORY_BOT = { name: 'Factory', id: 'factory' };
 // The scan routine's name, and the source of the wakes it sends, by which the Factory bot recognises them.
 export const WATCH = 'factory-watch';
 const SESSION = dirname(fileURLToPath(import.meta.url));
+const REPORT_SOURCE = assignments(readFileSync(join(SESSION, 'launch.env'), 'utf8')).POTS_FACTORY_REPORT_SOURCE;
 
 export const factoryCommand = (operation, ...arguments_) => [WITH_VAULT, 'node', join(SESSION, 'factory.mjs'), operation, ...arguments_].join(' ');
 
@@ -45,15 +48,15 @@ export function flushReports() {
     try {
       askFactory('reports', JSON.parse(readFileSync(file, 'utf8')));
       unlinkSync(file);
-    } catch {
-      process.stderr.write('factory: a Principal report remains queued in the isolated outbox.\n');
+    } catch (error) {
+      process.stderr.write(`factory: a Principal report remains queued in the isolated outbox: ${error instanceof Error ? error.message : String(error)}\n`);
       return;
     }
   }
 }
 
 export function reportToPrincipal(record, text) {
-  const id = `pr-factory-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`;
+  const id = `${REPORT_SOURCE}-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`;
   if (isIsolatedFactory) {
     mkdirSync(OUTBOX, { recursive: true, mode: 0o700 });
     writeFileSync(join(OUTBOX, `${id}.json`), JSON.stringify({ id, text }) + '\n', { mode: 0o600 });
@@ -61,6 +64,6 @@ export function reportToPrincipal(record, text) {
     flushReports();
     return record;
   }
-  command('pots', ['wake', '--bot', botId, '--from', 'pr-factory', '--id', id, '--note', text]);
+  command('pots', ['wake', '--bot', botId, '--from', REPORT_SOURCE, '--id', id, '--note', text]);
   return writeRecord(record);
 }

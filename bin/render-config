@@ -8,13 +8,9 @@ if len(sys.argv) != 2:
     raise SystemExit(USAGE)
 kind = sys.argv[1]
 repository = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(repository / "lib"))
+from launch import LAUNCH as launch
 
-
-def assignments(path):
-    return dict(line.split("=", 1) for line in (repository / path).read_text().splitlines() if line)
-
-
-launch = assignments("session/launch.env")
 # VM root and the isolated factory hold these paths, and no session mount may reach them.
 FACTORY_ONLY = ("POTS_LANDING_KEY_HOME", "POTS_LANDING_STATE", "POTS_LANDING_SOCKET", "POTS_FACTORY_STATE", "POTS_FACTORY_REPORT_SOCKET")
 

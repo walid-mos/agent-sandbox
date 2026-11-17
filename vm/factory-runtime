@@ -8,11 +8,19 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from landing import ENVIRONMENT, FACTORY_LABEL_KEY, FACTORY_LABEL_VALUE, GIT_OPTIONS, LAUNCH, ROOT, Refused, execute, fingerprint, private_directory
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from factory_root import ENVIRONMENT, GIT_OPTIONS, execute, fingerprints, gpg, private_directory
+from factory_state import FACTORY_SEED, FACTORY_STATE
+from factory_socket import Refused
+from landing import created_key
+from launch import LAUNCH, assignments
 
-STATE = Path(LAUNCH["POTS_FACTORY_STATE"])
-DOCKER_ENVIRONMENT = {**ENVIRONMENT, "DOCKER_CONFIG": str(STATE / "docker")}
-RECORD = STATE / "runtime.json"
+ROOT = Path(__file__).resolve().parents[1]
+LABEL_KEY, LABEL_VALUE = "fr.nextnode.pots", "isolated-factory"
+LABEL = f"{LABEL_KEY}={LABEL_VALUE}"
+DOCKER_ENVIRONMENT = {**ENVIRONMENT, "DOCKER_CONFIG": str(FACTORY_STATE / "docker")}
+RECORD = FACTORY_STATE / "runtime.json"
+ROOT_SOCKETS = ("POTS_VAULT_SOCKET", "POTS_LANDING_SOCKET", "POTS_FACTORY_REPORT_SOCKET")
 
 
 def docker(*arguments):
@@ -29,7 +37,7 @@ def labels_of(description):
 
 
 def require_owned(description):
-    if labels_of(description).get(FACTORY_LABEL_KEY) != FACTORY_LABEL_VALUE:
+    if labels_of(description).get(LABEL_KEY) != LABEL_VALUE:
         raise Refused("factory: an existing Docker resource is not owned by the isolated factory. Nothing was replaced.")
 
 
@@ -39,7 +47,7 @@ def ensure_network():
     if existing:
         require_owned(existing)
         return
-    docker("network", "create", "--driver", "bridge", "--label", f"{FACTORY_LABEL_KEY}={FACTORY_LABEL_VALUE}", name)
+    docker("network", "create", "--driver", "bridge", "--label", LABEL, name)
 
 
 def ensure_volumes():
@@ -48,22 +56,23 @@ def ensure_volumes():
         if existing:
             require_owned(existing)
         else:
-            docker("volume", "create", "--label", f"{FACTORY_LABEL_KEY}={FACTORY_LABEL_VALUE}", name)
+            docker("volume", "create", "--label", LABEL, name)
 
 
 # The image carries one revision of the clone: its tools, its session code and its lib, never a worker write.
 def build_image(revision):
     tag = f"agent-sandbox-isolated-factory:{revision}"
-    if inspect("image", tag):
-        require_owned(inspect("image", tag))
+    existing = inspect("image", tag)
+    if existing:
+        require_owned(existing)
         return tag
-    with tempfile.TemporaryDirectory(prefix="build-", dir=STATE) as staging:
+    with tempfile.TemporaryDirectory(prefix="build-", dir=FACTORY_STATE) as staging:
         context = Path(staging) / "source"
         context.mkdir(mode=0o700)
         archive = execute(["/usr/bin/git", *GIT_OPTIONS, "-C", str(ROOT), "archive", revision])
         execute(["/usr/bin/tar", "--extract", "--file", "-", "--directory", str(context)], input=archive)
-        versions = dict(line.split("=", 1) for line in (context / "session/runtime-versions.env").read_text().splitlines() if line)
-        docker("build", "--quiet", "--label", f"{FACTORY_LABEL_KEY}={FACTORY_LABEL_VALUE}",
+        versions = assignments(context / "session/runtime-versions.env")
+        docker("build", "--quiet", "--label", LABEL,
                "--build-arg", f"BASE_IMAGE=node:{versions['NODE_VERSION'].removeprefix('v')}-bookworm-slim",
                "--file", str(context / "session/factory-runtime/Dockerfile"), "--tag", tag, str(context))
     return tag
@@ -73,14 +82,12 @@ def build_image(revision):
 def arguments(image):
     configuration = LAUNCH["POTS_SESSION_CONFIGURATION"]
     return ["create", "--name", LAUNCH["POTS_FACTORY_CONTAINER"], "--init", "--runtime", LAUNCH["POTS_SESSION_RUNTIME"],
-            "--label", f"{FACTORY_LABEL_KEY}={FACTORY_LABEL_VALUE}", "--network", LAUNCH["POTS_FACTORY_NETWORK"],
+            "--label", LABEL, "--network", LAUNCH["POTS_FACTORY_NETWORK"],
             "--mount", f"type=volume,src={LAUNCH['POTS_FACTORY_HOME_VOLUME']},dst=/config",
             "--mount", f"type=volume,src={LAUNCH['POTS_FACTORY_DOCKER_VOLUME']},dst=/var/lib/docker",
             "--mount", f"type=bind,src={configuration},dst={configuration},readonly",
-            "--mount", f"type=bind,src={str(Path(LAUNCH['POTS_VAULT_SOCKET']).parent)},dst={str(Path(LAUNCH['POTS_VAULT_SOCKET']).parent)},readonly",
-            "--mount", f"type=bind,src={str(Path(LAUNCH['POTS_LANDING_SOCKET']).parent)},dst={str(Path(LAUNCH['POTS_LANDING_SOCKET']).parent)},readonly",
-            "--mount", f"type=bind,src={str(Path(LAUNCH['POTS_FACTORY_REPORT_SOCKET']).parent)},dst={str(Path(LAUNCH['POTS_FACTORY_REPORT_SOCKET']).parent)},readonly",
-            "--mount", f"type=bind,src={STATE / 'bootstrap'},dst=/run/pots-factory/bootstrap,readonly", image]
+            *(part for name in ROOT_SOCKETS for part in ("--mount", f"type=bind,src={Path(LAUNCH[name]).parent},dst={Path(LAUNCH[name]).parent},readonly")),
+            "--mount", f"type=bind,src={FACTORY_SEED},dst={LAUNCH['POTS_FACTORY_BOOTSTRAP']},readonly", image]
 
 
 def stop_owned(name):
@@ -102,17 +109,13 @@ def recover():
 
 
 def ready():
-    key_home = Path(LAUNCH["POTS_LANDING_KEY_HOME"])
-    if not key_home.is_dir() or not (STATE / "bootstrap").is_dir():
+    identity = created_key(Path(LAUNCH["POTS_LANDING_KEY_HOME"]))
+    if not identity or not FACTORY_SEED.is_dir():
         print("factory: waiting for the operator's factory-bootstrap, landing-key and vm-up steps.", flush=True)
         return False
-    try:
-        identity = fingerprint(key_home)
-    except Refused:
-        print("factory: the operator has not created the factory key yet.", flush=True)
-        return False
-    listing = execute(["/usr/bin/gpg", "--no-options", "--batch", "--with-colons", "--show-keys", LAUNCH["POTS_TRUSTED_SIGNERS"]]).decode()
-    if f"fpr:::::::::{identity}:" not in listing:
+    with tempfile.TemporaryDirectory(prefix="gnupg-", dir=FACTORY_STATE) as scratch:
+        trusted = fingerprints(gpg(scratch, "--with-colons", "--show-keys", LAUNCH["POTS_TRUSTED_SIGNERS"]))
+    if identity not in trusted:
         print("factory: the operator must install the factory public trust with vm-up before publication starts.", flush=True)
         return False
     return True
@@ -121,10 +124,10 @@ def ready():
 def main():
     if os.geteuid() != 0:
         raise Refused("factory-runtime runs as VM root.")
-    private_directory(STATE)
+    private_directory(FACTORY_STATE)
     if not ready():
         return
-    private_directory(STATE / "docker")
+    private_directory(FACTORY_STATE / "docker")
     recover()
     revision = execute(["/usr/bin/git", *GIT_OPTIONS, "-C", str(ROOT), "rev-parse", "HEAD"]).decode().strip()
     image = build_image(revision)
