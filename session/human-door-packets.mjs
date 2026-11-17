@@ -1,4 +1,4 @@
-import { DIALOG_ID, DIGEST, discordMessage, MASTERMIND_POT, packet as newPacket, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
+import { DIALOG_ID, DIGEST, discordMessage, MASTERMIND_POT, packet as newPacket, questionsOf, RELAYED_POLICIES, text, VERSION } from './human-contract.mjs';
 import { DIALOG, isRequestId, Refusal } from './door-messages.mjs';
 import { ASKED } from './door-requests.mjs';
 
@@ -12,7 +12,6 @@ const INITIAL = ['human.question', 'human.secret-link'];
 const ACKNOWLEDGEMENTS = { 'human.posted': 'human.posted-ack', 'human.answered': 'human.answered-ack' };
 const STATUSES = ['answered', 'cancelled', 'paused', 'expired', 'stored'];
 const ORIGINS = ['terminal', 'discord', 'page'];
-const text = value => typeof value === 'string' && value.trim().length > 0;
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 
 function fieldsOf(packet, fields) {
@@ -94,7 +93,6 @@ export function checkHumanRoute(need, { caller, isMastermindReceiver, find }) {
     const question = humanPacket(original.need);
     if (question.type !== 'human.question' || question.dialog !== packet.dialog || question.digest !== packet.digest) throw new Refusal('pots: posted context differs from its question.');
   }
-  return packet;
 }
 
 // The door admitted every stored dialog through humanPacket, so a record that no longer parses is damaged and is skipped, not allowed to stop the other dialogs.

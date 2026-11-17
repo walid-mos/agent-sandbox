@@ -35,7 +35,7 @@ function launcher(t, help) {
     assert.equal(result.status, 0, result.stderr);
     return readFileSync(log, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
   }
-  return { run, handPath };
+  return { run };
 }
 
 function assertFlags(arguments_, workerName) {

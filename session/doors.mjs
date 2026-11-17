@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { DOOR_COMMAND } from './door-command.mjs';
 import { knock, knockAsync } from './door-knock.mjs';
 import { DIALOG, dialogMessage, HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, Refusal, replyMessage, requestMessage } from './door-messages.mjs';
-import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, RESENDABLE, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
+import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, RESENDABLE, save, SETTLED, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { receiveMessage } from './door-deliveries.mjs';
 import { checkDialogDirection, humanPacket } from './human-door-packets.mjs';
 import { main, runOperation } from './main.mjs';
@@ -11,7 +11,6 @@ import { sandbox } from './sandbox.mjs';
 import { MASTERMIND_POT } from './human-contract.mjs';
 
 const CONNECTED = 'Running';
-const SETTLED = [ANSWERED, REFUSED];
 const DELIVERED_STATE = { [ASKED]: OPEN, [RECEIVED]: ANSWERED };
 const USAGE = `usage: ${DOOR_COMMAND} ask POT --need TEXT [--for REQUEST_ID] | ${DOOR_COMMAND} reply REQUEST_ID --text TEXT | ${DOOR_COMMAND} resend REQUEST_ID | ${DOOR_COMMAND} requests [--all]`;
 
@@ -64,6 +63,11 @@ function knockAndSettle(request, wire) {
   return underLock(() => settle(request.id, outcome));
 }
 
+async function knockAndSettleAsync(request, wire) {
+  const outcome = await knockAsync(request.pot, wire);
+  return underLock(() => settle(request.id, outcome));
+}
+
 export function checkSent({ id, pot, state, failure }) {
   if (state === UNKNOWN) throw new Error(`pots: ${id} may have reached ${pot}: ${failure}. ${DOOR_COMMAND} resend ${id} sends the same message, and ${pot} takes it once.`);
   if (state === UNDELIVERED) throw new Error(`pots: ${id} did not reach ${pot}: ${failure}. ${DOOR_COMMAND} resend ${id} sends it once the cause is gone.`);
@@ -101,18 +105,13 @@ function prepare({ pot, need, served, key }, kind) {
   });
 }
 
-export function transmit(request) {
+function transmitWith(request, knockWith) {
   const current = find(request.id);
-  if (!RESENDABLE.includes(current.state)) return current;
-  return knockAndSettle(current, wireOf(current));
+  return RESENDABLE.includes(current.state) ? knockWith(current, wireOf(current)) : current;
 }
 
-export async function transmitAsync(request) {
-  const current = find(request.id);
-  if (!RESENDABLE.includes(current.state)) return current;
-  const outcome = await knockAsync(current.pot, wireOf(current));
-  return underLock(() => settle(request.id, outcome));
-}
+export const transmit = request => transmitWith(request, knockAndSettle);
+export const transmitAsync = async request => transmitWith(request, knockAndSettleAsync);
 
 function ask(arguments_) {
   const options = { need: { type: 'string' }, for: { type: 'string' } };

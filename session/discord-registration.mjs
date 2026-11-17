@@ -1,6 +1,6 @@
 import { registerDiscordQuestion } from './discord-clicks.mjs';
 import { DIALOG } from './door-messages.mjs';
-import { ANSWERED, OPEN, RECEIVED, REFUSED, RESENDABLE, UNKNOWN } from './door-requests.mjs';
+import { ANSWERED, OPEN, RECEIVED, REFUSED, UNKNOWN } from './door-requests.mjs';
 import { discordMessageUrl, packet } from './human-contract.mjs';
 import { checkHumanReply, humanPacket } from './human-door-packets.mjs';
 import { dialogDoors, DOOR_RETRY_MS } from './human-doors.mjs';
@@ -44,18 +44,19 @@ async function settleRegistration(record, store, doors) {
   }, record.id);
 }
 
+const summary = record => ({ dialog: record.id, registered: record.registered === true, state: record.registrationState, postedRequest: record.postedRequest, failure: record.failure });
+
 export async function registerQuestion(registration, { store, identity, doors = dialogDoors }) {
   registrationRequest(registration, doors);
   const record = await registerDiscordQuestion(registration, store, identity);
   try {
-    const settled = await settleRegistration(record, store, doors);
-    return { dialog: settled.id, registered: settled.registered === true, state: settled.registrationState, postedRequest: settled.postedRequest, failure: settled.failure };
+    return summary(await settleRegistration(record, store, doors));
   } catch (error) {
     const failed = await store.locked(({ get, save }) => {
       const current = get(record.id);
       return current.registered === true ? current : save({ ...current, registered: false, failure: error.message });
     }, record.id);
-    return { dialog: failed.id, registered: failed.registered === true, state: failed.registrationState, postedRequest: failed.postedRequest, failure: failed.failure };
+    return summary(failed);
   }
 }
 

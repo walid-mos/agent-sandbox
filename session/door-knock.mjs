@@ -1,7 +1,8 @@
-import { execFile, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { REFUSED_EXIT } from './door-messages.mjs';
 import { REFUSED, UNDELIVERED, UNKNOWN } from './door-requests.mjs';
+import { commandWithInput } from './run.mjs';
 
 const DOOR_CONFIG = fileURLToPath(new URL('./door.ssh_config', import.meta.url));
 // Outlasts the door's 5 s whois plus 45 s delivery (vm/pots-door.py), so a slow delivery ends with the door's own exit, not a timeout here.
@@ -38,13 +39,8 @@ export function knock(pot, wire) {
 
 // The service that relays an answer keeps handling clicks meanwhile, so a slow door here must not hold its event loop.
 export function knockAsync(pot, wire) {
-  return new Promise(resolve => {
-    const child = execFile('ssh', DOOR(pot), { timeout: DOOR_SECONDS * 1000, stdio: ['pipe', 'ignore', 'ignore'] }, error => {
-      if (!error) return resolve(undefined);
-      const expired = error.killed === true && `${error.signal}` === 'SIGTERM';
-      resolve(outcome(pot, expired ? TIMEOUT : `exit ${error.code ?? error.signal ?? error.code}`, error.code));
-    });
-    child.stdin.on('error', () => {});
-    child.stdin.end(wire);
+  return commandWithInput('ssh', DOOR(pot), wire, { timeout: DOOR_SECONDS * 1000, stdio: ['pipe', 'ignore', 'ignore'] }).then(() => undefined, error => {
+    const expired = error.killed === true && `${error.signal}` === 'SIGTERM';
+    return outcome(pot, expired ? TIMEOUT : `exit ${error.code ?? error.signal}`, error.code);
   });
 }

@@ -14,7 +14,7 @@ export const SECRET_TTL_MS = 15 * 60 * 1000;
 export const VERSION = 1;
 export const MASTERMIND_POT = 'mastermind';
 
-const text = value => typeof value === 'string' && value.trim().length > 0;
+export const text = value => typeof value === 'string' && value.trim().length > 0;
 const unique = values => new Set(values).size === values.length;
 // The pane sends a multiple-choice answer as one picked label per line (herdr/pots-questions.js), so a label holds none.
 export const isLabel = label => text(label) && !/[\r\n]/.test(label);

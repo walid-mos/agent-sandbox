@@ -1,11 +1,10 @@
 import { DIALOG, HOP_LIMIT, isPotName, parse, Refusal, REPLY, REQUEST } from './door-messages.mjs';
-import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, remove, save, underLock } from './door-requests.mjs';
+import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, remove, save, SETTLED, underLock } from './door-requests.mjs';
 import { checkHumanReply, checkHumanRoute, isInitialHumanPacket } from './human-door-packets.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId, sandbox } from './sandbox.mjs';
 
 const UNANSWERED_REQUESTS_PER_POT = 20;
-const SETTLED = [ANSWERED, REFUSED];
 
 function received({ caller, id, origin, hop, text, kind }) {
   if (origin !== caller) throw new Refusal(`pots: request ${id} is in the name of ${origin}, and ${caller} sent it.`);

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { acceptDiscordClick, closeDiscordQuestion, registeredPot } from './discord-clicks.mjs';
+import { acceptDiscordClick, closeDiscordQuestion, registeredPot, registrationOf } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
 import { ANSWERED, RECEIVED, REFUSED } from './door-requests.mjs';
 import { DIALOG } from './door-messages.mjs';
@@ -27,7 +27,7 @@ async function updateMessage(id, questionId, update) {
   await store.locked(async ({ get, save }) => {
     const current = get(id);
     if (JSON.stringify(current.updates?.[questionId]) !== JSON.stringify(update)) return;
-    await callDiscord((current.registration ?? current.savedRegistration).channelAccount, `PATCH /channels/${update.channelId}/messages/${update.messageId}`, update.body);
+    await callDiscord(registrationOf(current).channelAccount, `PATCH /channels/${update.channelId}/messages/${update.messageId}`, update.body);
     const updates = { ...current.updates };
     delete updates[questionId];
     save({ ...current, updates });

@@ -1,9 +1,9 @@
 import { registerQuestion } from '../../session/discord-registration.mjs';
-import { humanNeed } from '../../session/human-door-packets.mjs';
+import { acknowledgementOf, humanNeed } from '../../session/human-door-packets.mjs';
 
 export async function acknowledgedRegistration(registration, store, identity) {
   const original = { id: registration.request, direction: 'received', kind: 'dialog', pot: registration.pot, need: humanNeed(registration.question) };
-  const acknowledge = request => ({ ...request, state: 'answered', reply: '{"type":"human.posted-ack","version":1}' });
+  const acknowledge = request => ({ ...request, state: 'answered', reply: acknowledgementOf(request.need) });
   const doors = {
     find: id => id === original.id ? original : undefined,
     prepare: ({ need, pot }) => ({ id: 'mastermind.12345678', kind: 'dialog', direction: 'asked', need, pot, state: 'unknown' }),

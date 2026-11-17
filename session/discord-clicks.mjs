@@ -17,7 +17,7 @@ export async function registerDiscordQuestion(registration, store, identity) {
     const existing = get(question.dialog);
     if (existing) {
       if (existing.closed) throw new Error('discord-human: this question was already answered in the owning pot.');
-      if (JSON.stringify(existing.registration ?? existing.savedRegistration) !== JSON.stringify(registration)) throw new Error('discord-human: a registration cannot change.');
+      if (JSON.stringify(registrationOf(existing)) !== JSON.stringify(registration)) throw new Error('discord-human: a registration cannot change.');
       return existing;
     }
     return save({ id: question.dialog, savedRegistration: registration, registrationState: 'saved', registered: false, picks: {} });
@@ -104,7 +104,9 @@ function withdrawn(record, question, message, save) {
   return { status: 'stale', dialog: record.id, update: update.body, channelId: message.channelId, messageId: message.messageId };
 }
 
-export const registeredPot = record => (record.registration ?? record.savedRegistration)?.pot ?? record.expectedPot;
+/** A dialog's registration, acknowledged or still only saved. */
+export const registrationOf = record => record.registration ?? record.savedRegistration;
+export const registeredPot = record => registrationOf(record)?.pot ?? record.expectedPot;
 
 export async function closeDiscordQuestion(completion, store, originPot) {
   if (!originPot || !completion?.request?.startsWith(`${originPot}.`)) throw new Error('discord-human: completion has no matching pot origin.');
@@ -112,7 +114,7 @@ export async function closeDiscordQuestion(completion, store, originPot) {
   return store.locked(({ get, save }) => {
     const record = get(completion.dialog);
     if (!record) return save({ id: completion.dialog, expectedPot: originPot, closed: completion });
-    const registration = record.registration ?? record.savedRegistration;
+    const registration = registrationOf(record);
     const expectedRequest = registration?.request ?? record.closed.request;
     if (expectedRequest !== completion.request || registeredPot(record) !== originPot) throw new Error('discord-human: completion does not match the originating request.');
     if (JSON.stringify(record.closed) === JSON.stringify(completion)) return record;
