@@ -5,7 +5,6 @@ POTS_VM_REPO=$POTS_REPO
 POTS_VM_ENTRY_ENVIRONMENT=
 COLIMA_VM_INTERFACE=eth0
 COLIMA_HOST=host.lima.internal
-MAC_ROUTER_PORT=3425
 
 sandbox_vm() {
 	colima ssh -p "$POTS_PROFILE" -- "$@"

@@ -1,0 +1,39 @@
+{
+  "provider": "proxmox",
+  "launcher": "docker",
+  "proxmox": {
+    "host": "hp-proxmox",
+    "vmid": 201,
+    "storage": "local-lvm",
+    "bridge": "vmbr0",
+    "address": "192.168.1.201/24",
+    "gateway": "192.168.1.254",
+    "cpuUnits": 400
+  },
+  "vm": {
+    "cpu": 6,
+    "memoryGiB": 20,
+    "swapGiB": 0,
+    "diskGiB": 60
+  },
+  "bot": "Principal",
+  "owners": {
+    "NextNodeSolutions": "GITHUB_TOKEN",
+    "walid-mos": "GITHUB_TOKEN_WALID_MOS"
+  },
+  "secrets": {
+    "/providers": [
+      "DEEPSEEK_API_KEY",
+      "INCO_API_KEY",
+      "OPENROUTER_API_KEY",
+      "TYPESAFE_API_KEY"
+    ]
+  },
+  "onRequest": {
+    "claude": {
+      "/clients/claude": [
+        "CLAUDE_CODE_OAUTH_TOKEN"
+      ]
+    }
+  }
+}

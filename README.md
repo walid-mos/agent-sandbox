@@ -1,13 +1,15 @@
 # agent-sandbox
 
-Development sandboxes for a Pots bot and its Pi workers. Each sandbox is a desktop session on its own Colima VM, started either by plain Docker or by SealSkin. The session has its own writable home and nested Docker daemon, with read-only access to the Mac's Development directory.
+Development sandboxes for a Pots bot and its Pi workers. Each sandbox is a desktop session on its own VM, a Colima VM on the Mac or a Proxmox VM on a node, started either by plain Docker or, on Colima, by SealSkin. The session has its own writable home and nested Docker daemon. A Colima session reads the Mac's Development directory; a Proxmox session reads nothing from the Mac.
 
 ## Sandboxes
 
-Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named after it, holding `sandbox.json`. [`sandboxes.example/`](sandboxes.example) holds a starting point, which `./bin/configure-host [docker|sealskin]` copies when the runtime directory has none. `POTS_RUNTIME` names another runtime directory, which keeps a trial sandbox out of the watchdog's sight. That name is also its Colima profile. Every command under `bin/` and `mac/` acts on the sandbox that `SANDBOX` names and stops when it is unset.
+Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named after it, holding `sandbox.json`. [`sandboxes.example/`](sandboxes.example) holds a starting point, which `./bin/configure-host [docker|sealskin|proxmox]` copies when the runtime directory has none. `POTS_RUNTIME` names another runtime directory, which keeps a trial sandbox out of the watchdog's sight. That name is also its Colima profile or Proxmox VM name. Every command under `bin/` and `mac/` acts on the sandbox that `SANDBOX` names and stops when it is unset.
 
 | Key | Meaning |
 | --- | --- |
+| `provider` | `colima` (the default) or `proxmox`: where the sandbox's VM runs. [Proxmox sandboxes](#proxmox-sandboxes) describes the second |
+| `proxmox` | `proxmox` only. The node and the VM's network |
 | `launcher` | `docker` (the default) or `sealskin`. Docker starts the session image with `docker run`. SealSkin starts it through its server, as before |
 | `vm` | Cores, memory, swap file and disk of the VM |
 | `serverPort` | `sealskin` only. Mac-local port of the sandbox's SealSkin server. Each sandbox needs its own |
@@ -18,7 +20,7 @@ Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named a
 | `secrets` | Other vault folders, each with the names injected from it |
 | `onRequest` | Named groups of vault folders and names, injected only into a command that asks for the group |
 
-Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). The session mounts that directory read-only at `/etc/agent-sandbox`. The next command reads a changed `owners`, `secrets` or `onRequest`. `vm` applies when the VM next starts, `serverPort` when the server is next created, and `bot` and `rules` at the next bootstrap. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart. The watchdog's next check applies a changed `tailnetSshPort`, and the old port stays served until `tailscale serve --tcp=PORT off`.
+Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). The session mounts that directory read-only at `/etc/agent-sandbox`; on Proxmox, `vm-up` first copies it into the VM. The next command reads a changed `owners`, `secrets` or `onRequest`. `vm` applies when the VM next starts, `serverPort` when the server is next created, and `bot` and `rules` at the next bootstrap. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart. The watchdog's next check applies a changed `tailnetSshPort`, and the old port stays served until `tailscale serve --tcp=PORT off`.
 
 ## Install on the operator's Mac
 
@@ -74,6 +76,46 @@ A device whose Herdr adds machines by ssh only, such as the phone, reaches a ses
 - Each key is bound to [a forced command](vm/session-keys). It runs the client's shell line in the session as the session user, with no terminal and no forwarding, and runs nothing in the VM.
 - Lima picks a new Mac-local ssh port at each VM start, so [the watchdog's last step](mac/tailnet-ssh) points the tailnet port at the VM again.
 - The firewall keeps a session off the Mac's tailnet address, and `./bin/probe-boundary` checks every sandbox's port from the session.
+
+## Proxmox sandboxes
+
+A sandbox whose `provider` is `proxmox` runs on a VM of a Proxmox VE node, reached over ssh as root. `./bin/vm-up` creates that VM once and starts it. It copies the checkout's committed `HEAD` to `/opt/agent-sandbox` in the VM and the sandbox's directory to `/etc/agent-sandbox`, then runs the same [VM setup](vm/setup.sh) and [session keys](vm/session-keys) as on Colima. The session binds those two VM paths, and nothing from the Mac is mounted. Commit a change before `vm-up` for the VM to receive it. [The example](sandboxes.example/proxmox/sandbox.json) is a starting point.
+
+| `proxmox` key | Meaning |
+| --- | --- |
+| `host` | ssh host name or alias of the node, such as `hp-proxmox`. The Mac's ssh configuration gives it the root user and a key |
+| `vmid` | VM id, from 100 |
+| `storage` | Storage for the VM's disk and cloud-init drive, such as `local-lvm` |
+| `bridge` | Bridge of the VM's network card, such as `vmbr0` |
+| `address` | The VM's fixed IPv4 address with its prefix length, such as `192.168.1.201/24`. No other machine or DHCP range may use it |
+| `gateway` | IPv4 gateway of that network |
+| `cpuUnits` | The VM's CPU weight against the node's other VMs, from 1 to 10000. Proxmox gives a VM 100 by default |
+
+The sandbox's directory name names the VM, so it must be a lowercase host name. `vm.cpu`, `vm.memoryGiB` and `vm.diskGiB` size the VM, and `vm.swapGiB` sizes its swap file as on Colima. A Proxmox sandbox uses the `docker` launcher and has no `serverPort` or `tailnetSshPort`. Every command checks the sandbox against [the Proxmox rules](proxmox/config.jq) before anything reaches the node, prints each problem and exits with status 2. `./bin/check` applies the same rules to the examples.
+
+On the node, [the VM script](proxmox/ensure-vm.sh) holds a node-wide lock while it works.
+
+1. It creates the node's own VM key, `/root/.ssh/pots-vm_ed25519`, when absent.
+2. It lists every guest, VM or container, that holds the VM id or the name. With none, it creates the VM. A single VM with that id, that name and the `pots` tag is the sandbox's own. Anything else stops `vm-up` before it changes a guest.
+3. A new VM starts from the Ubuntu 24.04 cloud image pinned by release and SHA-256 in that script. The script takes the image from `/var/lib/vz/template/iso`, downloads it when absent and refuses a file with another checksum. Proxmox's own cloud-init settings give the VM root login with the node's key, its fixed address, public resolvers, no package upgrade at first boot and a start at node boot.
+4. It applies cores, memory and CPU weight, grows the disk to `vm.diskGiB` and never shrinks it. Changed cores and memory of a running VM apply at its next start. It then starts a stopped VM and waits for cloud-init to finish with ssh open, trying 60 times, 5 seconds apart.
+
+A command in the VM runs as root through two ssh hops: from the Mac to the node with the Mac's key, then from the node to the VM with the node's key. Each word is quoted once per hop, and stdin and the exit status pass through both. The Mac never holds a key to the VM. The node trusts the VM's host key at its first boot and requires that key afterwards. `./bin/vm-exec COMMAND` runs one such command. Inside the VM, each Mac key's forced command runs with `POTS_TRANSPORT=local`, which reads `/etc/agent-sandbox` and the VM's Docker directly.
+
+The boundary choices:
+
+- Root on the node controls every pot VM on it, so the node is part of the trusted operator side, like the Mac.
+- The VM firewall is Colima's. `probe-boundary` also checks the node's ssh and web ports, the gateway's web port and the ssh port of every Proxmox sandbox.
+- The VM resolves names through 1.1.1.1 and 9.9.9.9. Docker hands session containers the VM's upstream resolvers, and the firewall drops their traffic to the network's own private resolver.
+- Proxmox's cloud-init names the VM's card `eth0`, the uplink the firewall rules name. The firewall refuses to load on a VM without that interface, which keeps Docker and the session down.
+- `/etc/agent-sandbox` in the VM is readable by every VM user, as the session user needs. It holds no credential.
+
+Limits:
+
+- The pinned image is amd64, so the node must be amd64.
+- Only cores, memory, CPU weight and a larger disk reach an existing VM. A changed `address`, `storage`, `bridge` or `gateway` needs a new VM, which `vm-up` never creates over an existing one. No command stops or deletes a Proxmox VM.
+- The copies follow the checkout's `HEAD` at each `vm-up` and update in place, so a running session keeps its binds. A Git clone at either path is left as it is.
+- The SealSkin launcher, `mac/forward-dev` and the tailnet ssh port exist only on Colima.
 
 ## Agent sources
 

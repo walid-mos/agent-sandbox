@@ -3,6 +3,7 @@ export POTS_REPO
 POTS_RUNTIME=${POTS_RUNTIME:-$HOME/.config/agent-sandbox}
 export POTS_RUNTIME
 POTS_SANDBOX_ROOT="$POTS_RUNTIME/sandboxes"
+MAC_ROUTER_PORT=3425
 . "$POTS_REPO/session/launch.env"
 # POTS_TRANSPORT=local marks a command running inside the sandbox VM, which holds its one configuration at the session's path.
 case "${POTS_TRANSPORT:=provider}" in
@@ -26,8 +27,8 @@ sandbox_provider() {
 
 POTS_PROVIDER=$(sandbox_provider "$POTS_CONFIG")
 case "$POTS_PROVIDER" in
-	colima) ;;
-	*) echo "$(basename "$0"): provider must be colima in $POTS_CONFIG, got '$POTS_PROVIDER'" >&2; exit 2 ;;
+	colima | proxmox) ;;
+	*) echo "$(basename "$0"): provider must be colima or proxmox in $POTS_CONFIG, got '$POTS_PROVIDER'" >&2; exit 2 ;;
 esac
 POTS_LAUNCHER=$(jq -r '.launcher // "docker"' "$POTS_CONFIG")
 case "$POTS_LAUNCHER" in

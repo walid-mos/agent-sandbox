@@ -10,22 +10,37 @@ if len(sys.argv) != 3:
 kind, name = sys.argv[1:]
 repository = Path(__file__).resolve().parents[1]
 runtime = Path(os.environ.get("POTS_RUNTIME") or Path.home() / ".config/agent-sandbox")
-host = json.loads((runtime / "host.json").read_text())
-development = Path(host["developmentDirectory"])
 sandbox = runtime / "sandboxes" / name
 launch = dict(line.split("=", 1) for line in (repository / "session/launch.env").read_text().splitlines() if line)
-if not development.is_absolute() or not repository.is_relative_to(development):
-    raise SystemExit("render-config: developmentDirectory must be absolute and contain the repository.")
-if any(character in str(path) for path in (development, repository, sandbox) for character in (",", ":", "\n")):
-    raise SystemExit("render-config: mount paths cannot contain comma, colon or newline.")
+session_repository = launch["POTS_SESSION_REPOSITORY"]
+session_configuration = launch["POTS_SESSION_CONFIGURATION"]
+
+
+def mac_development():
+    host = json.loads((runtime / "host.json").read_text())
+    development = Path(host["developmentDirectory"])
+    if not development.is_absolute() or not repository.is_relative_to(development):
+        raise SystemExit("render-config: developmentDirectory must be absolute and contain the repository.")
+    if any(character in str(path) for path in (development, repository, sandbox) for character in (",", ":", "\n")):
+        raise SystemExit("render-config: mount paths cannot contain comma, colon or newline.")
+    return development
+
+
+def vm_sources():
+    provider = json.loads((sandbox / "sandbox.json").read_text()).get("provider", "colima")
+    if provider == "proxmox":
+        # vm-up copies this repository and the sandbox's directory into the VM at the session's own paths; nothing comes from the Mac.
+        return [], session_repository, session_configuration
+    development = mac_development()
+    return [f"{development}:{development}:ro"], repository, sandbox
 
 
 def session_binds():
-    return [
-        f"{development}:{development}:ro",
-        f"{repository}:/opt/agent-sandbox:ro",
-        f"{repository}/session/services.d:/custom-services.d:ro",
-        f"{sandbox}:/etc/agent-sandbox:ro",
+    mac_binds, vm_repository, vm_configuration = vm_sources()
+    return mac_binds + [
+        f"{vm_repository}:{session_repository}:ro",
+        f"{vm_repository}/session/services.d:/custom-services.d:ro",
+        f"{vm_configuration}:{session_configuration}:ro",
         f"{launch['POTS_INNER_DOCKER_VOLUME']}:/var/lib/docker:rw",
     ]
 
@@ -47,6 +62,7 @@ def with_launch_values(text):
 if kind == "colima":
     # Colima mounts only the listed locations, and the session binds the sandbox's directory from inside the VM.
     template = (repository / "colima/colima.yaml").read_text()
+    development = mac_development()
     print(template.replace("DEVELOPMENT_DIRECTORY", json.dumps(str(development))).replace("SANDBOX_DIRECTORY", json.dumps(str(sandbox))), end="")
 elif kind == "sealskin":
     template = (repository / "sealskin/app-template.yml").read_text()
