@@ -5,6 +5,11 @@ import { sandboxFixture } from './fixtures/sandbox.mjs';
 
 const { home } = sandboxFixture('human-door-attacks-');
 const wakes = [];
+const sent = [];
+mock.module('../session/door-knock.mjs', { exports: {
+  knock: () => assert.fail('Unexpected synchronous delivery'),
+  knockAsync: async (pot, wire) => { sent.push({ pot, wire }); },
+} });
 mock.module('../session/run.mjs', { exports: {
   command: (...arguments_) => { wakes.push(arguments_); return ''; },
   commandOutput: async () => { throw new Error('Unexpected reply'); },
@@ -13,6 +18,7 @@ mock.module('../session/run.mjs', { exports: {
 } });
 const { all, find, save, remove } = await import('../session/door-requests.mjs');
 const { receiveMessage } = await import('../session/door-deliveries.mjs');
+const { dialogDoors } = await import('../session/human-doors.mjs');
 const { humanNeed } = await import('../session/human-door-packets.mjs');
 const { questionPacket, openDialog } = await import('../session/human-dialogs.mjs');
 const { humanStore } = await import('../session/human-store.mjs');
@@ -22,7 +28,7 @@ const { reconcilePosted } = await import('../session/human-posted.mjs');
 const { sandbox } = await import('../session/sandbox.mjs');
 let sequence = 0;
 const store = () => humanStore(join(home, `store-${++sequence}`));
-const clear = () => { all().forEach(request => remove(request.id)); sandbox.role = 'mastermind'; wakes.length = 0; };
+const clear = () => { all().forEach(request => remove(request.id)); sandbox.role = 'mastermind'; wakes.length = 0; sent.length = 0; };
 const incoming = (body, header = 'dialog nextnode.12345678', caller = 'nextnode') => receiveMessage(caller, Buffer.from(`${header}\n${body}`));
 const secret = { type: 'human.secret-link', version: 1, dialog: 'a'.repeat(32), purpose: 'Supply test input', url: 'https://owner.example.test/s/reference', expiresAt: 0 };
 
@@ -46,6 +52,23 @@ async function fixture() {
   };
   return { discord, registration, doors, set: (next, answer) => { state = next; reply = answer; if (posted) Object.assign(posted, { state, reply }); } };
 }
+
+test('a prose dialog reply is refused locally without closing the request for the human answer', async () => {
+  clear();
+  const { registration } = await fixture();
+  incoming(humanNeed(registration.question));
+  const received = find(registration.request);
+  await assert.rejects(dialogDoors.reply(received.id, 'The timing is still being discussed.'), { exitCode: 76, message: /discord-human.*relay.*doors\.mjs reply/ });
+  assert.deepEqual(find(received.id), received);
+  assert.equal(find(received.id).state, 'open');
+  assert.deepEqual(sent, []);
+  const reply = JSON.stringify({ type: 'human.answer', version: 1, dialog: registration.question.dialog, request: received.id, digest: registration.question.digest,
+    answers: [{ id: 'pick', labels: ['Yes'], text: '' }], clicks: [] });
+  await dialogDoors.reply(received.id, reply);
+  assert.equal(find(received.id).state, 'answered');
+  assert.equal(find(received.id).reply, reply);
+  assert.deepEqual(sent, [{ pot: 'nextnode', wire: `reply ${received.id}\n${reply}` }]);
+});
 
 test('ordinary text resembling a dialog remains an ordinary request and cannot bypass hop refusal', () => {
   clear();
