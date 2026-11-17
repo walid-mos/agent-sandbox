@@ -13,6 +13,7 @@ export const BROWSER_KEY = 'SECRET';
 export const SECRET_TTL_MS = 15 * 60 * 1000;
 export const VERSION = 1;
 export const MASTERMIND_POT = 'mastermind';
+export const DISCORD_MESSAGE_LIMIT = 2000;
 
 export const text = value => typeof value === 'string' && value.trim().length > 0;
 const unique = values => new Set(values).size === values.length;

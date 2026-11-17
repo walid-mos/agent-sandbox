@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { closeDiscordQuestion, registerOwnerQuestion } from './discord-clicks.mjs';
-import { DIALOG_ID, MASTERMIND_POT, packet } from './human-contract.mjs';
+import { DIALOG_ID, DISCORD_MESSAGE_LIMIT, MASTERMIND_POT, packet } from './human-contract.mjs';
 import { questionDigest, questionPacket } from './human-dialogs.mjs';
-import { approvalMessage, canonicalJson, DISCORD_MESSAGE_LIMIT, requireApprovalDisplay } from './discord-admin-message.mjs';
+import { approvalControls, approvalMessage, canonicalJson, requireApprovalDisplay } from './discord-admin-message.mjs';
 import { snowflake } from './discord-admin-operations.mjs';
 
 export const DISCORD_ADMIN = { id: 'discord-admin', name: 'Discord Admin' };
@@ -34,9 +34,8 @@ function registeredPick(record, question) {
 }
 
 function requireRegisteredApproval(record, question) {
-  const registration = record.registration ?? { question: {} };
   const checks = [record.localAdmin === true, record.registered === true, record.registrationState === 'acknowledged', !record.closed,
-    registration.request === requestId(question.id), registration.question.digest === questionDigest(question)];
+    record.registration?.request === requestId(question.id), record.registration?.question.digest === questionDigest(question)];
   if (!checks.every(Boolean)) throw new Error('discord-admin: the approval message is not this exact registered question, or it is closed.');
 }
 
@@ -51,7 +50,7 @@ async function prepareApproval(request, ownerId, pending) {
   const id = randomBytes(DIALOG_BYTES).toString('hex');
   const question = approvalQuestion(id, request);
   const shown = questionPacket(question);
-  const message = approvalMessage(shown, 'disabled');
+  const message = approvalMessage(shown);
   if (message.content.length > DISCORD_MESSAGE_LIMIT) throw new Error(TOO_LONG);
   await pending.locked(({ save }) => save({ id, question, ownerId, expiresAt: Date.now() + APPROVAL_TTL_MS }), id);
   return { status: 'approval_required', approval: id, question: shown, message };
@@ -96,9 +95,9 @@ async function verifiedMessage(input, question, api) {
   const { channelId, messageId } = input.messages[0];
   if (![channelId, messageId].every(snowflake)) throw new Error('discord-admin: invalid approval display message IDs.');
   const bot = await api('GET', '/users/@me');
-  const expected = { channelId, messageId, authorId: bot.id, ...approvalMessage(question, 'disabled') };
+  const expected = { channelId, messageId, authorId: bot.id, ...approvalMessage(question) };
   requireApprovalDisplay(await api('GET', `/channels/${channelId}/messages/${messageId}`), expected);
-  return { ...expected, components: approvalMessage(question, 'enabled').components };
+  return { ...expected, components: approvalControls(question) };
 }
 
 async function registerApproval(input, { pending, clicks, channelAccount, guildId, api }) {

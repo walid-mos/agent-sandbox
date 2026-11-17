@@ -3,15 +3,18 @@ const canonical = value => {
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
   return value;
 };
-export const DISCORD_MESSAGE_LIMIT = 2000;
 export const canonicalJson = value => JSON.stringify(canonical(value));
 const displayError = () => new Error('discord-admin: approval display does not match the complete canonical scope, bot author and controls.');
 
-export function approvalMessage(question, state) {
+const buttons = question => question.questions[0].options.map((option, index) => ({ type: 2, style: index === 0 ? 1 : 2,
+  label: option.label, custom_id: `human:${question.dialog}:0:${index}` }));
+
+export const approvalControls = question => [{ type: 1, components: buttons(question) }];
+
+export function approvalMessage(question) {
   const scope = question.scope.replace(/`/g, '\\u0060').replace(/[\u202a-\u202e\u2066-\u2069]/g, character => `\\u${character.charCodeAt(0).toString(16)}`);
   return { content: `Server administration approval\n\`\`\`json\n${scope}\n\`\`\`\n${question.questions[0].prompt}`, allowed_mentions: { parse: [] },
-    components: [{ type: 1, components: question.questions[0].options.map((option, index) => ({ type: 2, style: index === 0 ? 1 : 2,
-      label: option.label, custom_id: `human:${question.dialog}:0:${index}`, disabled: state === 'disabled' })) }] };
+    components: approvalControls(question).map(row => ({ ...row, components: row.components.map(button => ({ ...button, disabled: true })) })) };
 }
 
 function normalizeButton(button) {
@@ -30,8 +33,7 @@ function normalizeControls(components) {
 
 function requireMessageIdentity(message, expected) {
   if (!message) throw displayError();
-  const author = message.author ?? {};
-  if (![message.id === expected.messageId, message.channel_id === expected.channelId, author.id === expected.authorId].every(Boolean)) throw displayError();
+  if (![message.id === expected.messageId, message.channel_id === expected.channelId, message.author?.id === expected.authorId].every(Boolean)) throw displayError();
 }
 
 function requireNoExtraDisplays(message) {
