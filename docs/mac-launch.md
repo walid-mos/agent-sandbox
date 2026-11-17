@@ -257,10 +257,10 @@ Then, in order:
 4. Run: ./mac/launch-gate configure --name mac-studio --label "Mac Studio" --operator ID --guild ID --channel ID --announcer ID --pots POT,POT --directory "$HOME"
 5. Ask me to run this myself in a terminal and paste the bot token at its hidden prompt: ./mac/launch-gate token
 6. Run ./mac/launch-gate check and show me every line. Stop on any failure.
-7. Only on my explicit yes: ./mac/launch-gate enable, then ./mac/install-launch-gate
+7. Only on my explicit yes: ./mac/launch-gate enable, then ./mac/launch-gate install
 8. Proof: ask me to have any pot request a launch here whose prompt is "Reply with the word ready." and to press its button. Show me that a Pi named ml-… appeared in Herdr and that the offer says Started, then Finished.
 
-To turn it off: ./mac/launch-gate disable, then ./mac/install-launch-gate --remove. To remove the token: security delete-generic-password -s agent-sandbox-mac-launch, then reset it in the developer portal.
+To turn it off: ./mac/launch-gate disable, then ./mac/launch-gate remove. To remove the token: security delete-generic-password -s agent-sandbox-mac-launch, then reset it in the developer portal.
 ```
 
 ### MacBook Pro
@@ -277,10 +277,10 @@ Then, in order:
 4. Run: ./mac/launch-gate configure --name macbook-pro --label "MacBook Pro" --operator ID --guild ID --channel ID --announcer ID --pots POT,POT --directory "$HOME"
 5. Ask me to run this myself in a terminal and paste the bot token at its hidden prompt: ./mac/launch-gate token
 6. Run ./mac/launch-gate check and show me every line. Stop on any failure.
-7. Only on my explicit yes: ./mac/launch-gate enable, then ./mac/install-launch-gate
+7. Only on my explicit yes: ./mac/launch-gate enable, then ./mac/launch-gate install
 8. Proof: ask me to have any pot request a launch here whose prompt is "Reply with the word ready." and to press its button. Show me that a Pi named ml-… appeared in Herdr and that the offer says Started, then Finished.
 
-To turn it off: ./mac/launch-gate disable, then ./mac/install-launch-gate --remove. To remove the token: security delete-generic-password -s agent-sandbox-mac-launch, then reset it in the developer portal.
+To turn it off: ./mac/launch-gate disable, then ./mac/launch-gate remove. To remove the token: security delete-generic-password -s agent-sandbox-mac-launch, then reset it in the developer portal.
 ```
 
 ### Pots
