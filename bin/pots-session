@@ -2,7 +2,7 @@
 set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
 
-LOCK="$HOME/.colima/$POTS_PROFILE/pots-session.lock"
+LOCK="$POTS_RUNTIME/locks/$SANDBOX.pots-session.lock"
 LOCK_WAIT_SECONDS=300
 DOCKER_STOP_SECONDS=30
 NEWLINE='
@@ -10,7 +10,13 @@ NEWLINE='
 
 # The watchdog and an operator can both find no session and each launch one on the same home, so every launch holds this lock.
 hold_lock() {
-	[ "${POTS_SESSION_LOCK:-}" = held ] || exec env POTS_SESSION_LOCK=held lockf -k -t "$LOCK_WAIT_SECONDS" "$LOCK" "$0" "$@"
+	[ "${POTS_SESSION_LOCK:-}" != held ] || return 0
+	mkdir -p "$(dirname "$LOCK")"
+	case "$(uname -s)" in
+		Darwin) exec env POTS_SESSION_LOCK=held lockf -k -t "$LOCK_WAIT_SECONDS" "$LOCK" "$0" "$@" ;;
+		Linux) exec env POTS_SESSION_LOCK=held flock --wait "$LOCK_WAIT_SECONDS" "$LOCK" "$0" "$@" ;;
+		*) echo "pots-session: no launch lock command for $(uname -s)" >&2; exit 1 ;;
+	esac
 }
 
 api() {
