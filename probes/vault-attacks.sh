@@ -55,7 +55,31 @@ process.exit(answer.status === 0 ? 0 : 1);' "$session_binding" "$session_home/.p
 }
 
 session_login_is_private() {
-	[ "$(stat -c '%U %a' "$session_identity" "$session_binding" "$(dirname "$session_identity")" | tr '\n' ' ')" = "$session_user 600 $session_user 600 $session_user 700 " ]
+	python3 - "$session_home" "$POTS_SESSION_VAULT_DIRECTORY" "$POTS_SESSION_VAULT_FILE" "$session_user" <<'PY'
+import pwd
+import stat
+import sys
+from pathlib import Path
+
+home, relative, credential, user = sys.argv[1:]
+owner = pwd.getpwnam(user).pw_uid
+path = Path(home)
+for component in ("", *Path(relative).parts):
+    path = path / component
+    details = path.lstat()
+    if not stat.S_ISDIR(details.st_mode) or details.st_uid != owner:
+        sys.exit(1)
+if stat.S_IMODE(details.st_mode) != 0o700:
+    sys.exit(1)
+for name in (credential, "core-vault.json"):
+    details = (path / name).lstat()
+    if not stat.S_ISREG(details.st_mode) or details.st_uid != owner or stat.S_IMODE(details.st_mode) != 0o600:
+        sys.exit(1)
+for name in (".profile", ".bashrc"):
+    details = (Path(home) / name).lstat()
+    if not stat.S_ISREG(details.st_mode) or details.st_uid != owner or stat.S_IMODE(details.st_mode) != 0o600 or details.st_nlink != 1:
+        sys.exit(1)
+PY
 }
 
 echo "as $(id -un)"
