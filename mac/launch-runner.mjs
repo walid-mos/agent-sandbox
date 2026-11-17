@@ -6,6 +6,16 @@ import { REPORT_CHARACTERS } from '../session/launch-contract.mjs';
 const FINAL_STOP = 'stop';
 const IDLE = ['idle', 'done'];
 const LAST_ERROR_CHARACTERS = 300;
+const STATUS_MS = 5000;
+
+// Herdr answers a name it does not hold with a not_found error, which is a fact about the terminal. Any other failure says nothing about it.
+function terminalNamed(name) {
+  try { return JSON.parse(command('hc', ['get', '--json', name], { timeout: STATUS_MS, stdio: ['ignore', 'pipe', 'pipe'] })); }
+  catch (error) {
+    if (/"kind":\s*"not_found"/.test(`${error.stderr ?? ''}`)) return undefined;
+    throw new Error('mac-launch: Herdr did not answer for the launch terminal.');
+  }
+}
 
 export function herdrRunner(store, program = [process.execPath, fileURLToPath(new URL('./launch-pi.mjs', import.meta.url))]) {
   function start(offer, settings) {
@@ -24,10 +34,11 @@ export function herdrRunner(store, program = [process.execPath, fileURLToPath(ne
     }
   }
   function result(run) {
-    const terminal = JSON.parse(command('hc', ['get', '--json', run.name], { timeout: 5000 }));
-    if (terminal.created_ms !== run.createdMs) return { status: 'failed', detail: 'The Herdr terminal was replaced.' };
+    const terminal = terminalNamed(run.name);
     const reply = finalReply(run.session);
-    if (reply && (IDLE.includes(terminal.status) || terminal.state === 'finished')) return { status: 'finished', report: reply };
+    const isGone = !terminal || terminal.created_ms !== run.createdMs;
+    if (reply && (isGone || IDLE.includes(terminal.status) || terminal.state === 'finished')) return { status: 'finished', report: reply };
+    if (isGone) return { status: 'failed', detail: 'The Herdr terminal is gone and Pi left no final reply.' };
     if (terminal.state === 'finished') return { status: 'failed', detail: 'Pi stopped without a final reply.' };
     return undefined;
   }

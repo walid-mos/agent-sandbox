@@ -32,6 +32,8 @@ writeFileSync(ownership, JSON.stringify({ launch, folder }));
 try {
   const fixture = fileURLToPath(new URL('./fixtures/mac-launch-pi.mjs', import.meta.url));
   const runner = herdrRunner(gateStore(folder), [process.execPath, fixture]);
+  const closed = { name: `ml-gone-${launch.slice(0, 16)}`, session: join(folder, 'none.jsonl'), createdMs: 1 };
+  assert.equal(runner.result(closed).status, 'failed', 'a launch whose terminal Herdr no longer holds must end');
   run = runner.start({ request: { launch }, prompt: 'Reply ready.' }, { directory: folder });
   writeFileSync(ownership, JSON.stringify({ launch, folder, ...run }));
   for (let attempt = 0; attempt < 3; attempt++) {
