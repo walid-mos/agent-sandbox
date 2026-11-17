@@ -141,6 +141,20 @@ test('a fresh base change invalidates approval before consumption', async () => 
   assert.equal(humanStore().get(id).consumption, undefined);
 });
 
+test('a commit made during receipt consumption aborts publication before its first push', async () => {
+  const f = fixture();
+  const id = await approval(workerScope([f.worker.name]).scope);
+  const store = humanStore();
+  const changingStore = { ...store, async locked(...arguments_) {
+    const receipt = await store.locked(...arguments_);
+    git(f.checkout, 'commit', '--allow-empty', '-m', 'test: concurrent commit');
+    return receipt;
+  } };
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once'], changingStore), /changed after consumption/);
+  assert.ok(store.get(id).consumption);
+  assert.equal(remoteHeads(f), '');
+});
+
 test('non-repository tasks cannot enter either publication operation', async () => {
   const name = 'nonrepo';
   save({ name, kind: 'task', owner: 'proof', worktree: home });

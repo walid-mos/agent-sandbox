@@ -72,6 +72,7 @@ beforeEach(t => {
   shutdowns = 0;
   const directory = join(home, `task-${++serial}`);
   mkdirSync(directory);
+  mkdirSync(join(directory, '.git'));
   worker = { name: `task-${serial}`, kind: 'task', owner: 'proof', title: 'Read one report', scope: 'Read and summarize',
     worktree: directory, brief: join(directory, 'brief.md'), resultFile: join(directory, 'result.md') };
   writeFileSync(worker.brief, 'Read and summarize.');
@@ -88,6 +89,7 @@ test('a task launches visibly and closes only after its result and exact coordin
   assert.ok(launch.includes('herdr.space=sppots'));
   assert.ok(launch.includes(`herdr.tab=tb${worker.name}`));
   assert.ok(launch.includes('magpie/group/router'));
+  assert.ok(launch.includes('agent.title=Read one report'));
   runtime.settle(context);
   t.mock.timers.tick(SETTLED_GRACE_MS);
   inspect();
