@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { answersOf, dialogSource, discordEvidence, discordMessage, MASTERMIND_POT, onlyFor, packet, questionsOf, RELAYED_POLICIES, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
+import { answersOf, dialogSource, discordEvidence, discordMessage, LOCAL_POLICY, MASTERMIND_POT, onlyFor, packet, policyOf, questionsOf, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
 import { ANSWERED, ASKED } from './door-requests.mjs';
 import { humanStore } from './human-store.mjs';
 
@@ -50,7 +50,7 @@ export async function openDialog(input, store = humanStore()) {
 
 function newDialog(input, id) {
   const common = { id, version: VERSION, kind: input.kind, source: dialogSource(input.source), context: `${input.context ?? ''}`,
-    served: input.served, createdAt: Date.now(), policy: RELAYED_POLICIES.includes(input.policy) ? input.policy : 'local', scope: input.scope };
+    served: input.served, createdAt: Date.now(), policy: policyOf(input.policy), scope: input.scope };
   if (common.policy === 'push' && (typeof input.scope !== 'string' || !input.scope.trim())) throw new Error('human: an approval needs its exact scope.');
   if (input.kind === 'question') return { ...common, questions: questionsOf(input.questions) };
   if (typeof input.purpose !== 'string' || !input.purpose.trim()) throw new Error('human: a secret needs a purpose.');
@@ -64,7 +64,7 @@ export async function answerQuestion(id, answer, { store = humanStore(), identit
     const dialog = get(id);
     if (dialog?.kind !== 'question') throw new Error('human: no such question.');
     if (dialog.result) return dialog;
-    if (origin === 'discord' && dialog.policy === 'local') throw new Error('human: this question requires the pot terminal.');
+    if (origin === 'discord' && dialog.policy === LOCAL_POLICY) throw new Error('human: this question requires the pot terminal.');
     if (origin === 'discord') checkedReply(dialog, answer);
     const evidence = origin === 'discord' ? { clicks: answer.clicks.map(click => ({ question: click.question, ...discordEvidence(click, identity, dialog.policy) })) } : undefined;
     const answers = answersOf(dialog.questions, answer.answers);

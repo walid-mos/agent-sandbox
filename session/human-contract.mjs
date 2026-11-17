@@ -3,6 +3,8 @@ const SNOWFLAKE = /^\d{17,20}$/;
 export const DIALOG_ID = /^[a-f0-9]{32}$/;
 export const DIGEST = /^[a-f0-9]{64}$/;
 export const RELAYED_POLICIES = ['ordinary', 'push'];
+export const LOCAL_POLICY = 'local';
+export const policyOf = value => (RELAYED_POLICIES.includes(value) ? value : LOCAL_POLICY);
 const NAME = /^[\w-]+$/;
 const CAPABILITY = /^[\w-]{43,256}$/;
 // Linux Unix socket addresses hold at most 107 path bytes.

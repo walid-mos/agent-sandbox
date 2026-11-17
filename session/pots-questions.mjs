@@ -1,4 +1,4 @@
-import { RELAYED_POLICIES } from './human-contract.mjs';
+import { policyOf } from './human-contract.mjs';
 
 // The bot asks the person to choose by ending a message with a fenced `question` block of JSON, which the pane draws as buttons.
 const BLOCK = /^```question[ \t]*\n([\s\S]*?)\n```[ \t]*$/gm;
@@ -45,5 +45,5 @@ export function questionIn(text) {
   const asked = block ? parsedBlock(block[1]) : null;
   const options = optionsOf(asked);
   if (!options) return null;
-  return { text: written.replace(block[0], '').trim(), question: { multiple: asked.multiple === true, options, purpose: RELAYED_POLICIES.includes(asked.purpose) ? asked.purpose : 'local', scope: asked.scope, for: asked.for } };
+  return { text: written.replace(block[0], '').trim(), question: { multiple: asked.multiple === true, options, purpose: policyOf(asked.purpose), scope: asked.scope, for: asked.for } };
 }

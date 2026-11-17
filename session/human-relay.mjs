@@ -1,7 +1,7 @@
 import { all, ANSWERED, find, RESENDABLE } from './door-requests.mjs';
 import { prepareAsk, transmitAsk } from './doors.mjs';
 import { deliverBotResult, syncBotDialogs } from './human-bot.mjs';
-import { MASTERMIND_POT, packet } from './human-contract.mjs';
+import { LOCAL_POLICY, MASTERMIND_POT, packet } from './human-contract.mjs';
 import { acceptDoorAnswer, cancelDialog, completionNeed, questionNeed, secretNeed } from './human-dialogs.mjs';
 import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
 import { ensureSecretPage, syncSecretPage } from './human-pages.mjs';
@@ -67,7 +67,7 @@ async function reportResult(dialog, options) {
 async function reconcileDialog(initial, options) {
   const dialog = initial.kind === 'secret' ? await reconcileSecret(initial, options) : await reconcileQuestion(initial, options);
   if (dialog.result) return reportResult(dialog, options);
-  if (dialog.kind === 'question' && dialog.policy === 'local') return undefined;
+  if (dialog.kind === 'question' && dialog.policy === LOCAL_POLICY) return undefined;
   if (dialog.kind === 'secret' && (dialog.writing || !dialog.pageLink || dialog.pageRevoked)) return undefined;
   return sendNotice(dialog, 'delivery', dialog.kind === 'question' ? questionNeed(dialog) : secretNeed(dialog), options);
 }
