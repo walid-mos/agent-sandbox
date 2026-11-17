@@ -4,6 +4,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 from launch import LAUNCH
@@ -16,9 +17,9 @@ CHILDREN = []
 BOOTSTRAP = Path(LAUNCH["POTS_FACTORY_BOOTSTRAP"])
 
 
-def spawn(arguments, *, privilege, stdout=None):
+def spawn(arguments, *, privilege, stderr=None):
     options = {"user": FACTORY_UID, "group": FACTORY_UID, "extra_groups": []} if privilege == "factory" else {}
-    child = subprocess.Popen(arguments, env=ENVIRONMENT, start_new_session=True, stdout=stdout, **options)
+    child = subprocess.Popen(arguments, env=ENVIRONMENT, start_new_session=True, stderr=stderr, **options)
     CHILDREN.append(child)
     return child
 
@@ -61,10 +62,20 @@ def wait_for_docker():
     os.chown("/var/run/docker.sock", FACTORY_UID, FACTORY_UID)
 
 
+def forward(lines):
+    for line in lines:
+        sys.stderr.buffer.write(line)
+        sys.stderr.flush()
+
+
+# dockerd logs to stderr; the log keeps being read after readiness so a full pipe never blocks the daemon.
 def start_docker():
-    daemon = spawn(["/usr/sbin/dockerd", "--data-root=/var/lib/docker"], privilege="root", stdout=subprocess.PIPE)
-    for line in iter(daemon.stdout.readline, b""):
+    daemon = spawn(["/usr/sbin/dockerd", "--data-root=/var/lib/docker"], privilege="root", stderr=subprocess.PIPE)
+    lines = iter(daemon.stderr.readline, b"")
+    for line in lines:
+        sys.stderr.buffer.write(line)
         if b"API listen on /var/run/docker.sock" in line:
+            threading.Thread(target=forward, args=(lines,), daemon=True).start()
             wait_for_docker()
             return
     raise RuntimeError("factory: the private check engine exited before readiness.")
