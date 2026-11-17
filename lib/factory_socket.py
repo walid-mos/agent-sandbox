@@ -4,6 +4,7 @@ from pathlib import Path
 import secrets
 import socket
 import socketserver
+import subprocess
 
 TOKEN_FILE = "token"
 TOKEN_LENGTH = 64
@@ -37,7 +38,7 @@ def serve(path, name, limit, answer, failure):
                 reply = {"ok": True, **answer(json.loads(line))}
             except Refused as error:
                 reply = {"ok": False, "error": str(error)}
-            except (ValueError, OSError, KeyError):
+            except (ValueError, OSError, KeyError, subprocess.TimeoutExpired):
                 reply = {"ok": False, "error": failure}
             self.wfile.write((json.dumps(reply) + "\n").encode())
 
