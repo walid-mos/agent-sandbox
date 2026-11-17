@@ -1,5 +1,5 @@
 import { DIALOG_ID, discordEvidence, discordMessageUrl, isSnowflake, LAUNCH_POLICY } from '../session/human-contract.mjs';
-import { fetchedRequest, OPEN } from '../session/launch-contract.mjs';
+import { fetchedRequest, OPEN, sameRequest } from '../session/launch-contract.mjs';
 
 export const PRESS_MAX_AGE_MS = 30_000;
 const DISCORD_EPOCH = 1420070400000n;
@@ -16,7 +16,7 @@ export function pressedButton(customId) {
 export function verifyOffer(shown, notice, settings, now) {
   const { request, prompt, state } = fetchedRequest(shown);
   const isBound = ['launch', 'pot', 'target'].every(key => request[key] === notice[key])
-    && (notice.digest === undefined || JSON.stringify(request) === JSON.stringify(notice));
+    && (notice.digest === undefined || sameRequest(request, notice));
   if (!isBound || request.target !== settings.name || !settings.pots.includes(request.pot)) throw new Error('mac-launch: the fetched launch names another pot or Mac.');
   if (state !== OPEN || now >= request.expiresAt || now < request.createdAt) throw new Error('mac-launch: this launch is closed, expired or from the future.');
   const refused = request.acts.filter(act => settings.refusedActs.includes(act));

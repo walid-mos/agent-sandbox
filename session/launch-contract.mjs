@@ -76,6 +76,8 @@ export function launchRequest({ launch, pot, target, title, acts = [], cost = ''
   return request;
 }
 
+export const sameRequest = (first, second) => ['type', 'version', ...REQUEST_FIELDS].every(key => JSON.stringify(first[key]) === JSON.stringify(second[key]));
+
 export const shownRequest = (request, prompt, state) => ({ ...request, state, prompt });
 
 export function fetchedRequest(shown) {
