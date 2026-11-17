@@ -41,8 +41,13 @@ async function request(arguments_) {
   if (values.replaces && shownLaunch(values.replaces, store).state !== OPEN) throw new Error(`mac-launch: launch ${values.replaces} is no longer open, so a new launch cannot replace it.`);
   const opened = await openLaunch({ target: values.target, title: values.title, acts: values.acts ? values.acts.split(',') : [], cost: values.cost ?? '', prompt: readFileSync(file, 'utf8') },
     { store, settings: launchSettings(sandbox), pot: ownName() });
-  if (values.replaces) await askAndTell(values.replaces, 'superseded', store);
-  await sendNotice(opened);
+  try {
+    if (values.replaces) await askAndTell(values.replaces, 'superseded', store);
+    await sendNotice(opened);
+  } catch (error) {
+    await store.locked(({ get, save }) => save({ ...get(opened.launch), state: 'failed' }), opened.launch);
+    throw error;
+  }
   print(opened);
 }
 
