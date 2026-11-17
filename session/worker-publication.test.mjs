@@ -76,6 +76,25 @@ test('implementation commits and changed origin require a new exact receipt', as
   assert.equal(humanStore().get(id).consumption, undefined);
 });
 
+test('a different or additional push URL refuses publication before consuming approval', async () => {
+  const f = fixture();
+  const id = await approval(workerScope([f.worker.name]).scope);
+  const otherOrigin = join(f.checkout, '..', 'other-origin.git');
+  git(home, 'init', '--bare', otherOrigin);
+  git(f.checkout, 'remote', 'set-url', '--push', 'origin', otherOrigin);
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /push destination/);
+  assert.equal(humanStore().get(id).consumption, undefined);
+  git(f.checkout, 'remote', 'set-url', '--push', 'origin', f.remote);
+  git(f.checkout, 'remote', 'set-url', '--add', '--push', 'origin', otherOrigin);
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /push destination/);
+  git(f.checkout, 'config', '--unset-all', 'remote.origin.pushurl');
+  git(f.checkout, 'config', `url.${otherOrigin}.pushInsteadOf`, f.remote);
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /push destination/);
+  assert.equal(humanStore().get(id).consumption, undefined);
+  assert.equal(remoteHeads(f), '');
+  assert.equal(git(otherOrigin, 'for-each-ref', '--format=%(objectname)', 'refs/heads'), '');
+});
+
 test('one checked receipt pushes the exact first head and opens its draft without a second push', async () => {
   const f = fixture();
   const request = workerScope([f.worker.name]);

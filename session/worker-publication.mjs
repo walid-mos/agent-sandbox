@@ -9,7 +9,7 @@ const DECLINE_LABEL = 'Keep local';
 
 function repositoryWorker(name) {
   const worker = ownedWorker(name, botId);
-  if (!worker?.repository) throw new Error('dispatch: publication requires an owned repository worker.');
+  if (!worker?.repository || worker.kind === 'task') throw new Error('dispatch: publication requires an owned repository worker.');
   return worker;
 }
 
@@ -17,6 +17,7 @@ function checkCheckout(worker, git) {
   if (worker.publication !== PUBLICATION.local) throw new Error('dispatch: this worker is not waiting for its first approved push. Use open-pr after a successful push.');
   if (git(['branch', '--show-current']) !== worker.branch) throw new Error('dispatch: task branch changed. Restore it before publication.');
   if (!worker.originUrl || git(['remote', 'get-url', 'origin']) !== worker.originUrl) throw new Error('dispatch: origin changed. Restore it and ask for a new approval.');
+  if (git(['remote', 'get-url', '--push', '--all', 'origin']) !== worker.originUrl) throw new Error('dispatch: push destination differs from the approved origin. Restore it before asking for approval.');
   if (git(['status', '--porcelain'])) throw new Error('dispatch: commit or remove local changes before requesting publication.');
 }
 
