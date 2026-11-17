@@ -10,6 +10,7 @@ if ! curl --silent --fail --output /dev/null --retry "$ROUTER_READY_ATTEMPTS" --
 	echo "router-restore: no router answers on $POTS_ROUTER_ADDRESS. Run session-bootstrap." >&2
 	exit 1
 fi
+# magpie restore reads the seed passphrase from this script's stdin, which bin/router-seed pipes in.
 magpie restore --no-agents --no-library --no-sign-ins "$seed"
 rm -f "$seed"
 magpie update auto off > /dev/null
