@@ -61,7 +61,7 @@ Compromise of the approving automation remains delegated root-code authority. VM
 
 ## Smallest path (implemented)
 
-Four pieces close the missing rows. The verifier, the launcher and the Mac updater stay unchanged.
+Four pieces close the missing rows. The verifier, the launcher and the Mac updater accept exactly what they accepted before.
 
 1. **Custody.** Root creates the private key inside the VM of the pot whose factory merges agent-sandbox. It stays in a root-only directory outside every session mount, beside the vault identity. It never leaves that VM. No agent, session or Mac holds it, and a second signing pot gets its own key.
 2. **Signer.** A root service holds the key, started through the launcher like the vault broker. It builds the landing commit itself: empty, one parent, a fixed message naming the pull request and its head. It signs only when that parent is a single commit sitting directly on the last tip a trusted key signed. It answers that one request on a socket bound into the factory's container alone.
@@ -96,7 +96,7 @@ Source changes, all implemented:
 | [`session/factory-authority.mjs`](../session/factory-authority.mjs), [`session/factory-scan.mjs`](../session/factory-scan.mjs), [`session/factory-verdict.mjs`](../session/factory-verdict.mjs), [`session/factory-bot.mjs`](../session/factory-bot.mjs) | The signing pot's session factory stops, and host-code publication needs the signer socket. |
 | [`bin/render-config`](../bin/render-config) | Refuses a session bind that would reach the key home, the landing state, a factory state or either socket. |
 | [`probes/landing-policy.py`](../probes/landing-policy.py), [`probes/landing-attacks.sh`](../probes/landing-attacks.sh), [`bin/probe-boundary`](../bin/probe-boundary), [`session/factory-repositories.json`](../session/factory-repositories.json) | Disposable-key policy tests as the repository's `landing` check step, plus the session and VM attack probes in `probe-boundary`. |
-| [`lib/signed_commit.py`](../lib/signed_commit.py), [`lib/trusted_source.py`](../lib/trusted_source.py), [`mac/update`](../mac/update) | No change. |
+| [`lib/signed_commit.py`](../lib/signed_commit.py), [`lib/trusted_source.py`](../lib/trusted_source.py), [`mac/update`](../mac/update) | No change in what they accept. The launcher reads `session/launch.env` through [`lib/launch.py`](../lib/launch.py), which `bin/vm-trust` installs beside it. |
 
 Walid does the [steps below](#walids-one-time-steps) once. No agent creates, moves or reads the real key.
 
