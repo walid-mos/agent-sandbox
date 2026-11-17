@@ -75,9 +75,9 @@ async function revokePage(dialog, store) {
     rmSync(stagePath(id), { force: true });
     if (dialog.pageRevoked) return dialog;
     await pageCommand('pots', ['page', 'unlink', '--bot', botId, dialog.pageLink.id]);
-    return await store.locked(({ get, save }) => save({ ...get(id), pageRevoked: true, pageIssue: undefined }), id);
+    return await store.patch(id, { pageRevoked: true, pageIssue: undefined });
   } catch {
-    return store.locked(({ get, save }) => save({ ...get(id), pageIssue: 'Secret page cleanup remains pending.' }), id);
+    return store.patch(id, { pageIssue: 'Secret page cleanup remains pending.' });
   }
 }
 

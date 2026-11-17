@@ -21,12 +21,8 @@ async function acknowledge(request) {
   if (RESENDABLE.has(request.state)) await commandOutput('node', [DOORS, 'resend', request.id]);
 }
 
-async function patch(store, id, changes) {
-  return store.locked(({ get, save }) => save({ ...get(id), ...changes }), id);
-}
-
 async function noteIssue(dialog, store, error) {
-  return dialog.issue === error.message ? dialog : patch(store, dialog.id, { issue: error.message });
+  return dialog.issue === error.message ? dialog : store.patch(dialog.id, { issue: error.message });
 }
 
 // The packet itself names any served request, so the door ask carries no --for that could close before the notice leaves.
@@ -39,12 +35,12 @@ async function sendNotice(dialog, field, need, { store, doors, now }) {
   try {
     request = known || doors.prepare({ pot: 'mastermind', need, key: `human:${dialog.id}:${field}` });
   } catch (error) {
-    await patch(store, dialog.id, { [field]: { state: 'unsent', failure: error.message, attemptedAt: now } });
+    await store.patch(dialog.id, { [field]: { state: 'unsent', failure: error.message, attemptedAt: now } });
     return;
   }
-  await patch(store, dialog.id, { [field]: { id: request.id, state: request.state, attemptedAt: now } });
+  await store.patch(dialog.id, { [field]: { id: request.id, state: request.state, attemptedAt: now } });
   const delivered = doors.transmit(request);
-  await patch(store, dialog.id, { [field]: { id: delivered.id, state: delivered.state, failure: delivered.failure, attemptedAt: now } });
+  await store.patch(dialog.id, { [field]: { id: delivered.id, state: delivered.state, failure: delivered.failure, attemptedAt: now } });
 }
 
 async function reconcileSecret(initial, options) {
@@ -64,7 +60,7 @@ async function reconcileQuestion(dialog, options) {
   if (dialog.result || request?.state !== 'answered') return dialog;
   try {
     await acceptDoorAnswer(dialog, request, options);
-    return await patch(options.store, dialog.id, { issue: undefined });
+    return await options.store.patch(dialog.id, { issue: undefined });
   } catch (error) {
     return noteIssue(dialog, options.store, error);
   }

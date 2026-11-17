@@ -27,10 +27,6 @@ function callDiscord(channel, method, body) {
   });
 }
 
-async function patch(id, changes) {
-  return store().locked(({ get, save }) => save({ ...get(id), ...changes }), id);
-}
-
 async function updateMessage(record, questionId, update) {
   await store().locked(async ({ get, save }) => {
     const current = get(record.id);
@@ -49,7 +45,7 @@ async function posted(record) {
       messageUrl: `https://discord.com/channels/${guildId}/${message.channelId}/${message.messageId}` })) });
   const door = prepareAsk({ pot, need: JSON.stringify(need), served: request, key: `human-posted:${record.id}` });
   const delivered = transmitAsk(door);
-  await patch(record.id, { postedRequest: delivered.id });
+  await store().patch(record.id, { postedRequest: delivered.id });
   if (!['open', 'answered'].includes(delivered.state)) throw new Error('discord-human: posted context was not delivered. Keep the question disabled and retry register.');
 }
 
@@ -85,11 +81,11 @@ async function completions(onError) {
 
 async function deliverAnswer(record) {
   if (!record.outbox || record.replySent || Date.now() - (record.attemptedAt ?? 0) < RETRY_MS) return;
-  await patch(record.id, { attemptedAt: Date.now() });
+  await store().patch(record.id, { attemptedAt: Date.now() });
   const request = find(record.registration.request);
   if (request.state === 'open') await commandOutput('node', [DOORS, 'reply', request.id, '--text', JSON.stringify(record.outbox)]);
   else if (['unknown', 'undelivered'].includes(request.state)) await commandOutput('node', [DOORS, 'resend', request.id]);
-  await patch(record.id, { replySent: find(request.id).state === 'answered' });
+  await store().patch(record.id, { replySent: find(request.id).state === 'answered' });
 }
 
 export function startDiscordHuman({ onError = () => {} } = {}) {

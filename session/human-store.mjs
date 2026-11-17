@@ -43,5 +43,6 @@ export function humanStore(folder = HUMAN_HOME) {
     queues.set(queueKey, next);
     return next.finally(() => { if (queues.get(queueKey) === next) queues.delete(queueKey); });
   }
-  return { get, all, locked };
+  const patch = (id, changes) => locked(() => save({ ...get(id), ...changes }), id);
+  return { get, all, locked, patch };
 }
