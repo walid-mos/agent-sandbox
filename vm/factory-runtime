@@ -9,7 +9,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from factory_root import ENVIRONMENT, GIT_OPTIONS, execute, fingerprints, gpg, private_directory
+from factory_root import ENVIRONMENT, FACTORY_SEED, FACTORY_STATE, GIT_OPTIONS, execute, fingerprints, gpg, private_directory
 from factory_socket import Refused
 from landing import created_key
 from launch import LAUNCH, assignments
@@ -17,9 +17,8 @@ from launch import LAUNCH, assignments
 ROOT = Path(__file__).resolve().parents[1]
 LABEL_KEY, LABEL_VALUE = "fr.nextnode.pots", "isolated-factory"
 LABEL = f"{LABEL_KEY}={LABEL_VALUE}"
-STATE = Path(LAUNCH["POTS_FACTORY_STATE"])
-DOCKER_ENVIRONMENT = {**ENVIRONMENT, "DOCKER_CONFIG": str(STATE / "docker")}
-RECORD = STATE / "runtime.json"
+DOCKER_ENVIRONMENT = {**ENVIRONMENT, "DOCKER_CONFIG": str(FACTORY_STATE / "docker")}
+RECORD = FACTORY_STATE / "runtime.json"
 ROOT_SOCKETS = ("POTS_VAULT_SOCKET", "POTS_LANDING_SOCKET", "POTS_FACTORY_REPORT_SOCKET")
 
 
@@ -66,7 +65,7 @@ def build_image(revision):
     if existing:
         require_owned(existing)
         return tag
-    with tempfile.TemporaryDirectory(prefix="build-", dir=STATE) as staging:
+    with tempfile.TemporaryDirectory(prefix="build-", dir=FACTORY_STATE) as staging:
         context = Path(staging) / "source"
         context.mkdir(mode=0o700)
         archive = execute(["/usr/bin/git", *GIT_OPTIONS, "-C", str(ROOT), "archive", revision])
@@ -87,7 +86,7 @@ def arguments(image):
             "--mount", f"type=volume,src={LAUNCH['POTS_FACTORY_DOCKER_VOLUME']},dst=/var/lib/docker",
             "--mount", f"type=bind,src={configuration},dst={configuration},readonly",
             *(part for name in ROOT_SOCKETS for part in ("--mount", f"type=bind,src={Path(LAUNCH[name]).parent},dst={Path(LAUNCH[name]).parent},readonly")),
-            "--mount", f"type=bind,src={STATE / 'bootstrap'},dst={LAUNCH['POTS_FACTORY_BOOTSTRAP']},readonly", image]
+            "--mount", f"type=bind,src={FACTORY_SEED},dst={LAUNCH['POTS_FACTORY_BOOTSTRAP']},readonly", image]
 
 
 def stop_owned(name):
@@ -110,10 +109,10 @@ def recover():
 
 def ready():
     identity = created_key(Path(LAUNCH["POTS_LANDING_KEY_HOME"]))
-    if not identity or not (STATE / "bootstrap").is_dir():
+    if not identity or not FACTORY_SEED.is_dir():
         print("factory: waiting for the operator's factory-bootstrap, landing-key and vm-up steps.", flush=True)
         return False
-    with tempfile.TemporaryDirectory(prefix="gnupg-", dir=STATE) as scratch:
+    with tempfile.TemporaryDirectory(prefix="gnupg-", dir=FACTORY_STATE) as scratch:
         trusted = fingerprints(gpg(scratch, "--with-colons", "--show-keys", LAUNCH["POTS_TRUSTED_SIGNERS"]))
     if identity not in trusted:
         print("factory: the operator must install the factory public trust with vm-up before publication starts.", flush=True)
@@ -124,10 +123,10 @@ def ready():
 def main():
     if os.geteuid() != 0:
         raise Refused("factory-runtime runs as VM root.")
-    private_directory(STATE)
+    private_directory(FACTORY_STATE)
     if not ready():
         return
-    private_directory(STATE / "docker")
+    private_directory(FACTORY_STATE / "docker")
     recover()
     revision = execute(["/usr/bin/git", *GIT_OPTIONS, "-C", str(ROOT), "rev-parse", "HEAD"]).decode().strip()
     image = build_image(revision)
