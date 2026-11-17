@@ -111,7 +111,8 @@ def ready():
     except Refused:
         print("factory: the operator has not created the factory key yet.", flush=True)
         return False
-    listing = execute(["/usr/bin/gpg", "--no-options", "--batch", "--with-colons", "--show-keys", LAUNCH["POTS_TRUSTED_SIGNERS"]]).decode()
+    with tempfile.TemporaryDirectory(prefix="gnupg-", dir=STATE) as scratch:
+        listing = execute(["/usr/bin/gpg", "--no-options", "--batch", "--homedir", scratch, "--with-colons", "--show-keys", LAUNCH["POTS_TRUSTED_SIGNERS"]]).decode()
     if f"fpr:::::::::{identity}:" not in listing:
         print("factory: the operator must install the factory public trust with vm-up before publication starts.", flush=True)
         return False
