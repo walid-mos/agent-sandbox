@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { command } from './run.mjs';
 import { isLive, ownsTerminal, WORKERS } from './workers.mjs';
 
 export const LIFECYCLE = join(WORKERS, 'lifecycle');
@@ -31,6 +32,16 @@ export function lifecycleOf(worker) {
   if (![state.launchId === worker.launchId, state.owner === worker.owner, state.name === worker.name].every(Boolean)) return undefined;
   return state;
 }
+
+export function publication(cwd) {
+  const options = { cwd };
+  return {
+    uncommitted: command('git', ['status', '--porcelain'], options).split('\n').filter(Boolean).length,
+    unpushed: Number(command('git', ['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'], options)),
+  };
+}
+
+export const isPublished = ({ uncommitted, unpushed }) => uncommitted === 0 && unpushed === 0;
 
 export const readyAt = state => state?.settledAt + SETTLED_GRACE_MS;
 

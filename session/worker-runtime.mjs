@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { rmSync, watch } from 'node:fs';
 import { join } from 'node:path';
-import { command } from './run.mjs';
 import { allTerminals } from './workers.mjs';
 import { queued } from './queue.mjs';
-import { canFinish, followUp, hasFinalReply, LIFECYCLE, readLifecycle, readyAt, receiptPath, resultId, statePath, writeLifecycle } from './worker-lifecycle.mjs';
+import { canFinish, followUp, hasFinalReply, isPublished, LIFECYCLE, publication, readLifecycle, readyAt, receiptPath, resultId, statePath, writeLifecycle } from './worker-lifecycle.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
 const PROTOCOL_VERSION = 1;
@@ -15,12 +14,6 @@ function hasNoPendingWork(pi) {
     pi.events.emit(event, request);
     return request.result?.version === PROTOCOL_VERSION && fields.every(field => request.result[field] === 0);
   });
-}
-
-function hasPublishedWork(cwd) {
-  const options = { cwd };
-  return !command('git', ['status', '--porcelain'], options) &&
-    command('git', ['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'], options) === '0';
 }
 
 export class WorkerRuntime {
@@ -107,7 +100,7 @@ export class WorkerRuntime {
     const terminals = allTerminals();
     const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
     if (!terminal) return false;
-    return [canFinish(this.#state, terminal, terminals, Date.now()), hasPublishedWork(context.cwd)].every(Boolean);
+    return [canFinish(this.#state, terminal, terminals, Date.now()), isPublished(publication(context.cwd))].every(Boolean);
   }
 
   stop() {

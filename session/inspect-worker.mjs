@@ -2,7 +2,7 @@ import { enqueue } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { endTerminal, isStopped, passes, save, terminalOf } from './workers.mjs';
-import { canFinish, lifecycleOf, readyAt } from './worker-lifecycle.mjs';
+import { canFinish, isPublished, lifecycleOf, publication, readyAt } from './worker-lifecycle.mjs';
 import { keepResult } from './worker-results.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
@@ -14,15 +14,14 @@ function gitFacts(worker) {
   return {
     branch: command('git', ['branch', '--show-current'], options),
     commit: command('git', ['rev-parse', '--short', 'HEAD'], options),
-    uncommitted: command('git', ['status', '--porcelain'], options).split('\n').filter(Boolean).length,
-    unpushed: Number(command('git', ['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'], options)),
+    ...publication(worker.worktree),
   };
 }
 
 function report(worker, terminal, status, wake, state, isSettled) {
   const facts = gitFacts(worker);
   const title = terminal.labels[TITLE_LABEL];
-  const isFinished = [isSettled, facts.uncommitted === 0, facts.unpushed === 0].every(Boolean);
+  const isFinished = isSettled && isPublished(facts);
   const result = isFinished ? keepResult(worker, terminal, state) : undefined;
   const note = { worker: worker.name, title, terminal: terminal.address, status, ...facts, cleanPass: passes(worker), pullRequest: worker.pullRequest, result };
   save({ ...worker, status, result, ...facts });
