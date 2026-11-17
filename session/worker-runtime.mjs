@@ -99,6 +99,7 @@ export class WorkerRuntime {
     if (!this.#hasReceipt()) return;
     const due = readyAt(this.#state) - Date.now();
     if (due > 0) {
+      clearTimeout(this.#timer);
       this.#timer = setTimeout(() => this.finish(context), due);
       return;
     }
