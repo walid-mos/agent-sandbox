@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { DOOR_COMMAND } from './door-command.mjs';
 import { isRequestId } from './door-messages.mjs';
 
 const REQUESTS = join(homedir(), '.config/agent-sandbox/requests');
@@ -21,7 +22,7 @@ export const REFUSED = 'refused';
 
 // A request's ID names its record, so nothing but a well-formed ID ever reaches a path.
 function recordPath(id) {
-  if (!isRequestId(id)) throw new Error(`pots: ${id} is not a request ID. pots requests lists them.`);
+  if (!isRequestId(id)) throw new Error(`pots: ${id} is not a request ID. ${DOOR_COMMAND} requests lists them.`);
   return join(REQUESTS, `${id}${RECORD_SUFFIX}`);
 }
 
