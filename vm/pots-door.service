@@ -1,6 +1,6 @@
 [Unit]
 Description=Pots door: sshd for other pots on the tailnet address
-Requires=tailscaled.service
+Requires=tailscaled.service pots-firewall.service
 After=tailscaled.service pots-firewall.service
 
 [Service]

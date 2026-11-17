@@ -105,8 +105,8 @@ guard_runs_every_minute() {
 	sandbox_vm systemctl is-active --quiet pots-tailnet-guard.timer
 }
 
-docker_requires_firewall() {
-	sandbox_vm systemctl show docker.service --property Requires --value | tr ' ' '\n' | grep -qx pots-firewall.service
+requires_firewall() {
+	sandbox_vm systemctl show "$1" --property Requires --value | tr ' ' '\n' | grep -qx pots-firewall.service
 }
 
 session=$(running_session)
@@ -117,7 +117,8 @@ if [ "$POTS_LAUNCHER" = sealskin ]; then
 else
 	outer_container=$POTS_SESSION_CONTAINER
 fi
-judge docker-requires-firewall docker_requires_firewall || status=1
+judge docker-requires-firewall requires_firewall docker.service || status=1
+judge door-requires-firewall requires_firewall pots-door.service || status=1
 judge vm-sees-no-host-path sandbox_vm sh "$HOST_PATHS" || status=1
 judge session-sees-no-host-path in_session sh "$HOST_PATHS" || status=1
 judge firewall-closes-tailnet firewall_closes_tailnet || status=1
