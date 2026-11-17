@@ -31,10 +31,10 @@ function report(worker, terminal, status, wake, state, isSettled) {
 
 function recover(worker, state, pending) {
   if (state?.phase === 'closing') {
-    save({ ...worker, isComplete: true, isClosed: true });
+    save({ ...worker, isClosed: true });
     return;
   }
-  if ([worker.isComplete, worker.isClosed, pending.has(worker.name), resumed.has(worker.launchId)].some(Boolean)) return;
+  if ([worker.isClosed, pending.has(worker.name), resumed.has(worker.launchId)].some(Boolean)) return;
   enqueue({ worker: worker.name });
   resumed.add(worker.launchId);
 }
