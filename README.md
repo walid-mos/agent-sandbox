@@ -19,12 +19,13 @@ Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named a
 | `idleStackMinutes` | Optional, 30 by default. Minutes a worker's worktree goes with no live terminal before the watcher stops its Compose projects |
 | `owners` | GitHub owners that the dispatcher and the GitHub wrapper accept, each with the name of its token in the vault's `/tools/github` |
 | `secrets` | Other vault folders, each with the names injected from it |
-| `onRequest` | Named groups of vault folders and names, injected only into a command that asks for the group |
+| `onRequest` | Named groups of vault folders and names, read by commands that ask for the group or by `botSecrets` at gateway start |
+| `botSecrets` | Optional. Plain file names under `~/.pots/secrets/`, each mapped to an existing `onRequest` group. The gateway refreshes these files from the vault before starting Pots |
 | `role` | Optional. `mastermind` for [the Mastermind](#mastermind). Left out for a pot that owns a domain; any other value stops the session's code |
 | `doors` | Optional. The pots this pot can ask through [their doors](#doors), each with one line on what it owns |
 | `sources` | Names from [the source catalog](session/agent-sources.json) that the session fetches and installs, such as `["pi", "herdr"]`. A catalog source left out is never fetched |
 
-Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). One file serves every pot: `~/.config/agent-sandbox/tailnet.json`, beside the sandboxes, holds `operatorLogin`, the Tailscale login of the operator's devices, which [the pots policy](#tailnet-and-doors) grants and the node checks expect. `./bin/vm-config` copies these files into the VM's `/etc/agent-sandbox`, readable by every user of the VM and writable by root only, and `vm-up` runs it. The session mounts that VM directory read-only at the same path. An edit on the Mac reaches the sandbox at the next `./bin/vm-config`. From there, the next command reads a changed `owners`, `secrets`, `onRequest` or `doors`. `vm` applies when the VM next starts, `serverPort` when the server is next created, `bot`, `rules` and `role` at the next bootstrap, and `maxWorkers` and `idleStackMinutes` when the watcher next starts, which bootstrap does. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart.
+Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). One file serves every pot: `~/.config/agent-sandbox/tailnet.json`, beside the sandboxes, holds `operatorLogin`, the Tailscale login of the operator's devices, which [the pots policy](#tailnet-and-doors) grants and the node checks expect. `./bin/vm-config` copies these files into the VM's `/etc/agent-sandbox`, readable by every user of the VM and writable by root only, and `vm-up` runs it. The session mounts that VM directory read-only at the same path. An edit on the Mac reaches the sandbox at the next `./bin/vm-config`. From there, the next command reads a changed `owners`, `secrets`, `onRequest` or `doors`. `botSecrets` applies when the gateway next starts. `vm` applies when the VM next starts, `serverPort` when the server is next created, `bot`, `rules` and `role` at the next bootstrap, and `maxWorkers` and `idleStackMinutes` when the watcher next starts, which bootstrap does. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart.
 
 [The VM's vault broker](vm/vault-broker) refuses a listed name starting with `INFISICAL_`, since such a name carries vault access, and `./bin/check` refuses one in the examples, and an example whose `sources` is not a list of catalog names.
 
@@ -333,6 +334,8 @@ The dispatcher accepts repositories under the sandbox's `owners`. It clones or f
 
 Gateway and watcher wrappers wait indefinitely if their prerequisites are missing at service start. Bootstrap restarts both after installing prerequisites. Check their status before relying on automatic reports.
 
+After the vault broker is ready, [the gateway](session/gateway) runs [the bot secret writer](session/bot-secrets.mjs) before `pots start`. For each `botSecrets` file, it reads the referenced `onRequest` group's names from the broker and atomically replaces `~/.pots/secrets/FILE` with `NAME=value` lines, mode 600, owned by the session user. A failed read, an empty value, or a value containing a line break or NUL stops startup with a message naming the vault path and name, never the value. The service supervisor retries the gateway. Rotating a value in the vault reaches Pots at the next gateway start. Editing the local copy does not update the vault.
+
 Worker briefs and records live under `/config/.config/agent-sandbox/workers`, and the requests of `start` and `send` wait in its `queue` folder, one file each, named by the time they came. The watcher launches Pi through `hc` for the oldest request while fewer than `maxWorkers` workers have a live terminal. A request for a stopped worker leaves the queue. A launch that fails wakes the bot once with the status `not started` and the reason, and its request leaves the queue. A message for a worker that has not shown a status yet waits in the queue until it does. The watcher follows `hc events` and looks at the workers when a terminal starts, ends, or changes status or turn, so it runs no command while nothing changes. It reopens the stream five seconds after hc's core restarts. It wakes the bot with the worker's title, branch, commit, uncommitted-path count, unpushed-commit count, clean-pass record and PR URL. When a worker reports `done`, the watcher writes its screen to `NAME.screen` beside its record and names that file in the note, then ends and removes its terminal, which frees its slot. A message that started a new turn meanwhile keeps the terminal open. Any other end of a worker's terminal, a stop, a crash or a resume, also keeps its screen in that file and removes the terminal, so hc lists no finished worker terminal. It marks a worker complete only when its status is `done`, its worktree is clean and no commit is missing from `origin`. That signal does not verify PR checks or a merge. A lost unfinished worker is queued for a resume once per watcher process. A terminal that just started is never treated as lost, because the vault login shows no agent status at first. A completed, closed or stopped worker is relaunched only by a `send`, with its conversation. A stop is a `NAME.stopped` file beside the worker's record, which a `send` removes, and the watcher ends any terminal of a stopped worker that it finds running.
 
 A thread outside the pots reports to the Mastermind through its Herdr machine, from either Mac. The Mastermind reads the note and tells the person in the Pots pane. A report starts no work. `--from` accepts letters, digits, `-` and `_` only, so the thread's title opens the note.
@@ -343,7 +346,7 @@ hc exec --on mastermind pots wake --from mac-thread --note "$thread_title: $repo
 
 ## Mastermind
 
-The Mastermind is the pot whose `sandbox.json` sets `role` to `mastermind`, as [its example](sandboxes.example/mastermind/sandbox.json) does. It is the person's single point of entry: its bot hands each request through a door to the pot that owns the domain, follows it and reports. It owns no domain. Its `owners` is empty, so the dispatcher refuses every repository and bootstrap creates no Factory bot. Its secrets are only the router's model credentials. The person can still talk to any pot in its own tab.
+The Mastermind is the pot whose `sandbox.json` sets `role` to `mastermind`, as [its example](sandboxes.example/mastermind/sandbox.json) does. It is the person's single point of entry: its bot hands each request through a door to the pot that owns the domain, follows it and reports. It owns no domain. Its `owners` is empty, so the dispatcher refuses every repository and bootstrap creates no Factory bot. Its example lists the router's model credentials and the Discord bot token. The person can still talk to any pot in its own tab.
 
 ## Pots and doors
 
@@ -385,6 +388,23 @@ The command records the commit each pass started on in `NAME.passes` beside the 
 ## GitHub authentication
 
 [The session wrapper](session/with-vault) asks [the VM's vault broker](vm/vault-broker) for the secrets its sandbox names and injects them. Those are the token of each owner from `/tools/github` and the names listed under `secrets`. `with-vault --with GROUP` adds the names of that group under `onRequest`, for the one command that needs them. A listed name that the vault lacks stops the command.
+
+`botSecrets` references those same `onRequest` groups without listing a name twice. For example, the [Mastermind configuration](sandboxes.example/mastermind/sandbox.json) uses:
+
+```json
+{
+  "onRequest": {
+    "discord": {
+      "/tools/discord": ["DISCORD_BOT_TOKEN"]
+    }
+  },
+  "botSecrets": {
+    "discord-mastermind.env": "discord"
+  }
+}
+```
+
+The Discord channel's `bot.json` must name `~/.pots/secrets/discord-mastermind.env` as its `secrets` file. The vault is the source for this file. `./bin/check` refuses filenames with paths, missing groups, and duplicate names within a file. `botSecrets` grants no additional broker access, and these values are not injected into the gateway's environment.
 
 The broker runs as root in the VM and is the only reader of the Agents Sandboxes identity. Its socket, `/run/pots-vault/vault.sock`, is bound into the session. It answers for the names the VM's `/etc/agent-sandbox/sandbox.json` lists, for one listed name, or for the token of a private catalog source selected under `sources`, and refuses any other request without reaching the vault. It follows no vault redirect, refuses a name starting with `INFISICAL_`, and its refusals and log carry names, never values. The wrapper removes every `INFISICAL_` variable from the command's environment, so no wrapped command holds vault access. The injected values still reach every child of the command, and a tool that writes its environment into a log or an error report leaks them. Keep them out of app containers by passing their variables by name, as [Development services](#development-services-and-memory) describes.
 
