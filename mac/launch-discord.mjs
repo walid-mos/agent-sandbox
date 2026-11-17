@@ -40,10 +40,13 @@ export function discordClient(token, { fetcher = fetch, connect = url => new Web
     let sequence = null;
     let isAcknowledged = true;
     const send = payload => socket.send(JSON.stringify(payload));
-    const beat = () => {
-      if (!isAcknowledged) { socket.close(); return; }
+    const sendHeartbeat = () => {
       isAcknowledged = false;
       send({ op: 1, d: sequence });
+    };
+    const beat = () => {
+      if (!isAcknowledged) { socket.close(); return; }
+      sendHeartbeat();
     };
     function open() {
       sequence = null;
@@ -68,7 +71,7 @@ export function discordClient(token, { fetcher = fetch, connect = url => new Web
           return;
         }
         if (packet.op === 11) { isAcknowledged = true; return; }
-        if (packet.op === 1) { beat(); return; }
+        if (packet.op === 1) { sendHeartbeat(); return; }
         if ([7, 9].includes(packet.op)) { socket.close(); return; }
         if (packet.op === 0) onEvent(packet.t, packet.d);
       } catch { warn('mac-launch: a gateway event could not be processed.'); }

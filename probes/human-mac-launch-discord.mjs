@@ -62,6 +62,20 @@ test('missing heartbeat acknowledgements reconnect and a refused token stops', (
   close();
 });
 
+test('a server heartbeat request is answered while an earlier heartbeat awaits acknowledgement', () => {
+  const g = gateway();
+  const close = discordClient('test-only', g).listen(() => {}, error => { throw error; });
+  const socket = g.sockets[0];
+  socket.receive({ op: 10, d: { heartbeat_interval: 45_000 } });
+  [...g.intervals.values()][0]();
+  const sent = socket.sent.length;
+  socket.receive({ op: 1 });
+  assert.equal(g.timeouts.size, 0);
+  assert.equal(socket.sent.length, sent + 1);
+  assert.deepEqual(socket.sent.at(-1), { op: 1, d: null });
+  close();
+});
+
 test('the Discord adapter uploads the exact prompt and never returns provider error bodies', async () => {
   const captured = [];
   const fetcher = async (url, options) => { captured.push({ url, options }); return { ok: true, status: 200, headers: new Headers(), json: async () => ({ id: 'message' }) }; };
