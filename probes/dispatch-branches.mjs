@@ -62,7 +62,7 @@ if (binary === 'bash') console.log(${JSON.stringify(pullRequest)});
   for (const binary of ['git', 'gh', 'bash', 'hc']) symlinkSync(executable, join(binaries, binary));
 }
 
-function invoke(branch, target, { title, subject }) {
+function invoke(branch, target, { title, subject }, mode = 'start') {
   const home = mkdtempSync(join(fixture, 'home-'));
   const configuration = join(home, '.pi/agent/extensions/subagent');
   mkdirSync(configuration, { recursive: true });
@@ -70,7 +70,10 @@ function invoke(branch, target, { title, subject }) {
   const brief = join(home, 'request.md');
   writeFileSync(brief, 'Synthetic dispatch probe.');
   const options = [...(title === undefined ? [] : ['--title', title]), ...(subject === undefined ? [] : ['--subject', subject])];
-  const result = spawnSync(process.execPath, ['--import', join(fixture, 'copy-imports.mjs'), join(session, 'dispatch.mjs'), 'start', ...options, '--', target, branch, brief, 'develop'], {
+  const args = mode === 'task'
+    ? ['task', '--title', title, '--scope', 'Read the supplied brief and write one report.', 'report', home, brief, join(home, 'result.md')]
+    : ['start', ...(mode === 'local' ? ['--local'] : []), ...options, '--', target, branch, brief, 'develop'];
+  const result = spawnSync(process.execPath, ['--import', join(fixture, 'copy-imports.mjs'), join(session, 'dispatch.mjs'), ...args], {
     cwd: fixture, encoding: 'utf8', timeout: 10_000, env: { HOME: home, PATH: binaries },
   });
   assert.ifError(result.error);
@@ -114,6 +117,19 @@ function refused(reason, branch, target = allowedRepository, values = launch) {
 
 try {
   prepare();
+  const local = invoke(jiraBranch, allowedRepository, launch, 'local');
+  assert.equal(local.status, 0, local.stderr);
+  const localWorker = JSON.parse(local.stdout);
+  assert.equal(localWorker.publication, 'local');
+  assert.equal(localWorker.pullRequest, undefined);
+  assert.equal(local.calls.some(args => ['bash', 'hc'].includes(args[0]) || args.includes('push')), false);
+  const task = invoke('', '', launch, 'task');
+  assert.equal(task.status, 0, task.stderr);
+  const taskWorker = JSON.parse(task.stdout);
+  assert.equal(taskWorker.kind, 'task');
+  assert.equal(taskWorker.repository, undefined);
+  assert.deepEqual(task.calls, [], 'non-repository launch has no Git, GitHub, PR or immediate terminal side effect');
+  assert.equal(readdirSync(join(task.home, '.config/agent-sandbox/workers/queue')).length, 1);
   accepted(jiraBranch);
   accepted(jiraBranch, { title: '[DA-250] Freeze campaign establishments', subject: 'Start DA-250' });
   for (const prefix of ['feat', 'fix', 'chore', 'docs', 'refactor', 'test']) accepted(`${prefix}/worker-task-250`);

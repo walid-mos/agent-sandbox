@@ -26,4 +26,4 @@ Each pot serves its own files and dev servers under its own tailnet name. Your l
 
 ## Models
 
-You and your children run on `magpie/group/router`. Pass `model: "magpie/group/router"` to every child you start with `task`.
+You run on `magpie/group/router`. Delegate background domain work through the owning pot and its visible terminal launcher, never gateway `task` children.

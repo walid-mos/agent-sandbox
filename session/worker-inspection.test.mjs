@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, beforeEach, mock, test } from 'node:test';
@@ -9,6 +9,7 @@ process.env.HOME = scratch;
 const wakes = [];
 let publication;
 let restart = 0;
+let mustAvoidGit = false;
 mock.module('./sandbox.mjs', { exports: { botId: 'nextnode' } });
 mock.module('./run.mjs', { exports: {
   WITH_VAULT: '/unused-vault',
@@ -16,13 +17,14 @@ mock.module('./run.mjs', { exports: {
     if (binary === 'pots') return wakes.push(JSON.parse(args.at(-1)));
     if (binary === 'hc' && args[0] === 'read') return 'Finished result.';
     if (binary === 'hc' && args[0] === 'get') return JSON.stringify({ labels: { 'pi.session': sessionFile } });
+    if (binary === 'git' && mustAvoidGit) throw new Error('Non-repository task invoked Git');
     if (binary === 'git') return ({ branch: 'feat/task', 'rev-parse': 'abcdef1', ...publication })[args[0]];
     throw new Error(`Unexpected boundary command: ${binary} ${args[0]}`);
   },
 } });
 const { inspectWorker } = await import('./inspect-worker.mjs');
-const { queued, dequeue } = await import('./queue.mjs');
-const { save, workers, WORKERS } = await import('./workers.mjs');
+const { queued, dequeue, enqueue } = await import('./queue.mjs');
+const { clearStop, markStopped, recordPublication, save, workers, WORKERS } = await import('./workers.mjs');
 const { writePrivateJson } = await import('./private-json.mjs');
 const { canFinish, statePath, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
 const { humanStore, HUMAN_HOME } = await import('./human-store.mjs');
@@ -48,6 +50,7 @@ beforeEach(() => {
   save(worker);
   publication = { status: '', 'rev-list': '0' };
   wakes.length = 0;
+  mustAvoidGit = false;
 });
 after(() => { mock.restoreAll(); rmSync(scratch, { force: true, recursive: true }); });
 
@@ -86,6 +89,77 @@ test('a pending published question blocks both watcher collection and runtime cl
   assert.equal(canFinish(state, terminal, [terminal], Date.now()), true);
   inspect();
   assert.equal(wakes[1].result.state.launchId, worker.launchId);
+});
+
+test('a bounded task produces a collectable result without consulting Git', () => {
+  mustAvoidGit = true;
+  const resultFile = join(scratch, 'report.md');
+  const task = { ...worker, kind: 'task', resultFile };
+  save(task);
+  settle(task);
+  inspect();
+  assert.equal(wakes[0].result, undefined);
+  writeFileSync(resultFile, 'Evidence and conclusion.\n');
+  inspect();
+  assert.equal(wakes[1].result.state.launchId, worker.launchId);
+  assert.equal(wakes[1].resultFile, resultFile);
+});
+
+test('a task result must be its own regular file rather than a symlink', () => {
+  mustAvoidGit = true;
+  const resultFile = join(scratch, 'linked-report.md');
+  symlinkSync(sessionFile, resultFile);
+  const task = { ...worker, kind: 'task', resultFile };
+  save(task);
+  settle(task);
+  inspect();
+  assert.equal(wakes[0].resultReady, false);
+  assert.equal(wakes[0].result, undefined);
+});
+
+test('local inspection, watcher restart, stop and queued send leave the old startup dialog pending', async () => {
+  const local = { ...worker, publication: 'local' };
+  const dialog = await openDialog({ kind: 'question', source: { type: 'bot', message: 'old-startup' }, policy: 'push',
+    scope: 'Original empty-bootstrap startup only, with no existing worker',
+    questions: [{ id: 'push', prompt: 'Publish bootstrap?', options: [{ label: 'Push once' }, { label: 'Keep local' }] }] });
+  const original = humanStore().get(dialog.id);
+  save(local);
+  settle(local);
+  inspect();
+  assert.equal(wakes[0].publication, 'local');
+  assert.equal(wakes[0].result, undefined);
+  const restarted = await import(`./inspect-worker.mjs?restart=${++restart}`);
+  inspect([terminal], restarted.inspectWorker);
+  markStopped(local);
+  inspect([]);
+  clearStop(local);
+  enqueue({ worker: local.name, message: 'Continue local work only.' });
+  inspect();
+  assert.deepEqual(humanStore().get(dialog.id), original);
+  assert.equal(workers()[0].publication, 'local');
+  assert.equal(workers()[0].result, undefined);
+});
+
+test('publication progress is reported without losing state to a stale watcher write', () => {
+  const local = { ...worker, publication: 'local' };
+  save(local);
+  settle(local);
+  inspect();
+  const beforePush = workers()[0];
+  recordPublication(local, { publication: 'awaiting-pr', publishedHead: 'full-head' });
+  save(beforePush);
+  inspect();
+  assert.equal(wakes[1].publication, 'awaiting-pr');
+  assert.equal(wakes[1].result, undefined);
+  const beforePR = workers()[0];
+  recordPublication(local, { publication: 'published', publishedHead: 'full-head', pullRequest: 'https://github.invalid/pr/1' });
+  save(beforePR);
+  inspect();
+  assert.equal(wakes[2].publication, 'published');
+  assert.equal(wakes[2].pullRequest, 'https://github.invalid/pr/1');
+  assert.ok(wakes[2].result);
+  inspect();
+  assert.equal(wakes.length, 3);
 });
 
 for (const field of ['status', 'rev-list']) {

@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
+import { existsSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJson } from './private-json.mjs';
 import { isRequestName } from './queue.mjs';
 import { command } from './run.mjs';
 import { waitsForHuman } from './worker-human.mjs';
-import { isLive, ownsTerminal, WORKERS } from './workers.mjs';
+import { isLive, ownsTerminal, publishedState, WORKERS } from './workers.mjs';
 
 export const LIFECYCLE = join(WORKERS, 'lifecycle');
 export const SETTLED_GRACE_MS = 5000;
@@ -32,7 +33,18 @@ export function publication(cwd) {
   };
 }
 
-export const isPublished = ({ uncommitted, unpushed }) => uncommitted === 0 && unpushed === 0;
+export function completionFacts(worker, cwd = worker.worktree) {
+  if (worker.kind === 'task') {
+    const result = existsSync(worker.resultFile) && lstatSync(worker.resultFile);
+    const resultReady = Boolean(result && result.isFile() && result.size > 0);
+    return { kind: 'task', resultFile: worker.resultFile, resultReady };
+  }
+  const phase = publishedState(worker).publication ?? worker.publication;
+  return { ...publication(cwd), ...(phase && { publication: phase }) };
+}
+
+export const isPublished = facts => facts.kind === 'task' ? facts.resultReady
+  : facts.uncommitted === 0 && facts.unpushed === 0 && !['local', 'awaiting-pr'].includes(facts.publication);
 
 export const readyAt = state => state?.settledAt + SETTLED_GRACE_MS;
 

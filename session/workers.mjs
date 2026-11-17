@@ -25,12 +25,17 @@ export function terminalName(text, identity = text) {
 export function workers() {
   if (!existsSync(WORKERS)) return [];
   return readdirSync(WORKERS).filter(path => path.endsWith('.json'))
-    .map(path => JSON.parse(readFileSync(join(WORKERS, path), 'utf8')));
+    .map(path => JSON.parse(readFileSync(join(WORKERS, path), 'utf8')))
+    .map(worker => ({ ...worker, ...publishedState(worker) }));
 }
 
 export function save(worker) {
   writePrivateJson(join(WORKERS, `${worker.name}.json`), worker);
 }
+
+const publicationRecord = worker => join(WORKERS, `${worker.name}.publication`);
+export const publishedState = worker => readJson(publicationRecord(worker)) ?? {};
+export const recordPublication = (worker, state) => writePrivateJson(publicationRecord(worker), state);
 
 export function writeBrief(name, text) {
   mkdirSync(WORKERS, { recursive: true });
@@ -143,7 +148,7 @@ export function launch(worker, conversation) {
   save(launched);
   const terminal = openTerminal({
     name: worker.name, cwd: worker.worktree, tab: worker.name, label: 'pots.worker=true',
-    labels: [`pots.owner=${worker.owner}`, `pots.launch=${launchId}`],
+    labels: [`pots.owner=${worker.owner}`, `pots.launch=${launchId}`, ...(worker.title ? [`agent.title=${worker.title}`] : [])],
     options: ['--no-parent', '--no-notify', '--outlive-parent'],
     vaultCommand: ['env', `POTS_WORKER=${worker.name}`, `POTS_OWNER=${worker.owner}`, `POTS_LAUNCH=${launchId}`,
       'pi', '--extension', join(import.meta.dirname, 'worker-agent.mjs'), ...session,
