@@ -77,7 +77,7 @@ export async function serve() {
   const service = launchService({ store, discord: client, pots: potTransport(), runner: herdrRunner(store), settings: loadSettings, warn });
   let applicationId;
   let pending = Promise.resolve();
-  const enqueue = operation => { pending = pending.then(operation).catch(() => warn('mac-launch: event refused or unavailable. No approval was inferred.')); };
+  const enqueue = operation => { pending = pending.then(operation).catch(() => warn('mac-launch: event refused or unavailable. No approval was inferred.')); return pending; };
   const close = client.listen((kind, event) => {
     if (kind === 'READY') {
       applicationId = event.application.id;
@@ -90,12 +90,16 @@ export async function serve() {
       enqueue(() => service.press(event));
     }
   }, error => { warn(error.message); stop(); process.exitCode = 1; });
-  const timer = setInterval(() => enqueue(async () => {
+  let timer;
+  // The next pass starts only once this one ended, so a slow pot call cannot pile passes up ahead of the operator's press.
+  async function poll() {
     try { checkDiscordPolicy(LAUNCH_POLICY, loadSettings().humanDiscord); }
     catch (error) { warn(error.message); stop(); process.exitCode = 1; return; }
-    await service.tick();
-  }), POLL_MS);
-  function stop() { clearInterval(timer); close(); release(); }
+    await enqueue(() => service.tick());
+    if (timer !== undefined) timer = setTimeout(poll, POLL_MS);
+  }
+  timer = setTimeout(poll, POLL_MS);
+  function stop() { clearTimeout(timer); timer = undefined; close(); release(); }
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
 }
