@@ -4,7 +4,7 @@ import { branchTip, mergeBase, refreshMirror } from './factory-mirror.mjs';
 import { logDirectory, pullUrl, readRecord, recordedHeads, writeRecord } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { flushReports, handToFactory, reportToPrincipal } from './factory-reports.mjs';
-import { isLandingPull, requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
+import { isIsolatedFactory, isLandingPull, ownsSigningFactory, requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
 import { finishPublication } from './factory-publication.mjs';
 
 // GitHub computes mergeability in the background, so a pull request it has not computed yet waits for the next scan.
