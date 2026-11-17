@@ -26,7 +26,15 @@
       "/clients/claude": [
         "CLAUDE_CODE_OAUTH_TOKEN"
       ]
+    },
+    "discord": {
+      "/tools/discord": [
+        "DISCORD_BOT_TOKEN"
+      ]
     }
+  },
+  "botSecrets": {
+    "discord-mastermind.env": "discord"
   },
   "sources": [
     "pi",

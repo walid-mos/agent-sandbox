@@ -158,10 +158,10 @@ peer_host=$(in_session awk 'NR == 1 { print $1 }' "$DOOR_KNOWN_HOSTS" 2> /dev/nu
 in_session bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" "$DOOR_KNOWN_HOSTS" || status=1
 in_session_as_root bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" "$DOOR_KNOWN_HOSTS" || status=1
 judge door-files-unchanged-by-session [ "$door_files_before" = "$(door_files_digest)" ] || status=1
-judge vm-identity-root-only identity_is_root_only || status=1
-judge unprivileged-vm-user-cannot-read-identity refused sandbox_vm sudo -u nobody cat "$POTS_VAULT_IDENTITY" || status=1
+judge vm-broker-identity-root-only identity_is_root_only || status=1
+judge unprivileged-vm-user-cannot-read-broker-identity refused sandbox_vm sudo -u nobody cat "$POTS_VAULT_IDENTITY" || status=1
 run_trusted probes/clone-trust.sh "$POTS_TRUSTED_SOURCE" "$POTS_TRUSTED_SIGNERS" "$POTS_SESSION_REPOSITORY" || status=1
-in_session bash "$VAULT_ATTACKS" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_HOME" "$POTS_VAULT_IDENTITY" "$POTS_VAULT_SOCKET" "$SESSION_NODE" "$POTS_SESSION_CONFIGURATION" || status=1
-in_session_as_root bash "$VAULT_ATTACKS" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_HOME" "$POTS_VAULT_IDENTITY" "$POTS_VAULT_SOCKET" "$SESSION_NODE" "$POTS_SESSION_CONFIGURATION" || status=1
+in_session bash "$VAULT_ATTACKS" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_HOME" "$POTS_VAULT_IDENTITY" "$POTS_VAULT_SOCKET" "$SESSION_NODE" "$POTS_SESSION_CONFIGURATION" "$POTS_SESSION_USER" || status=1
+in_session_as_root bash "$VAULT_ATTACKS" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_HOME" "$POTS_VAULT_IDENTITY" "$POTS_VAULT_SOCKET" "$SESSION_NODE" "$POTS_SESSION_CONFIGURATION" "$POTS_SESSION_USER" || status=1
 judge jira-local-authentication in_session "$SESSION_NODE" "$JIRA_AUTHENTICATION" "$POTS_SESSION_REPOSITORY" || status=1
 exit "$status"

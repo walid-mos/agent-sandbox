@@ -7,8 +7,13 @@ identity=$3
 socket=$4
 node=$5
 configuration=$6
+session_user=$7
 failures=0
+export HOME="$session_home" POTS_REPO="$clone"
+. "$clone/session/lib.sh"
 PATH="$(dirname "$node"):$PATH"
+session_identity="$session_home/$POTS_SESSION_VAULT_DIRECTORY/$POTS_SESSION_VAULT_FILE"
+session_binding="$session_home/$POTS_SESSION_VAULT_DIRECTORY/core-vault.json"
 
 expect() {
 	outcome=$1 name=$2
@@ -36,16 +41,55 @@ for (const [name, source] of Object.entries(catalog)) {
 }' "$clone/session/agent-sources.json" "$configuration/sandbox.json"
 }
 
-worker_sees_vault_access() {
-	INFISICAL_TOKEN=planted INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET=planted "$clone/session/with-vault" env | grep -q '^INFISICAL_'
+worker_keeps_session_login() {
+	"$clone/session/with-vault" "$node" -e 'const { readFileSync } = require("node:fs");
+const pairs = readFileSync(process.argv[1], "utf8").trim().split("\n").map(line => { const index = line.indexOf("="); return [line.slice(0, index), line.slice(index + 1)]; });
+process.exit(pairs.every(([name, value]) => value && process.env[name] === value) && process.env.INFISICAL_MASK_SECRET_VALUES === "true" ? 0 : 1);' "$session_identity"
+}
+
+session_login_lists_names() {
+	"$node" -e 'const { readFileSync } = require("node:fs"); const { spawnSync } = require("node:child_process");
+const binding = JSON.parse(readFileSync(process.argv[1], "utf8"));
+const answer = spawnSync(process.execPath, [process.argv[2], "--projectId", binding.projectId, "--env", binding.environment, "--path", "/"], { stdio: "ignore" });
+process.exit(answer.status === 0 ? 0 : 1);' "$session_binding" "$session_home/.pi/agent/security/secret-names.mjs"
+}
+
+session_login_is_private() {
+	python3 - "$session_home" "$POTS_SESSION_VAULT_DIRECTORY" "$POTS_SESSION_VAULT_FILE" "$session_user" <<'PY'
+import pwd
+import stat
+import sys
+from pathlib import Path
+
+home, relative, credential, user = sys.argv[1:]
+owner = pwd.getpwnam(user).pw_uid
+path = Path(home)
+for component in ("", *Path(relative).parts):
+    path = path / component
+    details = path.lstat()
+    if not stat.S_ISDIR(details.st_mode) or details.st_uid != owner:
+        sys.exit(1)
+if stat.S_IMODE(details.st_mode) != 0o700:
+    sys.exit(1)
+for name in (credential, "core-vault.json"):
+    details = (path / name).lstat()
+    if not stat.S_ISREG(details.st_mode) or details.st_uid != owner or stat.S_IMODE(details.st_mode) != 0o600:
+        sys.exit(1)
+for name in (".profile", ".bashrc"):
+    details = (Path(home) / name).lstat()
+    if not stat.S_ISREG(details.st_mode) or details.st_uid != owner or stat.S_IMODE(details.st_mode) != 0o600 or details.st_nlink != 1:
+        sys.exit(1)
+PY
 }
 
 echo "as $(id -un)"
 expect succeed control-broker-answers ask '{"kind":"ready"}'
 expect succeed control-with-vault-runs "$clone/session/with-vault" true
-expect fail worker-sees-vault-access worker_sees_vault_access
-expect fail session-sees-identity-path test -e "$identity"
-expect fail session-holds-vault-env test -e "$session_home/.config/agent-sandbox/vault.env"
+expect succeed wrapped-command-keeps-session-login worker_keeps_session_login
+expect succeed session-login-lists-names session_login_lists_names
+expect succeed session-login-files-private session_login_is_private
+expect succeed session-infisical-cli-installed "$session_home/.local/bin/infisical" --version
+expect fail session-sees-broker-identity-path test -e "$identity"
 expect fail write-broker-directory touch "$(dirname "$socket")/.agent-sandbox-probe"
 expect fail broker-serves-unknown-kind ask '{"kind":"export","path":"/"}'
 expect fail broker-serves-extra-field ask '{"kind":"sandbox","path":"/tools/github"}'
