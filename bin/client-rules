@@ -37,28 +37,38 @@ def sandbox_directory():
     return runtime / "sandboxes" / sandbox
 
 
-def main():
-    options = arguments()
+def approve(options):
     try:
         directory = sandbox_directory()
         if options.command == "import":
-            state = import_rules(directory, private_checkout, options.source, options.original, options.file, options.recipe, options.recipe_sha256)
-        else:
-            state = approve_rules(directory, private_checkout, options.sha256)
-        print(json.dumps({"sha256": state["sha256"], "previousSha256": state["previousSha256"],
-                          "localApproval": "stored", "vmInstallation": "pending"}), flush=True)
-        result = subprocess.run([str(REPOSITORY / "bin/vm-config")], check=False)
-        if result.returncode:
-            print("client-rules: local approval is stored. VM installation failed. Retry bin/vm-config before another approval.", file=sys.stderr)
-            return result.returncode
-        print("client-rules: vm-config completed. Verify the loaded hash in the session before claiming runtime evidence.")
-        return 0
+            return import_rules(directory, private_checkout, options.source, options.original, options.file, options.recipe, options.recipe_sha256)
+        return approve_rules(directory, private_checkout, options.sha256)
     except RulesRefused as error:
         print(str(error), file=sys.stderr)
     except (OSError, ValueError, TypeError, KeyError):
         print("client-rules: invalid or inaccessible input. Input text is withheld. No VM command ran.", file=sys.stderr)
-    return 1
+    return None
 
+
+def install():
+    try:
+        returncode = subprocess.run([str(REPOSITORY / "bin/vm-config")], check=False).returncode
+    except OSError:
+        returncode = 1
+    if returncode:
+        print("client-rules: local approval is stored. VM installation failed. Retry bin/vm-config before another approval.", file=sys.stderr)
+        return returncode
+    print("client-rules: vm-config completed. Verify the loaded hash in the session before claiming runtime evidence.")
+    return 0
+
+
+def main():
+    state = approve(arguments())
+    if state is None:
+        return 1
+    print(json.dumps({"sha256": state["sha256"], "previousSha256": state["previousSha256"],
+                      "localApproval": "stored", "vmInstallation": "pending"}), flush=True)
+    return install()
 
 if __name__ == "__main__":
     sys.exit(main())
