@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import { knock } from './door-knock.mjs';
-import { HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, parse, REPLY, replyMessage, REQUEST, requestMessage } from './door-messages.mjs';
-import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, remove, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
+import { HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, parse, Refusal, REPLY, replyMessage, REQUEST, requestMessage } from './door-messages.mjs';
+import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, remove, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId, sandbox } from './sandbox.mjs';
@@ -10,6 +10,7 @@ const CONNECTED = 'Running';
 // A pot that answers nothing cannot be made to hold an endless list: its neighbour waits for an answer first.
 const UNANSWERED_REQUESTS_PER_POT = 20;
 const RESENDABLE = [UNKNOWN, UNDELIVERED];
+const SETTLED = [ANSWERED, REFUSED];
 const DELIVERED_STATE = { [ASKED]: OPEN, [RECEIVED]: ANSWERED };
 const USAGE = 'usage: pots ask POT --need TEXT [--for REQUEST_ID] | pots reply REQUEST_ID --text TEXT | pots resend REQUEST_ID | pots requests [--all]';
 
@@ -63,6 +64,7 @@ function send(request, wire, done) {
   const { state, failure } = underLock(() => settle(request.id, outcome));
   if (state === UNKNOWN) throw new Error(`pots: ${request.id} may have reached ${request.pot}: ${failure}. pots resend ${request.id} sends the same message, and ${request.pot} takes it once.`);
   if (state === UNDELIVERED) throw new Error(`pots: ${request.id} did not reach ${request.pot}: ${failure}. pots resend ${request.id} sends it once the cause is gone.`);
+  if (state === REFUSED) throw new Error(`pots: ${request.pot} refused ${request.id}: ${failure}. It is closed, and pots resend refuses it. Tell the person; pots requests lists what this pot still waits on from ${request.pot}.`);
   process.stdout.write(`${done} ${request.id}\n`);
 }
 
@@ -114,7 +116,7 @@ function resend([id, ...extra]) {
 
 function requests(arguments_) {
   const { values } = parseArgs({ args: arguments_, options: { all: { type: 'boolean' } } });
-  const shown = all().filter(request => values.all || request.state !== ANSWERED);
+  const shown = all().filter(request => values.all || !SETTLED.includes(request.state));
   process.stdout.write(`${JSON.stringify(shown, null, 2)}\n`);
 }
 
@@ -123,7 +125,7 @@ async function standardInput(limit) {
   let size = 0;
   for await (const chunk of process.stdin) {
     size += chunk.length;
-    if (size > limit) throw new Error(`pots: the door handed over more than ${limit} bytes.`);
+    if (size > limit) throw new Refusal(`pots: the door handed over more than ${limit} bytes.`);
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -132,21 +134,21 @@ async function standardInput(limit) {
 // Each returns the record to keep, or nothing when the door already delivered this very message and a resend brings it again.
 const ACCEPTED = {
   [REQUEST]({ caller, id, origin, hop, text }) {
-    if (origin !== caller) throw new Error(`pots: request ${id} is in the name of ${origin}, and ${caller} sent it.`);
-    if (hop > HOP_LIMIT) throw new Error(`pots: request ${id} comes ${hop} hops down a chain of requests, and a pot takes ${HOP_LIMIT} at most.`);
+    if (origin !== caller) throw new Refusal(`pots: request ${id} is in the name of ${origin}, and ${caller} sent it.`);
+    if (hop > HOP_LIMIT) throw new Refusal(`pots: request ${id} comes ${hop} hops down a chain of requests, and a pot takes ${HOP_LIMIT} at most.`);
     const known = find(id);
     if (known?.direction === RECEIVED && known.need === text && known.hop === hop) return undefined;
-    if (known) throw new Error(`pots: ${id} already names another message.`);
-    const unanswered = all().filter(request => request.direction === RECEIVED && request.pot === caller && request.state !== ANSWERED);
-    if (unanswered.length >= UNANSWERED_REQUESTS_PER_POT) throw new Error(`pots: ${caller} has ${unanswered.length} requests here that wait for their reply.`);
+    if (known) throw new Refusal(`pots: ${id} already names another message.`);
+    const unanswered = all().filter(request => request.direction === RECEIVED && request.pot === caller && !SETTLED.includes(request.state));
+    if (unanswered.length >= UNANSWERED_REQUESTS_PER_POT) throw new Refusal(`pots: ${caller} has ${unanswered.length} requests here that wait for their reply.`);
     return { id, direction: RECEIVED, pot: caller, need: text, hop, state: OPEN, at: Date.now() };
   },
   [REPLY]({ caller, id, text }) {
     const asked = find(id);
-    if (asked?.direction !== ASKED || asked.pot !== caller) throw new Error(`pots: this pot asked ${caller} nothing under ${id}.`);
+    if (asked?.direction !== ASKED || asked.pot !== caller) throw new Refusal(`pots: this pot asked ${caller} nothing under ${id}.`);
     if (asked.state !== ANSWERED) return { ...asked, state: ANSWERED, reply: text, answeredAt: Date.now(), failure: undefined };
     if (asked.reply === text) return undefined;
-    throw new Error(`pots: ${id} already has its reply, and a request takes one.`);
+    throw new Refusal(`pots: ${id} already has its reply, and a request takes one.`);
   },
 };
 
@@ -171,7 +173,7 @@ function keep(delivery) {
 }
 
 async function deliver([caller]) {
-  if (!isPotName(caller)) throw new Error(`pots: a door delivery comes from pot:NAME, and this one names ${caller}.`);
+  if (!isPotName(caller)) throw new Refusal(`pots: a door delivery comes from pot:NAME, and this one names ${caller}.`);
   const delivery = { caller, ...parse(await standardInput(MESSAGE_BYTES)) };
   // One delivery at a time: the duplicate check, the count, the save and the wake never interleave with another one.
   underLock(() => keep(delivery));

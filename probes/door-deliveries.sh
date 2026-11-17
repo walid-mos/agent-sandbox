@@ -4,22 +4,25 @@ set -u
 pots=$1
 NONCE=0000000000000000
 CALLER=probe
+# The door contract's exit for "the session refused it and kept nothing", which the door passes on to the caller.
+REFUSED_EXIT=76
 failures=0
 
 requests() {
 	"$pots" requests --all < /dev/null 2> /dev/null
 }
 
-# A forged delivery runs through the command the door runs, and passes only when it is refused and leaves the requests as they were.
+# A forged delivery runs through the command the door runs, and passes only when it is refused with REFUSED_EXIT and leaves the requests as they were.
 refused() {
 	name=$1 caller=$2
 	before=$(requests)
-	if "$pots" wake --from "pot:$caller" --note-file - > /dev/null 2>&1; then outcome=accepted; else outcome=refused; fi
+	"$pots" wake --from "pot:$caller" --note-file - > /dev/null 2>&1
+	code=$?
 	after=$(requests)
-	if [ "$outcome" = refused ] && [ "$before" = "$after" ]; then
+	if [ "$code" -eq "$REFUSED_EXIT" ] && [ "$before" = "$after" ]; then
 		echo "ok   door-refuses-$name"
 	else
-		echo "FAIL door-refuses-$name ($outcome)"
+		echo "FAIL door-refuses-$name (exit $code)"
 		failures=$((failures + 1))
 	fi
 }

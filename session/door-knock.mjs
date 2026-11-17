@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { UNDELIVERED, UNKNOWN } from './door-requests.mjs';
+import { REFUSED_EXIT } from './door-messages.mjs';
+import { REFUSED, UNDELIVERED, UNKNOWN } from './door-requests.mjs';
 
 const DOOR_CONFIG = fileURLToPath(new URL('./door.ssh_config', import.meta.url));
 const DOOR_SECONDS = 60;
@@ -14,6 +15,7 @@ const NOT_KEPT = {
   77: 'the door does not let this pot in',
 };
 const MAY_BE_KEPT = 'the door gave no clear answer, so the neighbour may hold the message already';
+const REFUSED_BY_SESSION = 'the neighbour\'s session refused the message, kept nothing and would refuse it again';
 
 // Nothing a door or a neighbour prints comes back: the exit code alone decides, in words this pot chose.
 export function knock(pot, wire) {
@@ -22,6 +24,7 @@ export function knock(pot, wire) {
   });
   if (status === DELIVERED) return undefined;
   const ending = error?.code === 'ETIMEDOUT' ? `no answer in ${DOOR_SECONDS} s` : `exit ${status ?? signal ?? error?.code}`;
+  if (status === REFUSED_EXIT) return { state: REFUSED, failure: `door of ${pot}, ${ending}: ${REFUSED_BY_SESSION}` };
   const reason = NOT_KEPT[status];
   return reason
     ? { state: UNDELIVERED, failure: `door of ${pot}, ${ending}: ${reason}` }

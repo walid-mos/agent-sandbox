@@ -11,10 +11,16 @@ const LINE_BREAK = '\n';
 const strictText = new TextDecoder('utf-8', { fatal: true });
 // The door of the receiving pot's VM refuses a longer message, header included.
 export const MESSAGE_BYTES = 16384;
+// The receiving pot's door passes this exit through as its own, so the caller knows the session kept nothing and would refuse the same message again.
+export const REFUSED_EXIT = 76;
 export const REQUEST = 'request';
 export const REPLY = 'reply';
 // A pot asks one hop past the deepest request it has not answered, so pots asking each other in a loop stop at the third door.
 export const HOP_LIMIT = 2;
+
+export class Refusal extends Error {
+  exitCode = REFUSED_EXIT;
+}
 
 export const isPotName = name => POT_NAME.test(name ?? '');
 export const isRequestId = id => REQUEST_ID.test(id ?? '');
@@ -37,19 +43,19 @@ function decoded(bytes) {
   try {
     return strictText.decode(bytes);
   } catch {
-    throw new Error('pots: the door handed over bytes that are not UTF-8 text.');
+    throw new Refusal('pots: the door handed over bytes that are not UTF-8 text.');
   }
 }
 
 // The door checks its message in the VM, out of this session's sight, so the session checks what it is handed again.
 export function parse(bytes) {
-  if (bytes.length > MESSAGE_BYTES) throw new Error(`pots: the door handed over more than ${MESSAGE_BYTES} bytes.`);
+  if (bytes.length > MESSAGE_BYTES) throw new Refusal(`pots: the door handed over more than ${MESSAGE_BYTES} bytes.`);
   const wire = decoded(bytes);
   const headerEnd = wire.indexOf(LINE_BREAK);
   const header = HEADER.exec(headerEnd < 0 ? wire : wire.slice(0, headerEnd));
   const [, kind, id, hop] = header ?? [];
-  if (!header || (kind === REQUEST) !== (hop !== undefined)) throw new Error('pots: the first line is not "request ORIGIN.NONCE HOP" or "reply ORIGIN.NONCE".');
+  if (!header || (kind === REQUEST) !== (hop !== undefined)) throw new Refusal('pots: the first line is not "request ORIGIN.NONCE HOP" or "reply ORIGIN.NONCE".');
   const text = headerEnd < 0 ? '' : wire.slice(headerEnd + 1);
-  if (!text.trim() || text.includes(NUL)) throw new Error('pots: the note is empty or holds a NUL byte.');
+  if (!text.trim() || text.includes(NUL)) throw new Refusal('pots: the note is empty or holds a NUL byte.');
   return { kind, id, origin: originOf(id), hop: hop === undefined ? undefined : Number(hop), text };
 }
