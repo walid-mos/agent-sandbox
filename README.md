@@ -400,6 +400,28 @@ The session's Docker daemon is separate from the VM daemon used by SealSkin. Giv
 
 A development server in the session gets its link from the session's own tailnet node: run `tailnet-link PORT` in the session, as on any machine. The link names the pot.
 
+### Load
+
+```sh
+./bin/pots-load --seconds 30
+```
+
+[The load command](session/load.mjs) measures the running session over a window, 10 seconds unless `--seconds` says otherwise, and prints one JSON line. Inside a pot, `node /opt/agent-sandbox/session/load.mjs` prints the same line. The session reads its VM's `/proc`, so the CPU, pressure and memory figures are the VM's as the session sees them.
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | 1. A field that changes meaning raises it |
+| `bot`, `at`, `windowSeconds` | The sandbox's bot, the end of the window in UTC, and its length |
+| `cpu.busyPercent`, `cpu.iowaitPercent`, `cpu.stealPercent` | Shares of all vCPU time over the window, from `/proc/stat`: running, idle with a read or write pending, and taken by the hypervisor |
+| `cpu.load1` | The one-minute load average |
+| `pressure.cpu`, `pressure.io`, `pressure.memory` | `/proc/pressure`. Under `some`, at least one task waited for the resource, and under `full`, every task did. `avg10`, `avg60` and `avg300` are the kernel's averages in percent, and `windowPercent` is the share of this window |
+| `memory` | `totalKiB`, `availableKiB`, `swapTotalKiB` and `swapFreeKiB` from `/proc/meminfo`, and `sessionKiB`, what the session container holds |
+| `terminals` | hc's `live` and `finished` terminals, and `workersLive` and `workersFinished` among them |
+| `containers` | The `running` and `total` inner containers, and under `composeProjects` each Compose project with its own `running` and `total` |
+| `unavailable` | Each part that could not be read, with the reason. Its fields are `null` |
+
+CPU wait is `cpu.iowaitPercent`, and `pressure.io.some.windowPercent` is the share of the window in which a task waited on a disk. Compare two runs of the same length, taken under the same work.
+
 ### CPU
 
 The pane's requests, the bot and the session's Herdr keep the default CPU priority, and worker jobs run behind them. A worker, a clean pass and the processes they start run at niceness 10, set where [their terminal opens](session/workers.mjs). The session user can lower a priority and cannot raise one, so the workers step down. Inner containers, the PR factory's check containers among them, all run under one cgroup. [The Docker service](session/services.d/docker) gives that cgroup a CPU weight of 10 against the session's 100 when it starts, so a running session takes a changed weight at its next restart. A weight on one container, such as `--cpu-shares`, only ranks it among the other containers. Neither setting caps a job: a worker alone on idle vCPUs runs at full speed.
