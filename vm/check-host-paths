@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+# Colima keeps one share of its host in a VM: Rosetta, which holds Apple's translator and no file of the operator.
+ROSETTA_SHARE='vz-rosetta /mnt/lima-rosetta virtiofs'
+MAC_ROOTS='/Users /Volumes'
+
+shares=$(awk -v rosetta="$ROSETTA_SHARE" '
+	($3 == "virtiofs" || $3 == "9p" || $3 == "fuse.sshfs") && ($1 " " $2 " " $3) != rosetta { print "  " $2 " (" $3 " share " $1 ")" }
+' /proc/self/mounts)
+roots=
+for root in $MAC_ROOTS; do
+	[ ! -e "$root" ] || roots="$roots  $root
+"
+done
+[ -n "$shares$roots" ] || exit 0
+printf 'check-host-paths: this machine sees paths of its host:\n%s%sA pot mounts nothing from its host. Remove them from the VM, or stop a Colima VM and start it again with bin/vm-up.\n' "${shares:+$shares
+}" "$roots" >&2
+exit 1

@@ -82,6 +82,7 @@ stop() {
 ensure() {
 	running=$(session_container)
 	if [ -z "$running" ]; then
+		"$POTS_REPO/vm/check-host-paths"
 		launch
 		running=$(session_container)
 	fi
