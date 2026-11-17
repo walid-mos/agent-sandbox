@@ -7,6 +7,8 @@ export const DISCORD_PERMISSIONS = {
 };
 export const CHANNEL = { text: 0, voice: 2, category: 4, announcement: 5, announcementThread: 10, publicThread: 11, privateThread: 12, stage: 13, forum: 15, media: 16 };
 export const OVERWRITE = { role: 0, member: 1 };
+export const CHANNEL_TOPIC_LIMIT = 1024;
+export const FORUM_TOPIC_LIMIT = 4096;
 export const STANDALONE_THREAD_TYPES = [CHANNEL.publicThread, CHANNEL.privateThread];
 export const isThread = channel => [CHANNEL.announcementThread, ...STANDALONE_THREAD_TYPES].includes(channel.type);
 
@@ -29,7 +31,7 @@ function overwriteOf(item) {
 
 const overwrites = value => Array.isArray(value) && value.every(overwriteOf);
 
-const channelFields = { name: string(100), topic: string(4096), parent_id: parent, position: integer(0, 10000),
+const channelFields = { name: string(100), topic: value => value === null || (typeof value === 'string' && value.length <= FORUM_TOPIC_LIMIT), parent_id: parent, position: integer(0, 10000),
   permission_overwrites: overwrites, nsfw: boolean, rate_limit_per_user: integer(0, 21600) };
 const roleFields = { name: string(100), permissions, color: integer(0, 16777215), hoist: boolean, mentionable: boolean };
 const guildPath = request => `/guilds/${request.guildId}`;

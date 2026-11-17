@@ -7,6 +7,8 @@ const ordinary = [
   ['channel.create', { payload: { name: 'category', type: 4 } }, 'POST', `/guilds/${guildId}/channels`],
   ['channel.create', { payload: { name: 'channel', type: 0, parent_id: parentId } }, 'POST', `/guilds/${guildId}/channels`],
   ['channel.edit', { channelId, payload: { name: 'renamed', parent_id: parentId } }, 'PATCH', `/channels/${channelId}`],
+  ['channel.edit', { channelId, payload: { topic: null } }, 'PATCH', `/channels/${channelId}`],
+  ['channel.edit', { channelId, payload: { topic: '' } }, 'PATCH', `/channels/${channelId}`],
   ['thread.create', { channelId, payload: { name: 'topic', type: 11 } }, 'POST', `/channels/${channelId}/threads`],
   ['thread.create', { channelId, messageId: '100000000000000030', payload: { name: 'topic' } }, 'POST', `/channels/${channelId}/messages/100000000000000030/threads`],
   ['role.create', { payload: { name: 'member', permissions: '1024' } }, 'POST', `/guilds/${guildId}/roles`],
@@ -29,6 +31,20 @@ for (const [action, fields, method, path] of ordinary) {
     assert.deepEqual(dependencies.mutations, [{ method, path, body, reason: 'Requested server maintenance' }]);
   });
 }
+
+test('text channel topics longer than 1024 characters fail before mutation', async () => {
+  const dependencies = fixture();
+  await assert.rejects(administerDiscord(request('channel.edit', { channelId, payload: { topic: 'x'.repeat(1025) } }), dependencies), /topic.*1024/);
+  assert.equal(dependencies.mutations.length, 0);
+});
+
+test('forum channel topics accept up to 4096 characters', async () => {
+  const dependencies = fixture();
+  dependencies.channels.find(channel => channel.id === channelId).type = 15;
+  const topic = 'x'.repeat(4096);
+  await administerDiscord(request('channel.edit', { channelId, payload: { topic } }), dependencies);
+  assert.deepEqual(dependencies.mutations[0].body, { topic });
+});
 
 for (const action of ['thread.edit', 'thread.delete']) {
   test(`${action} operates on an ordinary thread with its real parent`, async () => {

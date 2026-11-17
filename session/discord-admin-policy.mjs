@@ -1,4 +1,4 @@
-import { CHANNEL, DISCORD_PERMISSIONS, isThread, OVERWRITE, STANDALONE_THREAD_TYPES } from './discord-admin-operations.mjs';
+import { CHANNEL, CHANNEL_TOPIC_LIMIT, DISCORD_PERMISSIONS, FORUM_TOPIC_LIMIT, isThread, OVERWRITE, STANDALONE_THREAD_TYPES } from './discord-admin-operations.mjs';
 import { protectedIds } from './discord-admin-protection.mjs';
 
 const includesId = (ids, id) => ids.includes(id);
@@ -39,6 +39,12 @@ function guardChannelType(request, channel) {
   if (request.action.startsWith('channel.') && isThread(channel)) throw new Error('discord-admin: use a thread operation for a thread.');
 }
 
+function guardTopic(request, channel) {
+  const type = request.action === 'channel.create' ? request.payload.type : channel?.type;
+  const limit = [CHANNEL.forum, CHANNEL.media].includes(type) ? FORUM_TOPIC_LIMIT : CHANNEL_TOPIC_LIMIT;
+  if (request.payload.topic?.length > limit) throw new Error(`discord-admin: topic exceeds ${limit} characters for this channel type.`);
+}
+
 function guardThreadType(request, channel) {
   if (!request.action.startsWith('thread.')) return;
   if (request.action === 'thread.create') return guardThreadCreation(request, channel);
@@ -50,6 +56,7 @@ export function guardChannels(request, snapshot) {
   guardDestination(request, snapshot);
   guardOverwrites(request, snapshot);
   guardChannelType(request, snapshot.channel);
+  guardTopic(request, snapshot.channel);
   guardThreadType(request, snapshot.channel);
 }
 
