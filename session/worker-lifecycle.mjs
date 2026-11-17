@@ -46,13 +46,10 @@ export const completionFacts = (worker, cwd = worker.worktree) => worker.kind ==
 
 /** Completion facts, with the branch and commit a repository worker's report names. */
 export function reportFacts(worker) {
-  if (worker.kind === 'task') return taskFacts(worker);
+  const facts = completionFacts(worker);
+  if (facts.kind === 'task') return facts;
   const options = { cwd: worker.worktree };
-  return {
-    branch: command('git', ['branch', '--show-current'], options),
-    commit: command('git', ['rev-parse', '--short', 'HEAD'], options),
-    ...repositoryFacts(worker, worker.worktree),
-  };
+  return { branch: command('git', ['branch', '--show-current'], options), commit: command('git', ['rev-parse', '--short', 'HEAD'], options), ...facts };
 }
 
 export const isPublished = facts => facts.kind === 'task' ? facts.resultReady
