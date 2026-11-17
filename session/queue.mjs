@@ -8,7 +8,9 @@ import { WORKERS } from './workers.mjs';
 export const QUEUE = join(WORKERS, 'queue');
 const REQUEST = '.json';
 
-export const isRequest = file => `${file}`.endsWith(REQUEST) && existsSync(join(QUEUE, file));
+export const isRequestName = file => /^[a-zA-Z0-9.-]+\.json$/.test(`${file}`);
+
+export const isRequest = file => isRequestName(file) && existsSync(join(QUEUE, file));
 
 /** Asks the watcher to start the worker, or to bring it back, with the message when there is one. */
 export function enqueue(request) {
@@ -17,7 +19,7 @@ export function enqueue(request) {
 
 export function queued() {
   if (!existsSync(QUEUE)) return [];
-  return readdirSync(QUEUE).filter(file => file.endsWith(REQUEST)).sort()
+  return readdirSync(QUEUE).filter(isRequestName).sort()
     .map(file => ({ ...JSON.parse(readFileSync(join(QUEUE, file), 'utf8')), file }));
 }
 

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { readJson } from './private-json.mjs';
+import { isRequestName } from './queue.mjs';
 import { command } from './run.mjs';
 import { isLive, ownsTerminal, WORKERS } from './workers.mjs';
 
@@ -45,7 +46,7 @@ function parsedFollowUp(body) {
   const isWrapped = [body.startsWith(MESSAGE_PREFIX), body.endsWith(MESSAGE_SUFFIX), separator >= 0].every(Boolean);
   if (!isWrapped) return {};
   const id = body.slice(MESSAGE_PREFIX.length, separator);
-  if (!/^[a-zA-Z0-9.-]+\.json$/.test(id)) return {};
+  if (!isRequestName(id)) return {};
   return { id, message: body.slice(separator + MESSAGE_SEPARATOR.length, -MESSAGE_SUFFIX.length) };
 }
 
