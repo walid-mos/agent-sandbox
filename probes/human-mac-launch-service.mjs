@@ -45,6 +45,7 @@ test('one fresh click starts the stored bytes once and delivers the final report
   f.source.result = { status: 'finished', report: 'ready' };
   await f.service.tick();
   assert.equal(f.reports.at(-1).packet.report, 'ready');
+  assert.deepEqual(f.store.all(), [], 'an ended and reported launch leaves the records every pass reads');
   await f.service.notice(f.notice, application);
   await f.service.press(click);
   assert.equal(f.posted.length, 1);
@@ -186,6 +187,6 @@ test('refusal is final and failed report delivery retries without another launch
   f.source.isReportBroken = false;
   await f.service.tick();
   assert.deepEqual(f.reports.map(entry => entry.packet.status), ['offered', 'refused']);
-  assert.equal(f.store.get(f.request.launch).pending.length, 0);
+  assert.deepEqual(f.store.all(), []);
   assert.equal(f.runs.length, 0);
 });

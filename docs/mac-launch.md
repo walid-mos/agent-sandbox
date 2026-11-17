@@ -56,7 +56,7 @@ The gate holds no pot credential. It reaches a pot the way the operator's Herdr 
 
 The Mac owns its settings, offers and decisions. One gate serializes events and updates those records. The exclusive decision file guards terminal creation across gate restarts. Keep those files when restoring the Mac.
 
-A gate that stopped after a claim and before it recorded the start reports `failed` and never launches that approval again. A Pi may be running in that case, and the report says so.
+A launch that ended and was reported moves to `closed/`, so each pass reads live launches only. Its decision file stays in place, and its ID is never offered or decided again. A gate that stopped after a claim and before it recorded the start reports `failed` and never launches that approval again. A Pi may be running in that case, and the report says so.
 
 The token stays in memory after its Keychain read. Subprocess environments, arguments, reports and errors never carry it. A pot has no Mac mount, no process access there and no inbound endpoint. It cannot change the Mac's environment, lookup paths, sourced files, tool configuration or shared files. The Mac user's tools and configuration are trusted. An approved Pi shares that user and can read or alter the gate and its Keychain. Approval admits that prompt's work to the trusted Mac side. The act scan and system instruction do not isolate it from the gate.
 

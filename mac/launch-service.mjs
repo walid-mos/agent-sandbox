@@ -4,6 +4,7 @@ import { boundRequest, BUTTON, CLAIMED, pressedButton, verifyOffer, verifyPress 
 import { closedMessage, offerMessage } from './launch-messages.mjs';
 
 const STARTED = 'started';
+const LIVE = [OFFERED, STARTED];
 const SOURCE_CLOSURES = ['cancelled', 'superseded', 'expired'];
 const UNACCOUNTED_CLAIM = 'The gate stopped after it claimed this approval and before it recorded a start. A Pi may be running: inspect the ml- terminals in Herdr. The gate never launches this approval again.';
 const SOURCE_SILENT = 'The requesting pot did not answer, so nothing started and this press is not used. Press again once the pot answers.';
@@ -104,6 +105,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
       await pots.report(offer.request.pot, offer.pending[0]);
       offer = store.save({ ...offer, pending: offer.pending.slice(1) });
     }
+    if (!LIVE.includes(offer.state)) store.shelve(offer.request.launch);
   }
 
   async function advance(offer) {

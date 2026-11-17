@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DIALOG_ID } from '../session/human-contract.mjs';
 import { writePrivateJson } from '../session/private-json.mjs';
@@ -19,7 +19,9 @@ const RECORD = '.json';
 const DECISION = '.decision';
 
 export function gateStore(folder) {
+  const shelf = join(folder, 'closed');
   privateDirectory(folder);
+  privateDirectory(shelf);
   const path = (id, suffix) => {
     if (!DIALOG_ID.test(id)) throw new Error('mac-launch: invalid launch ID.');
     return join(folder, `${id}${suffix}`);
@@ -35,6 +37,8 @@ export function gateStore(folder) {
     const directory = openSync(folder, 'r');
     try { fsyncSync(directory); } finally { closeSync(directory); }
   }
+  // Only the record leaves. The decision stays where the exclusive create looks, so a launch ID the Mac decided once is never decided or offered again.
+  const shelve = id => renameSync(path(id, RECORD), join(shelf, `${id}${RECORD}`));
   const session = id => path(id, '.session.jsonl');
-  return { get, save, all, decision, decide, session, folder };
+  return { get, save, all, decision, decide, shelve, session, folder };
 }
