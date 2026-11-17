@@ -1,7 +1,8 @@
 import { all, ANSWERED, find, RESENDABLE } from './door-requests.mjs';
 import { prepareHumanAsk, transmitAsk } from './doors.mjs';
 import { deliverBotResult, syncBotDialogs } from './human-bot.mjs';
-import { LOCAL_POLICY, MASTERMIND_POT, packet } from './human-contract.mjs';
+import { LOCAL_POLICY, MASTERMIND_POT } from './human-contract.mjs';
+import { acknowledgementOf } from './human-door-packets.mjs';
 import { acceptDoorAnswer, cancelDialog, completionNeed, questionNeed, secretNeed } from './human-dialogs.mjs';
 import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
 import { ensureSecretPage, syncSecretPage } from './human-pages.mjs';
@@ -11,8 +12,7 @@ import { main } from './main.mjs';
 import { sandbox } from './sandbox.mjs';
 
 const PASS_MS = 2000;
-const POSTED_ACK = JSON.stringify(packet('human.posted-ack', {}));
-const transport = { prepare: prepareHumanAsk, transmit: transmitAsk, find, all, acknowledge: request => replyReceived(request, POSTED_ACK) };
+const transport = { prepare: prepareHumanAsk, transmit: transmitAsk, find, all, acknowledge: request => replyReceived(request, acknowledgementOf(request.need)) };
 
 async function noteIssue(dialog, store, error) {
   return dialog.issue === error.message ? dialog : store.patch(dialog.id, { issue: error.message });

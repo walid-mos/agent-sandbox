@@ -4,7 +4,8 @@ import { acceptDiscordClick, closeDiscordQuestion } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
 import { all, ANSWERED, find, RECEIVED } from './door-requests.mjs';
 import { DIALOG } from './door-messages.mjs';
-import { DIALOG_ID, packet } from './human-contract.mjs';
+import { DIALOG_ID } from './human-contract.mjs';
+import { acknowledgementOf } from './human-door-packets.mjs';
 import { reconcileRegistrations, registerQuestion, REGISTRATION_EXIT } from './discord-registration.mjs';
 import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
@@ -15,7 +16,6 @@ import { botHome, botId, isMastermind, sandbox } from './sandbox.mjs';
 const FOLDER = join(HUMAN_HOME, 'discord');
 const POLL_MS = 100;
 const DELIVERY_MS = 2000;
-const ANSWERED_ACK = JSON.stringify(packet('human.answered-ack', {}));
 const store = humanStore(FOLDER);
 
 function callDiscord(channel, method, body) {
@@ -67,7 +67,7 @@ async function completeRequest(request, onError) {
   if (!completion) return;
   try {
     await closeDiscordQuestion(completion, store, request.pot);
-    await replyReceived(request, ANSWERED_ACK);
+    await replyReceived(request, acknowledgementOf(request.need));
   } catch { onError('A question completion remains pending.'); }
 }
 

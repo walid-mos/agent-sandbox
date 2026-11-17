@@ -1,4 +1,4 @@
-import { DIALOG_ID, DIGEST, discordMessage, MASTERMIND_POT, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
+import { DIALOG_ID, DIGEST, discordMessage, MASTERMIND_POT, packet as newPacket, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
 import { isRequestId, Refusal } from './door-messages.mjs';
 
 const FIELDS = {
@@ -8,6 +8,7 @@ const FIELDS = {
   'human.answered': ['request', 'digest', 'status', 'origin', 'answers'],
 };
 const INITIAL = ['human.question', 'human.secret-link'];
+const ACKNOWLEDGEMENTS = { 'human.posted': 'human.posted-ack', 'human.answered': 'human.answered-ack' };
 const STATUSES = ['answered', 'cancelled', 'paused', 'expired', 'stored'];
 const ORIGINS = ['terminal', 'discord', 'page'];
 const text = value => typeof value === 'string' && value.trim().length > 0;
@@ -95,8 +96,7 @@ export function checkHumanReply(request, reply) {
   try {
     const original = humanPacket(request.need);
     const answer = JSON.parse(reply);
-    const acknowledgements = { 'human.posted': 'human.posted-ack', 'human.answered': 'human.answered-ack' };
-    const expected = acknowledgements[original.type];
+    const expected = ACKNOWLEDGEMENTS[original.type];
     if (expected) {
       if (answer.type !== expected || answer.version !== VERSION || Object.keys(answer).length !== 2) throw new Error('invalid acknowledgement');
       return;
@@ -106,4 +106,10 @@ export function checkHumanReply(request, reply) {
   } catch (cause) {
     throw new Refusal(`pots: invalid human dialog reply: ${cause.message}`);
   }
+}
+
+export function acknowledgementOf(need) {
+  const type = ACKNOWLEDGEMENTS[humanPacket(need).type];
+  if (!type) throw new Error('pots: this human dialog request takes an answer, not an acknowledgement.');
+  return JSON.stringify(newPacket(type, {}));
 }
