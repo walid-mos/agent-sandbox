@@ -1,14 +1,11 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { after, test, mock } from 'node:test';
-import { fixtureSandbox } from './fixtures/sandbox.mjs';
+import { test } from 'node:test';
 
-const home = mkdtempSync(join(tmpdir(), 'approval-proof-'));
-process.env.HOME = home;
-after(() => { mock.restoreAll(); rmSync(home, { recursive: true, force: true }); });
-mock.module('../session/sandbox.mjs', { exports: fixtureSandbox(home) });
+import { sandboxFixture } from './fixtures/sandbox.mjs';
+
+const { home } = sandboxFixture('approval-proof-');
 const { humanStore } = await import('../session/human-store.mjs');
 const { syncBotDialogs, botDialogId } = await import('../session/human-bot.mjs');
 const { answerQuestion, cancelDialog, completionNeed, acceptDoorAnswer, questionPacket, questionDigest } = await import('../session/human-dialogs.mjs');

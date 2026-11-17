@@ -2,15 +2,12 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test, after, mock } from 'node:test';
-import { fixtureSandbox } from './fixtures/sandbox.mjs';
+import { test } from 'node:test';
 
-const home = mkdtempSync(join(tmpdir(), 'human-proof-'));
-process.env.HOME = home;
-after(() => { mock.restoreAll(); rmSync(home, { recursive: true, force: true }); });
-mock.module('../session/sandbox.mjs', { exports: fixtureSandbox(home) });
+import { sandboxFixture } from './fixtures/sandbox.mjs';
+
+const { home } = sandboxFixture('human-proof-');
 const { humanStore } = await import('../session/human-store.mjs');
 const { openDialog, cancelDialog } = await import('../session/human-dialogs.mjs');
 const { storeDialogSecret } = await import('../session/human-secrets.mjs');

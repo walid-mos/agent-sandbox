@@ -1,14 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { after, mock, test } from 'node:test';
+import { writeFileSync } from 'node:fs';
+import { mock, test } from 'node:test';
 
-const home = mkdtempSync(join(tmpdir(), 'human-decisions-'));
-process.env.HOME = home;
-after(() => { mock.restoreAll(); rmSync(home, { recursive: true, force: true }); });
-const session = join(home, 'worker.jsonl');
-mock.module('../session/sandbox.mjs', { exports: { botHome: join(home, 'bot'), botId: 'proof', potsHome: join(home, '.pots') } });
+import { sandboxFixture } from './fixtures/sandbox.mjs';
+
+const { home, session } = sandboxFixture('human-decisions-');
 mock.module('../session/run.mjs', { exports: {
   command: () => JSON.stringify({ labels: { 'pi.session': session } }),
   commandWithInput: async () => { throw new Error('Unexpected external write'); },

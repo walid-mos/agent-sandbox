@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { after, beforeEach, mock, test } from 'node:test';
+import { beforeEach, mock, test } from 'node:test';
 
-const home = mkdtempSync(join(tmpdir(), 'human-decisions-'));
-process.env.HOME = home;
-after(() => { mock.restoreAll(); rmSync(home, { recursive: true, force: true }); });
-const session = join(home, 'worker.jsonl');
-mock.module('../session/sandbox.mjs', { exports: { botHome: join(home, 'bot'), botId: 'proof', potsHome: join(home, '.pots') } });
+import { sandboxFixture } from './fixtures/sandbox.mjs';
+
+sandboxFixture('human-decisions-');
 const vault = { isAccessDenied: true, isWriteUncertain: false, writes: 0 };
 beforeEach(() => { Object.assign(vault, { isAccessDenied: true, isWriteUncertain: false, writes: 0 }); });
 mock.module('../session/run.mjs', { exports: {
@@ -30,17 +25,22 @@ let sequence = 0;
 const botSource = () => ({ type: 'bot', message: `m-proof-${++sequence}` });
 const secretInput = source => ({ kind: 'secret', source, purpose: 'Supply both keys', target: { destination: 'pots', file: 'proof.env', keys: ['FIRST', 'SECOND'] } });
 
-test('a partial secret submission names missing keys, writes nothing and remains open', async () => {
+async function openWithCountedWrite() {
   const store = humanStore();
   const dialog = await openDialog(secretInput(botSource()), store);
-  let writes = 0;
-  const write = async () => { writes += 1; return {}; };
+  const counter = { writes: 0 };
+  const write = async () => { counter.writes += 1; return {}; };
+  return { store, dialog, counter, write };
+}
+
+test('a partial secret submission names missing keys, writes nothing and remains open', async () => {
+  const { store, dialog, counter, write } = await openWithCountedWrite();
   await assert.rejects(storeDialogSecret(dialog.id, { FIRST: 'dummy' }, { store, write }), { message: 'human: missing secret keys: SECOND.' });
-  assert.equal(writes, 0);
+  assert.equal(counter.writes, 0);
   assert.equal(store.get(dialog.id).result, undefined);
   assert.equal(Boolean(store.get(dialog.id).writing), false);
   await storeDialogSecret(dialog.id, { FIRST: 'dummy', SECOND: 'dummy' }, { store, write });
-  assert.equal(writes, 1);
+  assert.equal(counter.writes, 1);
 });
 
 test('the native pot secret writer refuses partial input before any destination access', async () => {
@@ -91,10 +91,7 @@ test('an unconfirmed vault write cannot apply again after the boundary recovers'
 });
 
 test('failure saving a successful receipt never permits a second destination write', async () => {
-  const store = humanStore();
-  const dialog = await openDialog(secretInput(botSource()), store);
-  let writes = 0;
-  const write = async () => { writes += 1; return {}; };
+  const { store, dialog, counter, write } = await openWithCountedWrite();
   const broken = { ...store, locked: (operation, id) => store.locked(({ get, save }) => operation({ get, save: record => {
     if (record.result) throw new Error('Receipt disk unavailable');
     return save(record);
@@ -102,5 +99,5 @@ test('failure saving a successful receipt never permits a second destination wri
   const values = { FIRST: 'dummy', SECOND: 'dummy' };
   await assert.rejects(storeDialogSecret(dialog.id, values, { store: broken, write }), /Receipt disk unavailable/);
   await assert.rejects(storeDialogSecret(dialog.id, values, { store, write }), /interrupted/);
-  assert.equal(writes, 1);
+  assert.equal(counter.writes, 1);
 });

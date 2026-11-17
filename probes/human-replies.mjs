@@ -1,18 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { after, mock, test } from 'node:test';
+import { test } from 'node:test';
 
-const home = mkdtempSync(join(tmpdir(), 'human-decisions-'));
-process.env.HOME = home;
-after(() => { mock.restoreAll(); rmSync(home, { recursive: true, force: true }); });
-const session = join(home, 'worker.jsonl');
-mock.module('../session/sandbox.mjs', { exports: { botHome: join(home, 'bot'), botId: 'proof', potsHome: join(home, '.pots') } });
-mock.module('../session/run.mjs', { exports: {
-  command: () => JSON.stringify({ labels: { 'pi.session': session } }),
-  commandWithInput: async () => { throw new Error('Unexpected external write'); },
-} });
+import { sandboxFixture } from './fixtures/sandbox.mjs';
+
+sandboxFixture('human-decisions-');
 const { humanStore } = await import('../session/human-store.mjs');
 const { openDialog, cancelDialog } = await import('../session/human-dialogs.mjs');
 const { answerBotQuestion } = await import('../session/human-bot.mjs');
