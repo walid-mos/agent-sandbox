@@ -6,7 +6,7 @@ compile_python() {
 	PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 -m py_compile "$1"
 }
 
-for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/mac/* "$root"/probes/* "$root"/vm/*.sh "$root"/vm/*.py; do
+for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/mac/* "$root"/probes/* "$root"/vm/*.sh "$root"/vm/*.py; do
 	[ -f "$path" ] || continue
 	IFS= read -r interpreter < "$path" || true
 	case "$interpreter" in

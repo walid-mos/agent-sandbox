@@ -10,8 +10,16 @@ if [ -z "${SANDBOX:-}" ] || [ ! -f "$POTS_CONFIG" ]; then
 	exit 2
 fi
 . "$POTS_REPO/session/launch.env"
-POTS_PROFILE=$SANDBOX
-POTS_CONTEXT="colima-$POTS_PROFILE"
+
+sandbox_provider() {
+	jq -r '.provider // "colima"' "$1"
+}
+
+POTS_PROVIDER=$(sandbox_provider "$POTS_CONFIG")
+case "$POTS_PROVIDER" in
+	colima) ;;
+	*) echo "$(basename "$0"): provider must be colima in $POTS_CONFIG, got '$POTS_PROVIDER'" >&2; exit 2 ;;
+esac
 POTS_LAUNCHER=$(jq -r '.launcher // "docker"' "$POTS_CONFIG")
 case "$POTS_LAUNCHER" in
 	docker | sealskin) ;;
@@ -33,9 +41,16 @@ require_sealskin() {
 	[ -n "$POTS_SERVER_PORT" ] || { echo "$(basename "$0"): serverPort is missing in $POTS_CONFIG" >&2; exit 2; }
 }
 
-sandbox_docker() {
-	docker --context "$POTS_CONTEXT" "$@"
+vm_setting() {
+	value=$(jq -r --arg key "$1" '.vm[$key] // empty' "$POTS_CONFIG")
+	case "$value" in
+		'' | *[!0-9]*) echo "$(basename "$0"): vm.$1 must be a whole number in $POTS_CONFIG, got '$value'" >&2; exit 2 ;;
+	esac
+	echo "$value"
 }
+
+# A provider defines POTS_VM_REPO, sandbox_vm, sandbox_docker, vm_is_running, vm_start, vm_scripts and vm_forbidden_endpoints for its kind of VM.
+. "$POTS_REPO/lib/providers/$POTS_PROVIDER.sh"
 
 session_exec() {
 	input=

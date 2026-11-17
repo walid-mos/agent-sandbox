@@ -3,41 +3,19 @@ set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
 . "$POTS_REPO/vm/network.env"
 
-REACH="$POTS_REPO/probes/reach.sh"
-SESSION_ATTACKS="$POTS_REPO/probes/session-attacks.sh"
+REACH="$POTS_VM_REPO/probes/reach.sh"
+SESSION_ATTACKS="$POTS_VM_REPO/probes/session-attacks.sh"
 VM_SEALSKIN_CONFIG=/var/lib/docker/volumes/agent-sandbox_sealskin-config
-MAC=$(jq -er .macHost "$POTS_RUNTIME/host.json")
-MAC_ROUTER_PORT=3425
-PEER=$(jq -er .peerHost "$POTS_RUNTIME/host.json")
-LIMA_HOST=host.lima.internal
-VM_INTERFACE=eth0
 TRUSTED_PATH=/usr/sbin:/usr/bin:/sbin:/bin
-lan_gateway=$(route -n get default | awk '/gateway:/ { print $2 }')
-
-# The sandbox VMs share one network and the Mac publishes each SealSkin server, so a session is checked against every sandbox, its own included.
-sandbox_endpoints() {
-	for config in "$POTS_SANDBOX_ROOT"/*/sandbox.json; do
-		profile=$(basename "$(dirname "$config")")
-		address=$(colima ssh -p "$profile" -- ip -4 -o addr show "$VM_INTERFACE" | awk '{ sub("/.*", "", $4); print $4 }')
-		printf '%s:22 ' "$address"
-		server_port=$(jq -r '.serverPort // empty' "$config")
-		[ -z "$server_port" ] || printf '%s:%s ' "$LIMA_HOST" "$server_port"
-		ssh_port=$(jq -r '.tailnetSshPort // empty' "$config")
-		[ -z "$ssh_port" ] || printf '%s:%s ' "$MAC" "$ssh_port"
-	done
-}
 
 sealskin_endpoints() {
 	[ "$POTS_LAUNCHER" = sealskin ] || return 0
 	printf '%s:22 %s:8443 %s:8000 ' "$SEALSKIN_GATEWAY_ADDRESS" "$SEALSKIN_SERVER_ADDRESS" "$SEALSKIN_SERVER_ADDRESS"
 }
 
-forbidden="$MAC:$MAC_ROUTER_PORT $MAC:22 $MAC:443 $MAC:5432 $LIMA_HOST:$MAC_ROUTER_PORT $LIMA_HOST:22 $PEER:22 $lan_gateway:80 $(sandbox_endpoints)$(sealskin_endpoints)"
+provider_forbidden=$(vm_forbidden_endpoints)
+forbidden="$provider_forbidden $(sealskin_endpoints)"
 allowed="registry.npmjs.org:443 github.com:443"
-
-in_vm() {
-	colima ssh -p "$POTS_PROFILE" -- "$@"
-}
 
 in_session() {
 	session_exec "$session" env -i PATH="$TRUSTED_PATH" HOME="$POTS_SESSION_HOME" "$@"
@@ -49,7 +27,7 @@ in_session_as_root() {
 
 judge_forbidden() {
 	views=$(mktemp -d)
-	in_vm bash "$REACH" $forbidden > "$views/vm"
+	sandbox_vm bash "$REACH" $forbidden > "$views/vm"
 	in_session bash "$REACH" $(awk '{ print $2 }' "$views/vm") > "$views/session"
 	paste -d ' ' "$views/vm" "$views/session" | awk '
 		$1 != "open" { print "FAIL untestable " $2 " (closed from the VM too)"; bad++; next }
@@ -80,13 +58,13 @@ judge() {
 }
 
 docker_requires_firewall() {
-	in_vm systemctl show docker.service --property Requires --value | tr ' ' '\n' | grep -qx pots-firewall.service
+	sandbox_vm systemctl show docker.service --property Requires --value | tr ' ' '\n' | grep -qx pots-firewall.service
 }
 
 session=$(running_session)
 status=0
 if [ "$POTS_LAUNCHER" = sealskin ]; then
-	judge control-vm-has-sealskin-config in_vm sudo test -d "$VM_SEALSKIN_CONFIG" || status=1
+	judge control-vm-has-sealskin-config sandbox_vm sudo test -d "$VM_SEALSKIN_CONFIG" || status=1
 	outer_container=$POTS_SERVER_CONTAINER
 else
 	outer_container=$POTS_SESSION_CONTAINER
