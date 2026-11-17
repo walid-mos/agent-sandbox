@@ -83,7 +83,9 @@ async function authorization(sandboxPath = SANDBOX) {
   if (!Object.hasOwn(credentials, 'email')) throw new Error('jira: sandbox.json selects no Jira onRequest group.');
   const values = Object.fromEntries(await Promise.all(Object.entries(credentials).map(async ([role, { path, name }]) =>
     [role, await readSecret(path, name)])));
-  if (!values.email.trim() || !values.token.trim()) throw new Error('jira: the vault returned an empty Atlassian email or API token.');
+  if (Object.values(values).some(value => !value.trim() || /[\r\n]/u.test(value))) {
+    throw new Error('jira: the vault returned an empty or multiline Atlassian email or API token.');
+  }
   process.stdout.write(`Basic ${Buffer.from(`${values.email}:${values.token}`).toString('base64')}\n`);
 }
 
