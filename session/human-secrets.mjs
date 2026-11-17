@@ -14,7 +14,7 @@ function writeInfisical(target, value) {
   const arguments_ = [WRITER, '--projectId', target.projectId, '--env', target.environment, '--name', target.name, '--path', target.path];
   if (target.replace) arguments_.push('--replace');
   return commandWithInput('node', arguments_, value, { timeout: 120_000 }).catch(() => {
-    throw new Error('human: the vault did not confirm the write. Check its access before trying a new request.');
+    throw new Error('human: the vault did not confirm the write. Check its access, then retry this request.');
   });
 }
 
@@ -35,16 +35,25 @@ export async function storeDialogSecret(id, values, { store = humanStore(), orig
     if (dialog.writing) throw new Error('human: a previous write was interrupted. Verify the destination and open a new request.');
     const checked = checkedValues(dialog.target, values);
     save({ ...dialog, writing: true });
-    const receipt = await write(dialog, checked);
+    const receipt = await attemptWrite(dialog, checked, { save, write });
     return save({ ...dialog, result: { status: 'stored', origin, at: Date.now(), dialog: id, request: dialog.delivery?.id, ...receipt } });
   }, id);
+}
+
+async function attemptWrite(dialog, values, { save, write }) {
+  try {
+    return await write(dialog, values);
+  } catch (error) {
+    if (!error.isUncertain) save({ ...dialog, writing: false });
+    throw error;
+  }
 }
 
 async function writePots(target, values) {
   try {
     await storeSecrets({ file: target.file, keys: target.keys }, JSON.stringify(values));
   } catch {
-    throw new Error('human: the pot did not confirm the secret file write. Check it before opening a new request.');
+    throw new Error('human: the pot did not confirm the secret file write. Check it, then retry this request.');
   }
 }
 

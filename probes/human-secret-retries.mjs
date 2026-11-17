@@ -37,3 +37,36 @@ test('a partial secret submission names missing keys, writes nothing and remains
 test('the native pot secret writer refuses partial input before any destination access', async () => {
   await assert.rejects(storeSecrets({ file: 'proof.env', keys: ['FIRST', 'SECOND'] }, '{"FIRST":"dummy"}'), { message: 'human: missing secret keys: SECOND.' });
 });
+
+test('a failed write permits concurrent retries but applies only one successful write', async () => {
+  const store = humanStore();
+  const dialog = await openDialog(secretInput(botSource()), store);
+  await store.patch(dialog.id, { delivery: { id: 'proof.retry' } });
+  const values = { FIRST: 'dummy', SECOND: 'dummy' };
+  const fail = async () => { throw new Error('Destination unavailable'); };
+  await assert.rejects(storeDialogSecret(dialog.id, values, { store, write: fail }), /Destination unavailable/);
+  assert.equal(store.get(dialog.id).result, undefined);
+  assert.equal(Boolean(store.get(dialog.id).writing), false);
+  let writes = 0;
+  const write = async () => { writes += 1; return {}; };
+  const replies = await Promise.all(Array.from({ length: 3 }, () => storeDialogSecret(dialog.id, values, { store, write })));
+  assert.equal(writes, 1);
+  assert.equal(replies[0].result.status, 'stored');
+  assert.deepEqual(replies[1].result, replies[0].result);
+  assert.deepEqual(replies[2].result, replies[0].result);
+});
+
+test('failure saving a successful receipt never permits a second destination write', async () => {
+  const store = humanStore();
+  const dialog = await openDialog(secretInput(botSource()), store);
+  let writes = 0;
+  const write = async () => { writes += 1; return {}; };
+  const broken = { ...store, locked: (operation, id) => store.locked(({ get, save }) => operation({ get, save: record => {
+    if (record.result) throw new Error('Receipt disk unavailable');
+    return save(record);
+  } }), id) };
+  const values = { FIRST: 'dummy', SECOND: 'dummy' };
+  await assert.rejects(storeDialogSecret(dialog.id, values, { store: broken, write }), /Receipt disk unavailable/);
+  await assert.rejects(storeDialogSecret(dialog.id, values, { store, write }), /interrupted/);
+  assert.equal(writes, 1);
+});

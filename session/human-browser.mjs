@@ -46,7 +46,7 @@ function exchange(dialog, frame) {
       clearTimeout(deadline);
       connection.destroy();
       if (receipt) resolve(receipt);
-      else reject(new Error(UNCONFIRMED));
+      else reject(Object.assign(new Error(UNCONFIRMED), { isUncertain: true }));
     };
     const deadline = setTimeout(() => finish(), Math.min(HANDOFF_MS, dialog.expiresAt - Date.now()));
     connection.on('error', () => finish());

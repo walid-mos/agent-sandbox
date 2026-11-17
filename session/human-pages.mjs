@@ -60,7 +60,7 @@ export function stagedValues(dialog) {
   return Object.fromEntries(pairs);
 }
 
-// The staged value leaves the disk after one attempt, whatever its outcome: an interrupted write never accepts a second one.
+// Each attempt removes its staged values, so a retry requires new input.
 async function submitStaged(dialog, store) {
   try {
     return await storeDialogSecret(dialog.id, stagedValues(dialog), { store, origin: 'page' });
