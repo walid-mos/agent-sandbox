@@ -33,11 +33,19 @@ function ownName() {
   throw new Error('pots: this pot\'s tailnet node is not connected, so it has no name to ask under. Check tailscale status, then ask again.');
 }
 
-function forwardedHop(servedId) {
+// Whatever this pot asks may serve any request it has not answered, so it goes one hop past the deepest of them, --for or not.
+function chainHop() {
+  const open = all().filter(request => request.direction === RECEIVED && request.state === OPEN);
+  const hop = Math.max(-1, ...open.map(request => request.hop)) + 1;
+  if (hop <= HOP_LIMIT) return hop;
+  const deepest = open.filter(request => request.hop + 1 === hop).map(request => `${request.id} from ${request.pot}`).join(', ');
+  throw new Error(`pots: this pot has not answered ${deepest}, which already came through ${hop} doors, the most a chain of requests takes, so it asks no pot anything until then. Reply with what this pot can do, then ask.`);
+}
+
+function servedRequest(servedId) {
   const served = find(servedId);
   if (served?.direction !== RECEIVED || served.state !== OPEN) throw new Error(`pots: --for names a request this pot received and has not answered, and ${servedId} is none. pots requests lists them.`);
-  if (served.hop >= HOP_LIMIT) throw new Error(`pots: ${servedId} already came through ${served.hop + 1} doors, the most a chain of requests takes. Reply to it with what this pot can do.`);
-  return served.hop + 1;
+  return servedId;
 }
 
 // A knock's result changes a request only while it still waits on a knock, so a reply that came back meanwhile stays.
@@ -62,11 +70,12 @@ function ask(arguments_) {
   const options = { need: { type: 'string' }, for: { type: 'string' } };
   const { values, positionals: [pot] } = parseArgs({ args: arguments_, options, allowPositionals: true });
   if (!pot || values.need === undefined) throw new Error(USAGE);
+  const hop = chainHop();
   const target = neighbour(pot);
-  const hop = values.for === undefined ? 0 : forwardedHop(values.for);
+  const served = values.for === undefined ? undefined : servedRequest(values.for);
   const id = newRequestId(ownName());
   const wire = requestMessage(id, hop, values.need);
-  const request = { id, direction: ASKED, pot: target, need: values.need, hop, for: values.for, state: UNKNOWN, at: Date.now() };
+  const request = { id, direction: ASKED, pot: target, need: values.need, hop, for: served, state: UNKNOWN, at: Date.now() };
   underLock(() => save(request));
   send(request, wire, 'asked');
 }

@@ -40,4 +40,26 @@ refused nul-byte "$CALLER" < <(printf 'request %s.%s 0\nboundary\0probe' "$CALLE
 refused text-that-is-not-utf8 "$CALLER" < <(printf 'request %s.%s 0\n\xff\xfe' "$CALLER" "$NONCE")
 refused caller-that-is-not-a-pot-name ../probe <<< "request $CALLER.$NONCE 0
 boundary probe: a caller name shaped like a path"
+
+# A pot holding an unanswered request at the end of a chain asks nothing, --for or not, so a woken bot cannot start the count again.
+# The ask runs in a scratch home whose ssh only records a knock, so a pot that did ask reaches no door and wakes no bot.
+chain_refused() {
+	scratch=$(mktemp -d)
+	folder="$scratch/.config/agent-sandbox/requests"
+	held="$CALLER.$NONCE"
+	mkdir -p "$folder" "$scratch/.local/bin"
+	printf '#!/bin/sh\ntouch "%s/knocked"\nexit 1\n' "$scratch" > "$scratch/.local/bin/ssh"
+	chmod +x "$scratch/.local/bin/ssh"
+	printf '{"id":"%s","direction":"received","pot":"%s","need":"boundary probe","hop":2,"state":"open","at":0}\n' "$held" "$CALLER" > "$folder/$held.json"
+	output=$(HOME="$scratch" PATH="$HOME/.local/node/bin:$PATH" "$pots" ask "$CALLER" --need 'boundary probe: a fresh chain from the end of one' 2>&1 < /dev/null)
+	code=$?
+	if [ "$code" -ne 0 ] && [[ "$output" == *"$held"* ]] && [ ! -e "$scratch/knocked" ] && [ "$(ls "$folder")" = "$held.json" ]; then
+		echo "ok   ask-refuses-a-fresh-chain-at-the-hop-limit"
+	else
+		echo "FAIL ask-refuses-a-fresh-chain-at-the-hop-limit (exit $code: $output)"
+		failures=$((failures + 1))
+	fi
+	rm -rf "$scratch"
+}
+chain_refused
 exit $((failures > 0))

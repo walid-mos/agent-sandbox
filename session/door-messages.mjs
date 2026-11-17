@@ -13,7 +13,7 @@ const strictText = new TextDecoder('utf-8', { fatal: true });
 export const MESSAGE_BYTES = 16384;
 export const REQUEST = 'request';
 export const REPLY = 'reply';
-// A request asked to serve another one is one hop further, so pots asking each other in a loop stop at the third door.
+// A pot asks one hop past the deepest request it has not answered, so pots asking each other in a loop stop at the third door.
 export const HOP_LIMIT = 2;
 
 export const isPotName = name => POT_NAME.test(name ?? '');
