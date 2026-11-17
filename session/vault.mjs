@@ -1,18 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
-import { assignments, basicEnvironment } from './environment.mjs';
+import { assignments, basicEnvironment, SESSION_VAULT_SETTINGS } from './environment.mjs';
 import { main } from './main.mjs';
 
 const SOCKET = assignments(readFileSync(new URL('./launch.env', import.meta.url), 'utf8')).POTS_VAULT_SOCKET;
 const ANSWER_TIMEOUT_MS = 120_000;
-const VAULT_ACCESS = /^INFISICAL_/u;
 const USAGE = 'usage: with-vault [--with GROUP | --source REPOSITORY] command [argument...] | with-vault --ready';
 
-const withoutVaultAccess = environment => Object.fromEntries(Object.entries(environment).filter(([name]) => !VAULT_ACCESS.test(name)));
-
 const REQUESTS = {
-  '--with': group => ({ request: { kind: 'sandbox', group }, environment: withoutVaultAccess(process.env) }),
-  '--source': repository => ({ request: { kind: 'source', repository }, environment: basicEnvironment(process.env) }),
+  '--with': group => ({ request: { kind: 'sandbox', group }, environment: process.env }),
+  '--source': repository => ({ request: { kind: 'source', repository }, environment: basicEnvironment(process.env, SESSION_VAULT_SETTINGS) }),
 };
 
 // A parse error quotes its input, which holds secret values, so a fixed message replaces it.
@@ -49,18 +46,22 @@ function secretPairs({ secrets }) {
 }
 
 export async function readSecret(path, name) {
-  const [[, value]] = secretPairs(await askVault({ kind: 'secret', path, name }));
-  return value;
+  const pairs = secretPairs(await askVault({ kind: 'secret', path, name }));
+  if (pairs.length !== 1 || pairs[0][0] !== name) throw new Error('with-vault: the VM\'s vault broker answered with another secret name.');
+  return pairs[0][1];
 }
 
 async function requireReady() {
+  if (!SESSION_VAULT_SETTINGS.every(name => process.env[name])) {
+    throw new Error('with-vault: the session holds no machine login. Run bin/session-bootstrap for this pot.');
+  }
   const { ready } = await askVault({ kind: 'ready' });
   if (ready !== true) throw new Error('with-vault: the VM holds no vault identity yet. Run bin/session-bootstrap for this pot.');
 }
 
 function parsedArguments([flag, value, ...rest]) {
   if (!Object.hasOwn(REQUESTS, flag ?? '')) {
-    return { request: { kind: 'sandbox' }, environment: withoutVaultAccess(process.env), commandLine: [flag, value, ...rest].filter(word => word !== undefined) };
+    return { request: { kind: 'sandbox' }, environment: process.env, commandLine: [flag, value, ...rest].filter(word => word !== undefined) };
   }
   if (!value) throw new Error(USAGE);
   return { ...REQUESTS[flag](value), commandLine: rest };

@@ -6,6 +6,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 
 NODE_VERSION=v24.22.3
 GH_VERSION=2.104.0
+INFISICAL_VERSION=0.45.10
+# The release-wide checksums file's own sha256, fetched 2026-11-17; a new INFISICAL_VERSION needs its new value.
+INFISICAL_CHECKSUMS_SHA256=cb92960eb47f041ead7b3fc60e48f2642badd11b0f712696cfa8be33a69ddf5f
 MAGPIE_VERSION=0.1.4340
 MAGPIE_RELEASES=https://github.com/yetone/magpie-releases/releases/download
 CLAUDE_CODE_VERSION=2.1.325
@@ -28,8 +31,16 @@ download_verified() {
 	(
 		cd "$download_directory"
 		curl --fail --silent --show-error --location --max-time "$DOWNLOAD_MAX_SECONDS" --remote-name "$archive_url"
-		curl --fail --silent --show-error --location --max-time "$DOWNLOAD_MAX_SECONDS" "$sums_url" | grep " \*\?$archive\$" | sed 's/ \*/  /' | sha256sum --check --quiet
+		sums_lines "$sums_url" | grep " \*\?$archive\$" | sed 's/ \*/  /' | sha256sum --check --quiet
 	)
+}
+
+sums_lines() {
+	if [ -f "$1" ]; then
+		cat -- "$1"
+	else
+		curl --fail --silent --show-error --location --max-time "$DOWNLOAD_MAX_SECONDS" "$1"
+	fi
 }
 
 install_node() {
@@ -44,10 +55,19 @@ install_node() {
 }
 
 install_release_binary() {
-	destination=$1 version=$2 archive_url=$3 sums_url=$4 member=$5
+	destination=$1 version=$2 archive_url=$3 sums_url=$4 member=$5 pinned_sums=${6:-}
 	if "$destination" --version 2> /dev/null | grep -q "$version"; then return 0; fi
 	staging=$(mktemp -d)
-	download_verified "$archive_url" "$sums_url" "$staging"
+	if [ -n "$pinned_sums" ]; then
+		(
+			cd "$staging"
+			curl --fail --silent --show-error --location --max-time "$DOWNLOAD_MAX_SECONDS" --remote-name "$sums_url"
+			echo "$pinned_sums  $(basename "$sums_url")" | sha256sum --check --quiet
+		)
+		download_verified "$archive_url" "$staging/$(basename "$sums_url")" "$staging"
+	else
+		download_verified "$archive_url" "$sums_url" "$staging"
+	fi
 	tar -xzf "$staging"/*.tar.gz -C "$staging" "$member"
 	install -D -m 0755 "$staging/$member" "$destination"
 	rm -rf "$staging"
@@ -58,6 +78,10 @@ install_cli_tools() {
 		"https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_$architecture.tar.gz" \
 		"https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_checksums.txt" \
 		"gh_${GH_VERSION}_linux_$architecture/bin/gh"
+	install_release_binary "$POTS_TOOLS/bin/infisical" "$INFISICAL_VERSION" \
+		"https://github.com/Infisical/cli/releases/download/v$INFISICAL_VERSION/cli_${INFISICAL_VERSION}_linux_$architecture.tar.gz" \
+		"https://github.com/Infisical/cli/releases/download/v$INFISICAL_VERSION/checksums.txt" \
+		infisical "$INFISICAL_CHECKSUMS_SHA256"
 }
 
 install_tailscale() {

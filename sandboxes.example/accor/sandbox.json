@@ -1,0 +1,25 @@
+{
+  "launcher": "docker",
+  "vm": {
+    "cpu": 2,
+    "memoryGiB": 8,
+    "swapGiB": 0,
+    "diskGiB": 80
+  },
+  "bot": "Accor",
+  "owners": {},
+  "secrets": {},
+  "onRequest": {
+    "atlassian": {
+      "/tools/atlassian": [
+        "ATLASSIAN_EMAIL",
+        "ATLASSIAN_API_TOKEN"
+      ]
+    }
+  },
+  "jira": "atlassian",
+  "sources": [
+    "pi",
+    "herdr"
+  ]
+}

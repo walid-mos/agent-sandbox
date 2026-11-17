@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { DOOR_COMMAND } from './door-command.mjs';
 import { knock } from './door-knock.mjs';
 import { HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, parse, Refusal, REPLY, replyMessage, REQUEST, requestMessage } from './door-messages.mjs';
 import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, remove, save, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
@@ -12,7 +13,7 @@ const UNANSWERED_REQUESTS_PER_POT = 20;
 const RESENDABLE = [UNKNOWN, UNDELIVERED];
 const SETTLED = [ANSWERED, REFUSED];
 const DELIVERED_STATE = { [ASKED]: OPEN, [RECEIVED]: ANSWERED };
-const USAGE = 'usage: pots ask POT --need TEXT [--for REQUEST_ID] | pots reply REQUEST_ID --text TEXT | pots resend REQUEST_ID | pots requests [--all]';
+const USAGE = `usage: ${DOOR_COMMAND} ask POT --need TEXT [--for REQUEST_ID] | ${DOOR_COMMAND} reply REQUEST_ID --text TEXT | ${DOOR_COMMAND} resend REQUEST_ID | ${DOOR_COMMAND} requests [--all]`;
 
 const doors = () => sandbox.doors ?? {};
 
@@ -45,7 +46,7 @@ function chainHop() {
 
 function servedRequest(servedId) {
   const served = find(servedId);
-  if (served?.direction !== RECEIVED || served.state !== OPEN) throw new Error(`pots: --for names a request this pot received and has not answered, and ${servedId} is none. pots requests lists them.`);
+  if (served?.direction !== RECEIVED || served.state !== OPEN) throw new Error(`pots: --for names a request this pot received and has not answered, and ${servedId} is none. ${DOOR_COMMAND} requests lists them.`);
   return servedId;
 }
 
@@ -62,9 +63,9 @@ function settle(id, outcome) {
 function send(request, wire, done) {
   const outcome = knock(request.pot, wire);
   const { state, failure } = underLock(() => settle(request.id, outcome));
-  if (state === UNKNOWN) throw new Error(`pots: ${request.id} may have reached ${request.pot}: ${failure}. pots resend ${request.id} sends the same message, and ${request.pot} takes it once.`);
-  if (state === UNDELIVERED) throw new Error(`pots: ${request.id} did not reach ${request.pot}: ${failure}. pots resend ${request.id} sends it once the cause is gone.`);
-  if (state === REFUSED) throw new Error(`pots: ${request.pot} refused ${request.id}: ${failure}. It is closed, and pots resend refuses it. Tell the person; pots requests lists what this pot still waits on from ${request.pot}.`);
+  if (state === UNKNOWN) throw new Error(`pots: ${request.id} may have reached ${request.pot}: ${failure}. ${DOOR_COMMAND} resend ${request.id} sends the same message, and ${request.pot} takes it once.`);
+  if (state === UNDELIVERED) throw new Error(`pots: ${request.id} did not reach ${request.pot}: ${failure}. ${DOOR_COMMAND} resend ${request.id} sends it once the cause is gone.`);
+  if (state === REFUSED) throw new Error(`pots: ${request.pot} refused ${request.id}: ${failure}. It is closed, and ${DOOR_COMMAND} resend refuses it. Tell the person; ${DOOR_COMMAND} requests lists what this pot still waits on from ${request.pot}.`);
   process.stdout.write(`${done} ${request.id}\n`);
 }
 
@@ -84,8 +85,8 @@ function ask(arguments_) {
 
 function recordReply(id, text) {
   const received = find(id);
-  if (received?.direction !== RECEIVED) throw new Error(`pots: no request ${id} came through this pot's door. pots requests lists the ones that did.`);
-  const pending = RESENDABLE.includes(received.state) ? ` It has not reached ${received.pot} yet: pots resend ${id} sends it again.` : '';
+  if (received?.direction !== RECEIVED) throw new Error(`pots: no request ${id} came through this pot's door. ${DOOR_COMMAND} requests lists the ones that did.`);
+  const pending = RESENDABLE.includes(received.state) ? ` It has not reached ${received.pot} yet: ${DOOR_COMMAND} resend ${id} sends it again.` : '';
   if (received.state !== OPEN) throw new Error(`pots: ${id} already has its reply, and a request takes one.${pending}`);
   const replying = { ...received, state: UNKNOWN, reply: text, answeredAt: Date.now() };
   save(replying);
@@ -101,7 +102,7 @@ function reply(arguments_) {
 
 function recordResend(id) {
   const kept = find(id);
-  if (!RESENDABLE.includes(kept?.state)) throw new Error(`pots: ${id} has nothing to resend: ${kept ? `it is ${kept.state}` : 'this pot holds no such request'}. pots requests lists what waits.`);
+  if (!RESENDABLE.includes(kept?.state)) throw new Error(`pots: ${id} has nothing to resend: ${kept ? `it is ${kept.state}` : 'this pot holds no such request'}. ${DOOR_COMMAND} requests lists what waits.`);
   const resending = { ...kept, state: UNKNOWN };
   save(resending);
   return resending;
