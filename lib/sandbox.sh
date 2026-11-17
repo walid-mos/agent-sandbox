@@ -90,8 +90,8 @@ session_exec() {
 	container=$1
 	shift
 	sandbox_docker exec $input --user root "$container" sh -c '
-		limit=$1 container=$2 service=$3 user=$4 home=$5
-		shift 5
+		limit=$1 container=$2 service=$3 user=$4 home=$5 repository=$6
+		shift 6
 		waited=0
 		until s6-rc -a list 2> /dev/null | grep -qx "$service"; do
 			if [ "$waited" -ge "$limit" ]; then
@@ -101,8 +101,10 @@ session_exec() {
 			waited=$((waited + 1))
 			sleep 1
 		done
-		exec s6-setuidgid "$user" env HOME="$home" "$@"
-	' session-exec "$SESSION_INIT_SECONDS" "$container" "$POTS_SESSION_INIT_SERVICE" "$POTS_SESSION_USER" "$POTS_SESSION_HOME" "$@"
+		exec s6-setuidgid "$user" env HOME="$home" /bin/sh -c '\''
+			. "$1/session/lib.sh"; shift; exec "$@"
+		'\'' session-exec "$repository" "$@"
+	' session-exec "$SESSION_INIT_SECONDS" "$container" "$POTS_SESSION_INIT_SERVICE" "$POTS_SESSION_USER" "$POTS_SESSION_HOME" "$POTS_SESSION_REPOSITORY" "$@"
 }
 
 restart_services() {

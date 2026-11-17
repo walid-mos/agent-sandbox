@@ -6,6 +6,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 
 NODE_VERSION=v24.22.3
 GH_VERSION=2.104.0
+INFISICAL_VERSION=0.45.10
 MAGPIE_VERSION=0.1.4340
 MAGPIE_RELEASES=https://github.com/yetone/magpie-releases/releases/download
 CLAUDE_CODE_VERSION=2.1.325
@@ -58,6 +59,10 @@ install_cli_tools() {
 		"https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_$architecture.tar.gz" \
 		"https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_checksums.txt" \
 		"gh_${GH_VERSION}_linux_$architecture/bin/gh"
+	install_release_binary "$POTS_TOOLS/bin/infisical" "$INFISICAL_VERSION" \
+		"https://github.com/Infisical/cli/releases/download/v$INFISICAL_VERSION/cli_${INFISICAL_VERSION}_linux_$architecture.tar.gz" \
+		"https://github.com/Infisical/cli/releases/download/v$INFISICAL_VERSION/cli_${INFISICAL_VERSION}_checksums.txt" \
+		infisical
 }
 
 install_tailscale() {

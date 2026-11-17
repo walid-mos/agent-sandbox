@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+HERE = Path(__file__).resolve().parent
+LAUNCH = dict(line.split("=", 1) for line in (HERE / "launch.env").read_text().splitlines() if line)
+DIRECTORY = Path.home() / LAUNCH["POTS_SESSION_VAULT_DIRECTORY"]
+CREDENTIAL_NAMES = ("INFISICAL_API_URL", "INFISICAL_UNIVERSAL_AUTH_CLIENT_ID", "INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET")
+INPUT_LIMIT_BYTES = 65536
+PRIVATE_DIRECTORY = 0o700
+PRIVATE_FILE = 0o600
+
+
+def read_payload():
+    text = sys.stdin.read(INPUT_LIMIT_BYTES + 1)
+    if len(text) > INPUT_LIMIT_BYTES:
+        raise ValueError()
+    payload = json.loads(text)
+    credentials, binding = payload["credentials"], payload["binding"]
+    if sorted(credentials) != sorted(CREDENTIAL_NAMES):
+        raise ValueError()
+    words = [*credentials.values(), *(binding[key] for key in ("domain", "identityId", "projectId", "environment"))]
+    if not all(isinstance(word, str) and word and not any(character.isspace() for character in word) for word in words):
+        raise ValueError()
+    if not binding["domain"].startswith("https://") or credentials["INFISICAL_API_URL"] != binding["domain"]:
+        raise ValueError()
+    return credentials, binding
+
+
+def replace(path, text):
+    descriptor, pending_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    pending = Path(pending_name)
+    try:
+        os.fchmod(descriptor, PRIVATE_FILE)
+        with os.fdopen(descriptor, "w") as output:
+            output.write(text)
+        pending.replace(path)
+    finally:
+        pending.unlink(missing_ok=True)
+
+
+def install_shell_hooks():
+    hook = f'. "{LAUNCH["POTS_SESSION_REPOSITORY"]}/session/lib.sh"'
+    for name in (".profile", ".bashrc"):
+        path = Path.home() / name
+        current = path.read_text() if path.exists() else ""
+        if hook not in current.splitlines():
+            with path.open("a") as output:
+                output.write(f"\n{hook}\n")
+
+
+def main():
+    credentials, binding = read_payload()
+    DIRECTORY.mkdir(mode=PRIVATE_DIRECTORY, parents=True, exist_ok=True)
+    DIRECTORY.chmod(PRIVATE_DIRECTORY)
+    replace(DIRECTORY / "core-vault.json", json.dumps(binding) + "\n")
+    replace(DIRECTORY / LAUNCH["POTS_SESSION_VAULT_FILE"], "".join(f"{name}={value}\n" for name, value in credentials.items()))
+    install_shell_hooks()
+    print("store-identity: installed the session login and vault binding, mode 600, with shell hooks.")
+
+
+try:
+    main()
+except Exception:
+    raise SystemExit("store-identity: installation failed. Check the input, session home and permissions; rerun bin/session-credentials.") from None
