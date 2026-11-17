@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd)
+NODE="$repo/lib/tailnet_node.py"
+POLICY="$repo/lib/tailnet_policy.py"
+PUBLIC_KEY='^ssh-ed25519 [A-Za-z0-9+/]{68}$'
+NEWLINE='
+'
+
+[ "$#" -ge 2 ] || { echo 'usage: pots-doors POT POT... (every pot of the mesh, each run rewrites the whole mesh)' >&2; exit 2; }
+keys=$(mktemp -d)
+trap 'rm -rf "$keys"' EXIT INT TERM
+
+is_one_public_key() {
+	case $1 in *"$NEWLINE"*) return 1 ;; esac
+	printf '%s\n' "$1" | grep -Eqx "$PUBLIC_KEY"
+}
+
+checked_public_key() {
+	key=$(cat)
+	is_one_public_key "$key" || { echo "pots-doors: $1 of $SANDBOX is not exactly one line holding one ed25519 public key" >&2; return 1; }
+	printf '%s\n' "$key"
+}
+
+mesh_line() (
+	SANDBOX=$1
+	. "$repo/lib/sandbox.sh"
+	doors=$(sandbox_doors)
+	printf '%s %s\n' "$SANDBOX" "$doors"
+)
+
+collect() (
+	SANDBOX=$1
+	. "$repo/lib/sandbox.sh"
+	session=$(running_session)
+	caller_key=$(session_exec "$session" "$POTS_SESSION_REPOSITORY/session/door-keys" key | checked_public_key "the caller key")
+	host_key=$(sandbox_vm sudo /usr/local/sbin/pots-door-keys host-key | checked_public_key "the door host key")
+	printf '%s %s\n' "$SANDBOX" "$caller_key" >> "$keys/callers"
+	printf '%s %s %s\n' "$SANDBOX" "$(python3 "$NODE" name host "$SANDBOX")" "$host_key" >> "$keys/hosts"
+)
+
+install_keys() (
+	SANDBOX=$1
+	. "$repo/lib/sandbox.sh"
+	session=$(running_session)
+	awk -v pot="$SANDBOX" 'FILENAME == ARGV[1] { if ($2 == pot) access[$1] = $3; next } $1 in access { print $1, access[$1], $2, $3 }' "$keys/access" "$keys/callers" |
+		sandbox_vm sudo /usr/local/sbin/pots-door-keys install "$SANDBOX"
+	awk -v pot="$SANDBOX" 'FILENAME == ARGV[1] { if ($1 == pot) wanted[$2] = 1; next } $1 in wanted { print $2, $3, $4 }' "$keys/access" "$keys/hosts" |
+		session_exec --interactive "$session" "$POTS_SESSION_REPOSITORY/session/door-keys" trust
+)
+
+for pot in "$@"; do
+	mesh_line "$pot" >> "$keys/mesh"
+done
+python3 "$POLICY" access < "$keys/mesh" > "$keys/access"
+for pot in "$@"; do
+	collect "$pot"
+done
+for pot in "$@"; do
+	install_keys "$pot"
+done
+echo "pots-doors: each pot among $* may ask the pots its doors name, and reply to the pots whose doors name it" >&2

@@ -1,0 +1,1 @@
+Defaults:door env_keep += "SSH_CLIENT"

@@ -13,18 +13,18 @@ Each sandbox has a directory under `~/.config/agent-sandbox/sandboxes/`, named a
 | `launcher` | `docker` (the default) or `sealskin`. Docker starts the session image with `docker run`. SealSkin starts it through its server, as before |
 | `vm` | Cores, memory, swap file and disk of the VM |
 | `serverPort` | `sealskin` only. Mac-local port of the sandbox's SealSkin server. Each sandbox needs its own |
-| `tailnetSshPort` | `sealskin` only. Port of the Mac's tailnet address where ssh enters the sandbox's session. Each sandbox needs its own |
 | `bot` | Name of the Pots bot that bootstrap creates, in one word |
 | `rules` | Optional. Path, in the session, of an instruction file that the bot and every worker of the sandbox load |
 | `owners` | GitHub owners that the dispatcher and the GitHub wrapper accept, each with the name of its token in the vault's `/tools/github` |
 | `secrets` | Other vault folders, each with the names injected from it |
 | `onRequest` | Named groups of vault folders and names, injected only into a command that asks for the group |
+| `doors` | Optional. The pots this pot can ask through [their doors](#doors), each with one line on what it owns |
 
-Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). `./bin/vm-config` copies these files into the VM's `/etc/agent-sandbox`, readable by every user of the VM and writable by root only, and `vm-up` runs it. The session mounts that VM directory read-only at the same path. An edit on the Mac reaches the sandbox at the next `./bin/vm-config`. From there, the next command reads a changed `owners`, `secrets` or `onRequest`. `vm` applies when the VM next starts, `serverPort` when the server is next created, and `bot` and `rules` at the next bootstrap. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart. The watchdog's next check applies a changed `tailnetSshPort`, and the old port stays served until `tailscale serve --tcp=PORT off`.
+Beside `sandbox.json`, the directory holds `vault.json` (the vault `project` and `environment`) and, optionally, `git-identity.json` (`name` and `email` for the session's commits). One file serves every pot: `~/.config/agent-sandbox/tailnet.json`, beside the sandboxes, holds `operatorLogin`, the Tailscale login of the operator's devices, which [the pots policy](#tailnet-and-doors) grants and the node checks expect. `./bin/vm-config` copies these files into the VM's `/etc/agent-sandbox`, readable by every user of the VM and writable by root only, and `vm-up` runs it. The session mounts that VM directory read-only at the same path. An edit on the Mac reaches the sandbox at the next `./bin/vm-config`. From there, the next command reads a changed `owners`, `secrets` or `onRequest`. `vm` applies when the VM next starts, `serverPort` when the server is next created, and `bot` and `rules` at the next bootstrap. The next `./bin/vm-up` applies a changed `vm.swapGiB` to a running VM, with no restart.
 
 ## Install on the operator's Mac
 
-The configuration targets Apple Silicon macOS. A VM mounts nothing of the Mac. `vm-up` clones the public origin that [`session/launch.env`](session/launch.env) names into the VM's `/opt/agent-sandbox`, on the branch the Mac checkout is on, and copies the sandbox's files into `/etc/agent-sandbox`. The session binds both read-only at the same paths. Host names, the Git identity and the vault project stay in `~/.config/agent-sandbox`, never in this repository: `./bin/import-private OLD_CHECKOUT` copies them out of an older checkout without changing it. Its `host.json` holds `macHost` and `peerHost`, which `probe-boundary` checks the session cannot reach, and `connectHost` and `remoteSandboxRepository`, which [the connector](mac/sealskin-connect) reads.
+The configuration targets Apple Silicon macOS. A VM mounts nothing of the Mac. `vm-up` clones the public origin that [`session/launch.env`](session/launch.env) names into the VM's `/opt/agent-sandbox`, on the branch the Mac checkout is on, and copies the sandbox's files into `/etc/agent-sandbox`. The session binds both read-only at the same paths. Host names, the Git identity and the vault project stay in `~/.config/agent-sandbox`, never in this repository: `./bin/import-private OLD_CHECKOUT` copies them out of an older checkout without changing it. Its `host.json` holds `macHost` and `peerHost`, which `probe-boundary` checks the session cannot reach.
 
 Install Colima, the Docker CLI with Compose, Node, curl and jq first. The Mac also needs the Pi harness in the home directory's `.pi/agent`, its Infisical machine authentication and a binding whose `boats` key identifies the Agents Sandboxes identity. The host identity must be allowed to mint that identity's client secret. Never put credential values in this repository or a command line.
 
@@ -37,7 +37,7 @@ export SANDBOX=sealskin
 ./bin/sealskin-up   # launcher sealskin only
 ```
 
-With the `docker` launcher, `vm-up` is the only step before `./bin/pots-session ensure`: no server starts and no admin setup exists. `pots-session` then runs the session image with `docker run`, with the same runtime, label, home volume `pots-home`, inner Docker volume and binds as SealSkin. [`session/launch.env`](session/launch.env) holds the image digest, runtime and volume names that both launchers read, and `./bin/render-config binds` prints the binds. `sealskin-up`, `sealskin-apply` and `mac/forward-dev` refuse a docker sandbox.
+With the `docker` launcher, `vm-up` is the only step before `./bin/pots-session ensure`: no server starts and no admin setup exists. `pots-session` then runs the session image with `docker run`, with the same runtime, label, home volume `pots-home`, inner Docker volume and binds as SealSkin. [`session/launch.env`](session/launch.env) holds the image digest, runtime and volume names that both launchers read, and `./bin/render-config binds` prints the binds. `sealskin-up` and `sealskin-apply` refuse a docker sandbox.
 
 `vm-up` writes the Colima profile from [the Colima template](colima/colima.yaml) and the sandbox's `vm` values, then starts the VM when it is stopped, with no mount: Colima mounts the Mac home for an empty `mounts` list, so the template sets it to `null` and the start also passes `--mount none`. It clones or fast-forwards `/opt/agent-sandbox`, copies the configuration, installs Sysbox, the container runtime, enables the firewall service and starts the VM's keeper and update timers. A VM started with a mount keeps it until it stops: `pots-session` refuses to launch there, as [the host-path check](vm/check-host-paths) says, and `probe-boundary` fails. Review the template and [the firewall configuration](vm/network.env) before starting. `sealskin-up` starts the server and applies the app template. Applying configuration restarts the SealSkin server and waits for it to load the template and installed app before returning.
 
@@ -63,18 +63,15 @@ Bootstrap needs access to the private harness repository and the configured vaul
 
 The credential step pipes a newly minted Agents Sandboxes client secret directly from the Mac into the session. It stores the credential at `/config/.config/agent-sandbox/vault.env` with private permissions. The minted secret has no expiry or use limit. Rerunning `./bin/session-credentials` replaces the stored credential without revoking earlier secrets. An installation failure can leave downloaded tools or a partially configured home behind. Fix the reported cause and rerun bootstrap.
 
-The MacBook reaches a session through the Mac Studio. Copy [the connector](mac/sealskin-connect) to its `~/.local/bin`, then add the sandbox there:
+The MacBook and the phone reach a session through its pot's VM node, `<pot>-host` on the tailnet, as [Tailnet and doors](#tailnet-and-doors) describes. The ssh user is the Mac user's name on Colima and `root` on Proxmox, on port 22. A device whose Herdr adds machines by ssh, such as the phone, takes that target as it is. On the MacBook:
 
 ```sh
-hc machine add --name "$SANDBOX" --via "$HOME/.local/bin/sealskin-connect $SANDBOX"
+hc machine add --name "$SANDBOX" --via "ssh -o BatchMode=yes USER@$SANDBOX-host"
 ```
-
-A device whose Herdr adds machines by ssh only, such as the phone, reaches a session at the sandbox's `tailnetSshPort`. Its target is the Mac user's name at the Mac Studio's tailnet name, with that port. Tailscale Serve forwards the port to the VM's sshd, inside the tailnet only.
 
 - `./bin/vm-up` copies the keys of the Mac's `~/.ssh/authorized_keys` into the VM, so a key the Mac accepts enters each sandbox. Run it again after adding a key to the Mac.
 - Each key is bound to [a forced command](vm/session-keys). It runs the client's shell line in the session as the session user, with no terminal and no forwarding, and runs nothing in the VM.
-- Lima picks a new Mac-local ssh port at each VM start, so [the watchdog's last step](mac/tailnet-ssh) points the tailnet port at the VM again.
-- The firewall keeps a session off the Mac's tailnet address, and `./bin/probe-boundary` checks every sandbox's port from the session.
+- The tailnet policy lets the human's devices reach a VM node on port 22 only. The firewall keeps a session off every tailnet address, its own VM's included, and `./bin/probe-boundary` checks the VM node's ports from the session.
 
 ## Proxmox sandboxes
 
@@ -90,7 +87,7 @@ A sandbox whose `provider` is `proxmox` runs on a VM of a Proxmox VE node, reach
 | `gateway` | IPv4 gateway of that network |
 | `cpuUnits` | The VM's CPU weight against the node's other VMs, from 1 to 10000. Proxmox gives a VM 100 by default |
 
-The sandbox's directory name names the VM, so it must be a lowercase host name. `vm.cpu`, `vm.memoryGiB` and `vm.diskGiB` size the VM, and `vm.swapGiB` sizes its swap file as on Colima. A Proxmox sandbox uses the `docker` launcher and has no `serverPort` or `tailnetSshPort`. Every command checks the sandbox against [the Proxmox rules](proxmox/config.jq) before anything reaches the node, prints each problem and exits with status 2. `./bin/check` applies the same rules to the examples.
+The sandbox's directory name names the VM, so it must be a lowercase host name. `vm.cpu`, `vm.memoryGiB` and `vm.diskGiB` size the VM, and `vm.swapGiB` sizes its swap file as on Colima. A Proxmox sandbox uses the `docker` launcher and has no `serverPort`. Every command checks the sandbox against [the Proxmox rules](proxmox/config.jq) before anything reaches the node, prints each problem and exits with status 2. `./bin/check` applies the same rules to the examples.
 
 On the node, [the VM script](proxmox/ensure-vm.sh) holds a node-wide lock while it works.
 
@@ -106,7 +103,7 @@ The boundary choices:
 - Root on the node controls every pot VM on it, so the node is part of the trusted operator side, like the Mac.
 - The VM firewall is Colima's. `probe-boundary` also checks the node's ssh and web ports, the gateway's web port and the ssh port of every Proxmox sandbox.
 - The VM resolves names through 1.1.1.1 and 9.9.9.9. Docker hands session containers the VM's upstream resolvers, and the firewall drops their traffic to the network's own private resolver.
-- Proxmox's cloud-init names the VM's card `eth0`, the uplink the firewall rules name. The firewall refuses to load on a VM without that interface, which keeps Docker and the session down.
+- The firewall rules name no uplink: a container's traffic to a private range is dropped on every interface but the container bridges, whatever Proxmox's cloud-init names the VM's card.
 - `/etc/agent-sandbox` in the VM is readable by every VM user, as the session user needs. It holds no credential.
 
 Limits:
@@ -114,7 +111,44 @@ Limits:
 - The pinned image is amd64, so the node must be amd64.
 - Only cores, memory, CPU weight and a larger disk reach an existing VM. A changed `address`, `storage`, `bridge` or `gateway` needs a new VM, which `vm-up` never creates over an existing one. No command stops or deletes a Proxmox VM.
 - As on Colima, the VM's clone takes the pushes to its branch within five minutes, and a changed sandbox file reaches the VM at the next `./bin/vm-config`.
-- The SealSkin launcher, `mac/forward-dev` and the tailnet ssh port exist only on Colima.
+- The SealSkin launcher exists only on Colima.
+
+## Tailnet and doors
+
+Each pot has two tailnet nodes. The pots policy, which [`./bin/tailnet-policy`](bin/tailnet-policy) prints from every pot's `doors`, decides what reaches them, and [the tailnet setup](docs/tailnet-setup.md) lists the one-time steps it needs and what fails without them.
+
+| Node | Name | Tag | Runs | Reachable on |
+| --- | --- | --- | --- | --- |
+| VM node | `<pot>-host` | `tag:pot-<pot>-host` | the VM's `tailscaled`, with `--netfilter-mode=off --accept-dns=false` | 22 from the operator's devices; 2222 (the door) from the session node of each pot whose `doors` name this pot, and of each pot this pot's `doors` name, to reply |
+| Session node | `<pot>` | `tag:pot-<pot>` | [a userspace `tailscaled`](session/services.d/pots-tailnet) in the session, with `--accept-dns=false` | 443, 10001-18790 and 18792-65535 (Serve and tailnet-link previews) from the operator's devices. Never 18791: tailnet-link's file server trusts the login header Serve adds, and a userspace node hands a port without a Serve handler to its loopback |
+
+`./bin/tailnet-up` joins both nodes, and `./bin/session-bootstrap` runs it last. For each node, [the key helper](bin/tailnet-key) mints a key that is single-use, not ephemeral, preauthorized, valid ten minutes and tagged with that node's tag only. The key goes on standard input from the helper to `tailscale up` in the VM or the session, never in an argument or a file. A node joins with shields up. [The node check](lib/tailnet_node.py) then reads the packet filter the control server sent and the node's capabilities, and dials every peer it sees on ssh, web, Magpie, Postgres, Proxmox, tailnet-link's file server and door ports. It lowers the shields only when each source the policy admits is the one address of a known peer: an untagged device of the login in `tailnet.json` on 22 and the session's ports, another pot's session node on the door port, never `*`, a range or a wider CIDR. The node also needs that login installed, a policy that opens no other port than the table's, the node holds no Funnel, and the node reaches nothing but other pots' doors. The check knows another pot's session node by its tag alone: one `tag:pot-<name>`, not ending in `-host`, not this pot's and not `tag:pot-keys`. The VM holds no list of the mesh, so a merged grant from a session under a tag no pot uses passes too; that node reaches only the door port, where the door's sshd holds no key for it and ssh refuses it with 255. Otherwise the shields stay up and the command prints what it found. A node already joined under another name or tag stops the command with the steps to remove it. [A VM timer](vm/tailnet-guard) reads again, every minute, the packet filter and capabilities each node of the pot receives, and raises that node's shields when a policy edit opens more than the table, or when it cannot read or parse what the node receives; only `bin/tailnet-up` lowers them, after its full check. The session user runs the session's `tailscaled` and owns its Tailscale binaries, so a session process can lower that node's shields, change its settings, or replace the binaries the timer reads through; the timer then raises the shields again only while it still reads the too-wide policy. Against such a process the policy itself is the bound: the control server hands the session node's key only to the peers a grant connects to it, so no other node can send it a packet, shields up or down. [The pinned Tailscale release](lib/tailscale.sh) is installed by the VM setup and the session bootstrap, checked by SHA-256.
+
+The session node runs tailnet-link unchanged: `tailnet-link setup`, then `tailnet-link PORT`, publish the session's files and dev servers under the pot's name. The session has no systemd, so [a session service](session/services.d/pots-links) starts tailnet-link's file server once setup has written its owner file. Setup needs a tailnet-link that installs no systemd unit where `/run/systemd/system` is absent and skips its routed self-check on a userspace node.
+
+The session node's filter is the whole protection on those ports, not Serve. A userspace node hands every granted port without a Serve handler to the session's loopback, so the operator's devices reach any session listener on 443 or 10001-65535 other than 18791, served or not. No other user of the tailnet and no pot reaches a session at all. The operator's devices already administer the VM, so this opens nothing they could not reach. [The tailnet-links skill](https://github.com/walid-mos/agent-pi/blob/main/skills/tailnet-links/SKILL.md) names the one local port whose preview stays dead in a pot, 8791.
+
+### Doors
+
+A door carries one note from a pot's bot to another pot's bot. The caller runs `ssh -F /opt/agent-sandbox/session/door.ssh_config -- <pot>-host` with the message on standard input. [That client configuration](session/door.ssh_config) dials through the session's own node with [`tailscale nc`](session/door-dial), checks the door's pinned host key, and forwards nothing.
+
+On the target VM, [a dedicated sshd](vm/door-sshd.conf), run by [its unit](vm/pots-door.service), listens on the VM's tailnet addresses only, port 2222, for the user `door` with keys only. The unit requires the firewall unit, so the door never listens without it: the firewall drops the door port on any other interface and resets a node's third concurrent connection. Each caller's key is bound to `restrict,command="/usr/bin/sudo -n /usr/local/sbin/pots-door CALLER RECEIVER ACCESS"`, where `ACCESS` is `ask` when the caller's `doors` name the receiver and `reply` when only the receiver's `doors` name the caller. The `door` account has no Docker access; [the door](vm/pots-door.py) runs as root only through the sudo rule [the key installer](vm/door-keys.py) writes with each key, naming that key's three arguments; the account may run the door with no other caller, receiver or access. It stops at the first failing step:
+
+| Step | Exit |
+| --- | --- |
+| `tailscale whois` of the connecting address shows `tag:pot-<caller>` | 77 |
+| The caller's lock is free, taken without waiting | 75, `pots-door: busy` |
+| At most 16384 bytes | 65 |
+| Strict UTF-8 without NUL; first line `request <caller>.<nonce> <hop>` or `reply <receiver>.<nonce>`, ended by LF, nonce of 8 to 32 lowercase letters and digits, hop one digit; a note that is not blank | 64 |
+| A `request` comes only on a key bound to `ask` | 77 |
+| The caller's delivery bucket holds a token: 10 at most, one back every 120 s. A knock the three steps above refuse spends from a refusal bucket of the same size instead, and gets this exit in place of its own when that bucket is empty, so refused knocks never use up the caller's deliveries | 75, `pots-door: rate` |
+| The pot has a running session | 69 |
+| `pots wake --from pot:<caller> --note-file -` in the session, as the session user, does not refuse the message: its status 76 means it kept nothing and would refuse the same bytes again | 76, `pots-door: refused` |
+| That command ends with status 0 within 45 s | 70 |
+
+On success it prints `delivered <origin>.<nonce>` and exits 0. Every exit but 70 keeps nothing, and a 76 is final; after a 70 the session may hold the message, so the caller resends the same bytes under the same id. The session's output never reaches the caller. Exit 255 is ssh's own: no route, policy, connection limit, host key, key or forwarding refused.
+
+`./bin/pots-doors POT...`, run from the operator's machine with every pot of the mesh, makes each session's caller key when absent and copies out only its public key. It installs on each VM the caller keys of the pots whose `doors` name that pot, bound to `ask`, and of the pots that pot's `doors` name, bound to `reply`; each session trusts the host keys of those same doors. A pot's key is on no other VM, so its knock at any other door ends with ssh's exit 255. Each run rewrites the whole mesh and refuses `doors` that name a pot outside the list or the pot itself, so a pot left out of the list loses its doors.
 
 ## Agent sources
 
@@ -182,7 +216,7 @@ herdr-app do layout.switch '{"name":"command-center-pots"}'
 
 The same last command with `command-center` returns to the Principal terminal.
 
-The watchdog starts at user login. Every minute it brings the checkout and the pane up to date, as described above, then checks, for every sandbox under `sandboxes/` on the `colima` provider, that its VM and its SealSkin server are running and that its tailnet ssh port points at the VM. It therefore creates the VM of a directory added there. A sandbox on another provider is left to the keeper of its own VM. Its LaunchAgent configuration comes from [the installer](mac/install-watchdog). Loading the agent with the VM stopped brings the VM and its server back, and the VM's keeper the session, which is the path a login takes. A real Mac reboot has not been exercised.
+The watchdog starts at user login. Every minute it brings the checkout and the pane up to date, as described above, then checks, for every sandbox under `sandboxes/` on the `colima` provider, that its VM and its SealSkin server are running. Before the sandboxes, [it removes](mac/retire-forwards) the Mac's tailnet forwards of ports 2223 and 2224, which led to the retired Colima VMs, once nothing listens behind them. It therefore creates the VM of a directory added there. A sandbox on another provider is left to the keeper of its own VM. Its LaunchAgent configuration comes from [the installer](mac/install-watchdog). Loading the agent with the VM stopped brings the VM and its server back, and the VM's keeper the session, which is the path a login takes. A real Mac reboot has not been exercised.
 
 Each VM keeps its own session. `pots-keeper.timer` runs [the keeper](vm/keeper) every minute: it runs `pots-session ensure`, then keeps Magpie at [the bootstrap pin](session/bootstrap). It does not update the session's tools, mint credentials or rebootstrap the session. Docker and the timers start with the VM, so a stopped session or a restarted VM comes back within a minute. `pots-update.timer` fast-forwards `/opt/agent-sandbox` every five minutes on the branch the clone is on, with [the refresh](lib/source_refresh.py) the sessions use for their sources: a clone with an edited file, on no branch, or with Git configuration that runs commands stays as it is, and `journalctl -u pots-update` in the VM says why. The units run the clone's scripts in place, so a fast-forward reaches the keeper with no reinstall. A changed unit file, firewall or Sysbox version waits for the next `./bin/vm-up`.
 
@@ -328,11 +362,7 @@ The probe reports repository identity, push permission and a HEAD commit without
 
 The session's Docker daemon is separate from the VM daemon used by SealSkin. Give each worktree its own Compose project and published ports. Keep overrides and application environment injection outside client repositories. Pass application variables by name into app containers, excluding unrelated provider, GitHub and vault credentials. Client push rules still apply.
 
-[The development tunnel](mac/forward-dev) forwards a Mac-local port into the running session. Keep it in an owned terminal while using it, then publish that local port with `tailnet-link`. Stop the tunnel when the preview is no longer needed.
-
-```sh
-./mac/forward-dev LOCAL_PORT SESSION_PORT
-```
+A development server in the session gets its link from the session's own tailnet node: run `tailnet-link PORT` in the session, as on any machine. The link names the pot.
 
 ### CPU
 
@@ -360,9 +390,9 @@ A small sandbox for one worker building next to a started development stack can 
 
 This is a development environment that holds credentials and runs agent-selected code. It is not a vault isolation boundary. The Agents Sandboxes identity can read its authorized vault projects, including secrets beyond the names `with-vault` injects. A sandbox's secret list limits what a process receives, not what that identity can read. The router keeps its provider keys and its Claude token in its configuration folder in the session home, where any code in the session can read them. File permissions and environment cleanup do not prevent code inside the session from using its available credentials. GitHub token selection routes authentication and does not restrict what a token itself permits.
 
-The VM firewall blocks container traffic to private IPv4 and local IPv6 ranges, the Mac's Magpie included. It permits DNS to VM services and blocks other new container connections to those services. It also blocks new connections from outside the SealSkin server into its bridge network. Public internet access remains available. Docker starts only after the firewall has loaded its rules, so a firewall that fails keeps Docker, the SealSkin server and the session down. The SealSkin server is a trusted control component with the VM's Docker socket. The session gets a nested Docker daemon instead of that socket.
+The VM firewall blocks container traffic to private IPv4 and local IPv6 ranges, the Mac's Magpie and the whole tailnet range included, and drops everything a container sends through a tailnet interface. A session reaches the tailnet only through its own userspace node, whose traffic leaves as public WireGuard and HTTPS, so the tailnet policy alone decides what that node reaches. It permits DNS to VM services and blocks other new container connections to those services. It also blocks new connections from outside the SealSkin server into its bridge network. Public internet access remains available. Docker starts only after the firewall has loaded its rules, so a firewall that fails keeps Docker, the SealSkin server and the session down. The SealSkin server is a trusted control component with the VM's Docker socket. The session gets a nested Docker daemon instead of that socket.
 
-`probe-boundary` checks that Docker requires the firewall unit, without provoking a failed start. It checks selected forbidden endpoints from both the VM and session. The sandbox VMs share one network, so those endpoints include the SSH port of every sandbox's VM and every SealSkin server port the Mac publishes. A forbidden endpoint that is also closed from the VM is reported as untestable and fails the probe. It checks allowed npm and GitHub connections, then runs mount, user-mapping and nested-Docker attack probes as both the session user and root, writes to `/opt/agent-sandbox` and `/etc/agent-sandbox` among them. It fails when the VM or the session sees a path of the Mac: a `/Users` or `/Volumes` directory, or a virtiofs, 9p or sshfs share other than Colima's Rosetta share, which holds Apple's translator and no file of the operator. Those probes can pull an Alpine image and run temporary containers. Their success covers the exercised boundaries, not every network destination, kernel escape or credential misuse.
+`probe-boundary` checks that Docker requires the firewall unit, without provoking a failed start. It checks selected forbidden endpoints from both the VM and session. The sandbox VMs share one network, so those endpoints include the SSH port of every sandbox's VM and every SealSkin server port the Mac publishes. A forbidden endpoint that is also closed from the VM is reported as untestable and fails the probe. The endpoints also include the VM node's ssh and door ports and Tailscale's resolver. It checks that the VM's rules drop tailnet egress before any other rule, cap door connections, and leave Tailscale's own chains out; that the tailnet guard's timer is active and the guard passes; that the door listens on tailnet addresses only and its account has no Docker access; and, through [the node check](lib/tailnet_node.py), that both nodes match the pots policy and reach no other service of any peer, the Mac's Magpie and other pots' sessions included. It checks allowed npm and GitHub connections, then runs mount, user-mapping and nested-Docker attack probes as both the session user and root, writes to `/opt/agent-sandbox` and `/etc/agent-sandbox` among them. It fails when the VM or the session sees a path of the Mac: a `/Users` or `/Volumes` directory, or a virtiofs, 9p or sshfs share other than Colima's Rosetta share, which holds Apple's translator and no file of the operator. [The tailnet attacks](probes/tailnet-attacks.sh), as both, check that every tailscaled socket the session reaches is its own node, that the session cannot plant door state, and that a peer's door refuses a shell command, a forged origin, a reply to another pot, a missing hop, an empty or oversized note and forwarding, then rate-limits, and that every other pot's door it sees refuses its key; the door files must be unchanged afterwards. Those probes can pull an Alpine image and run temporary containers. Their success covers the exercised boundaries, not every network destination, kernel escape or credential misuse.
 
 The probe contains no browser UI scenario and restarts nothing itself. A clean result is not proof of either.
 

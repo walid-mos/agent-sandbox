@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/lib.sh"
+exec pots wake --from "pot:$1" --note-file -

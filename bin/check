@@ -12,7 +12,7 @@ for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/pr
 	case "$interpreter" in
 		'#!/bin/sh') sh -n "$path" ;;
 		'#!/bin/bash') bash -n "$path" ;;
-		'#!/usr/bin/env python3') compile_python "$path" ;;
+		'#!/usr/bin/env python3' | '#!/usr/bin/python3 -I') compile_python "$path" ;;
 		'#!'*) echo "check: no syntax check for $interpreter in $path" >&2; exit 1 ;;
 		*) case "$path" in
 			*.sh) sh -n "$path" ;;
@@ -29,9 +29,9 @@ for path in "$root"/mac/*.ts; do
 	plain=$(node --no-warnings --input-type=module -e 'import { stripTypeScriptTypes } from "node:module"; import { readFileSync } from "node:fs"; process.stdout.write(stripTypeScriptTypes(readFileSync(process.argv[1], "utf8")))' "$path")
 	printf '%s\n' "$plain" | node --check --input-type=module
 done
-# The launcher decides which keys a sandbox needs: only SealSkin has a server and a tailnet ssh port.
+# The launcher decides which keys a sandbox needs: only SealSkin has a server.
 for path in "$root"/sandboxes.example/*/sandbox.json; do
-	jq -e '(.launcher // "docker") as $launcher | ($launcher == "docker") or ($launcher == "sealskin" and (.serverPort | type == "number") and (.tailnetSshPort | type == "number"))' "$path" > /dev/null || { echo "check: $path needs launcher docker or sealskin, and serverPort and tailnetSshPort for sealskin" >&2; exit 1; }
+	jq -e '(.launcher // "docker") as $launcher | ($launcher == "docker") or ($launcher == "sealskin" and (.serverPort | type == "number"))' "$path" > /dev/null || { echo "check: $path needs launcher docker or sealskin, and serverPort for sealskin" >&2; exit 1; }
 done
 # A Proxmox example passes the rules lib/providers/proxmox.sh applies before reaching the hypervisor.
 for path in "$root"/sandboxes.example/*/sandbox.json; do
@@ -42,6 +42,20 @@ done
 for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
 	jq empty "$path"
 done
+for path in "$root"/sandboxes.example/*/sandbox.json; do
+	jq -e '.doors == null or (.doors | type == "object" and all(.[]; type == "string"))' "$path" > /dev/null || { echo "check: $path needs doors as an object of pot names to one-line descriptions" >&2; exit 1; }
+done
+# The generated pots policy grants only the ports lib/tailnet_node.py accepts, a door only along doors and their replies, and no Funnel, auto-approval or Tailscale SSH rule.
+. "$root/vm/network.env"
+settings=$(mktemp -d)
+trap 'rm -rf "$settings"' EXIT INT TERM
+printf '%s\n' '{"operatorLogin": "owner@example.com"}' > "$settings/tailnet.json"
+policy=$(printf '%s\n' 'alpha beta' beta gamma | python3 "$root/lib/tailnet_policy.py" policy "$settings")
+printf '%s\n' "$policy" | jq -e --arg door "tcp:$DOOR_PORT" '([.grants[].ip[]] - ["tcp:443", "tcp:10001-18790", "tcp:18792-65535", "tcp:22", $door] | length == 0) and ([.grants[].src[] | select(startswith("tag:") | not)] | unique == ["owner@example.com"]) and (has("nodeAttrs") or has("autoApprovers") or has("ssh") | not) and ([.grants[] | select(.ip == [$door]) | .src + .dst] == [["tag:pot-alpha", "tag:pot-beta-host"], ["tag:pot-beta", "tag:pot-alpha-host"]])' > /dev/null || { echo "check: lib/tailnet_policy.py grants more than the Serve, admin and door ports, to anyone but the human, a door off the doors, or nodeAttrs, autoApprovers or ssh" >&2; exit 1; }
+! printf '%s\n' alpha | python3 "$root/lib/tailnet_policy.py" policy "$settings/absent" > /dev/null 2>&1 || { echo "check: lib/tailnet_policy.py prints a policy without an operator login" >&2; exit 1; }
+! printf '%s\n' 'alpha alpha' | python3 "$root/lib/tailnet_policy.py" policy "$settings" > /dev/null 2>&1 || { echo "check: lib/tailnet_policy.py accepts a pot whose doors name itself" >&2; exit 1; }
+! printf '%s\n' 'alpha keys' 'keys alpha' | python3 "$root/lib/tailnet_policy.py" policy "$settings" > /dev/null 2>&1 || { echo "check: lib/tailnet_policy.py accepts a pot named keys, whose session tag is the key-minting client's" >&2; exit 1; }
+! printf '%s\n' 'alpha beta' | python3 "$root/lib/tailnet_policy.py" policy "$settings" > /dev/null 2>&1 || { echo "check: lib/tailnet_policy.py accepts a door to a pot outside the mesh" >&2; exit 1; }
 # The operator's config sync carries the installed pane to their other Mac and leaves out a file named like a credential, so the pane fails there on the missing module.
 skipped=$(cd "$root/herdr" && find . -type f | grep -iE 'credential|secret|token|password|cookie|auth|\.old-|\.reset-|\.corrupt-|\.(pem|key|p12|pfx|log|sqlite|db)$' || true)
 if [ -n "$skipped" ]; then

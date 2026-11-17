@@ -2,6 +2,7 @@
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lib.sh"
+. "$here/../lib/tailscale.sh"
 
 NODE_VERSION=v24.22.3
 INFISICAL_VERSION=0.45.8
@@ -59,6 +60,15 @@ install_cli_tools() {
 		"gh_${GH_VERSION}_linux_$architecture/bin/gh"
 }
 
+install_tailscale() {
+	if tailscale_is_current "$POTS_TOOLS/bin/tailscale" "$POTS_TOOLS/bin/tailscaled"; then return 0; fi
+	staging=$(mktemp -d)
+	tailscale_unpack "$architecture" "$staging"
+	install -D -m 0755 "$staging/tailscale" "$POTS_TOOLS/bin/tailscale"
+	install -D -m 0755 "$staging/tailscaled" "$POTS_TOOLS/bin/tailscaled"
+	rm -rf "$staging"
+}
+
 router_installed() {
 	magpie --version 2> /dev/null | grep -qx "magpie $MAGPIE_VERSION"
 }
@@ -110,6 +120,7 @@ esac
 
 install_node
 install_cli_tools
+install_tailscale
 install_router
 install_claude_code
 ln -sf "$here/gh" "$POTS_TOOLS/bin/gh"

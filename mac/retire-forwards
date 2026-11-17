@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+RETIRED_PORTS="2223 2224"
+
+# These ports forwarded the Mac's tailnet address to the old Colima VMs. A forward goes once nothing listens behind it, so a VM still running keeps its way in until it stops.
+served=$(tailscale serve status --json)
+for port in $RETIRED_PORTS; do
+	target=$(printf '%s' "$served" | jq -r --arg port "$port" '.TCP[$port].TCPForward // empty')
+	[ -n "$target" ] || continue
+	if nc -z "${target%:*}" "${target##*:}" 2> /dev/null; then continue; fi
+	tailscale serve --tcp="$port" off > /dev/null
+	echo "retire-forwards: removed the tailnet forward of port $port, nothing listens behind it"
+done

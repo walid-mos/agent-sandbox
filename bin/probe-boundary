@@ -6,8 +6,19 @@ set -eu
 REACH="$POTS_SESSION_REPOSITORY/probes/reach.sh"
 SESSION_ATTACKS="$POTS_SESSION_REPOSITORY/probes/session-attacks.sh"
 HOST_PATHS="$POTS_SESSION_REPOSITORY/vm/check-host-paths"
+TAILNET_ATTACKS="$POTS_SESSION_REPOSITORY/probes/tailnet-attacks.sh"
+SESSION_TAILSCALE="$POTS_SESSION_HOME/.local/bin/tailscale"
+DOOR_CLIENT_CONFIG="$POTS_SESSION_REPOSITORY/session/door.ssh_config"
+DOOR_KNOWN_HOSTS="$POTS_SESSION_HOME/.config/agent-sandbox/door/known_hosts"
+DOOR_FILES="/etc/pots-door /etc/sudoers.d/pots-door /etc/sudoers.d/pots-door-bindings /usr/local/sbin/pots-door /usr/local/sbin/pots-door-keys /usr/local/sbin/pots-door-serve"
+TAILNET_NODE="$POTS_SESSION_REPOSITORY/lib/tailnet_node.py"
+SESSION_TAILNET_NODE="$POTS_SESSION_REPOSITORY/session/tailnet-node"
+TAILNET_SERVICE_ADDRESS=100.100.100.100
+TAILNET_ADDRESS='^(100\.[0-9.]+|\[fd7a:115c:a1e0:[0-9a-f:]*\])'
 VM_SEALSKIN_CONFIG=/var/lib/docker/volumes/agent-sandbox_sealskin-config
 TRUSTED_PATH=/usr/sbin:/usr/bin:/sbin:/bin
+vm_tailnet_address=$(sandbox_vm tailscale ip -4)
+operator_node=$(tailscale status --json --peers=false | jq -er '.Self.DNSName | split(".")[0]')
 
 sealskin_endpoints() {
 	[ "$POTS_LAUNCHER" = sealskin ] || return 0
@@ -15,7 +26,7 @@ sealskin_endpoints() {
 }
 
 provider_forbidden=$(vm_forbidden_endpoints)
-forbidden="$provider_forbidden $(sealskin_endpoints)"
+forbidden="$provider_forbidden $vm_tailnet_address:22 $vm_tailnet_address:$DOOR_PORT $TAILNET_SERVICE_ADDRESS:53 $(sealskin_endpoints)"
 allowed="registry.npmjs.org:443 github.com:443"
 
 in_session() {
@@ -58,8 +69,52 @@ judge() {
 	fi
 }
 
-docker_requires_firewall() {
-	sandbox_vm systemctl show docker.service --property Requires --value | tr ' ' '\n' | grep -qx pots-firewall.service
+tailnet_drop_precedes_returns() {
+	sandbox_vm sudo "$1" -S DOCKER-USER | awk -v drop="-A DOCKER-USER -o $TAILNET_LINKS -j DROP" '
+		$0 == drop { dropped = NR }
+		/-j RETURN$/ && !returned { returned = NR }
+		END { exit !(dropped && dropped < returned) }'
+}
+
+firewall_closes_tailnet() {
+	for table in iptables ip6tables; do
+		tailnet_drop_precedes_returns "$table" || return 1
+		sandbox_vm sudo "$table" -S POTS-INPUT | grep -q -- "--dport $DOOR_PORT .*--connlimit-above" || return 1
+		! sandbox_vm sudo "$table" -S | grep -q -- '^-N ts-' || return 1
+	done
+}
+
+door_account_has_no_docker() {
+	! sandbox_vm id -nG door | tr ' ' '\n' | grep -qx docker
+}
+
+peer_pots() {
+	in_session awk '{ sub(/-host$/, "", $1); print $1 }' "$DOOR_KNOWN_HOSTS" 2> /dev/null || true
+}
+
+door_listens_on_tailnet_only() {
+	listeners=$(sandbox_vm sudo ss -Hltn "sport = :$DOOR_PORT" | awk '{ print $4 }')
+	[ -n "$listeners" ] && ! printf '%s\n' "$listeners" | grep -Evq "$TAILNET_ADDRESS:$DOOR_PORT\$"
+}
+
+door_files_digest() {
+	sandbox_vm sudo find $DOOR_FILES -type f -exec sha256sum {} + | sort
+}
+
+guard_runs_every_minute() {
+	sandbox_vm systemctl is-active --quiet pots-tailnet-guard.timer
+}
+
+# The door account may run the door with the arguments of a key installed for it, and with no caller it names itself.
+door_sudo_takes_only_bindings() {
+	bound=$(sandbox_vm cat /etc/pots-door/authorized_keys | sed -n 's|^restrict,command="/usr/bin/sudo -n \(/usr/local/sbin/pots-door [a-z0-9 -]*\)".*|\1|p' | head -n 1)
+	[ -n "$bound" ] || return 1
+	sandbox_vm sudo -u door sudo -n -l $bound > /dev/null || return 1
+	! sandbox_vm sudo -u door sudo -n -l /usr/local/sbin/pots-door intruder "$SANDBOX" ask > /dev/null 2>&1
+}
+
+requires_firewall() {
+	sandbox_vm systemctl show "$1" --property Requires --value | tr ' ' '\n' | grep -qx pots-firewall.service
 }
 
 session=$(running_session)
@@ -70,11 +125,26 @@ if [ "$POTS_LAUNCHER" = sealskin ]; then
 else
 	outer_container=$POTS_SESSION_CONTAINER
 fi
-judge docker-requires-firewall docker_requires_firewall || status=1
+judge docker-requires-firewall requires_firewall docker.service || status=1
+judge door-requires-firewall requires_firewall pots-door.service || status=1
 judge vm-sees-no-host-path sandbox_vm sh "$HOST_PATHS" || status=1
 judge session-sees-no-host-path in_session sh "$HOST_PATHS" || status=1
+judge firewall-closes-tailnet firewall_closes_tailnet || status=1
+judge door-listens-on-tailnet-only door_listens_on_tailnet_only || status=1
+judge door-account-has-no-docker door_account_has_no_docker || status=1
+judge door-sudo-takes-only-bindings door_sudo_takes_only_bindings || status=1
+tailnet_targets="$operator_node $(peer_pots)"
+judge host-node-matches-policy sandbox_vm sudo python3 "$TAILNET_NODE" check host "$SANDBOX" $tailnet_targets || status=1
+judge session-node-matches-policy in_session "$SESSION_TAILNET_NODE" check session "$SANDBOX" $tailnet_targets || status=1
+judge tailnet-guard-runs-every-minute guard_runs_every_minute || status=1
+judge tailnet-guard-passes sandbox_vm sudo "$POTS_SESSION_REPOSITORY/vm/tailnet-guard" || status=1
 judge_forbidden || status=1
 judge_allowed || status=1
 in_session bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_CONFIGURATION" || status=1
 in_session_as_root bash "$SESSION_ATTACKS" "$POTS_LAUNCHER" "$outer_container" "$SEALSKIN_SERVER_ADDRESS" "$VM_SEALSKIN_CONFIG" "$POTS_SESSION_REPOSITORY" "$POTS_SESSION_CONFIGURATION" || status=1
+door_files_before=$(door_files_digest)
+peer_host=$(in_session awk 'NR == 1 { print $1 }' "$DOOR_KNOWN_HOSTS" 2> /dev/null || true)
+in_session bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" "$DOOR_KNOWN_HOSTS" || status=1
+in_session_as_root bash "$TAILNET_ATTACKS" "$SANDBOX" "$peer_host" "$SESSION_TAILSCALE" "$DOOR_CLIENT_CONFIG" "$DOOR_PORT" "$DOOR_KNOWN_HOSTS" || status=1
+judge door-files-unchanged-by-session [ "$door_files_before" = "$(door_files_digest)" ] || status=1
 exit "$status"

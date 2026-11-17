@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/lib.sh"
+exec python3 "$here/../lib/tailnet_node.py" "$@"

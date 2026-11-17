@@ -9,6 +9,7 @@ SWAP_FILE=/swapfile
 APT_LOCK_WAIT_SECONDS=300
 GIB_BYTES=1073741824
 here=$(dirname "$(readlink -f "$0")")
+. "$here/../lib/tailscale.sh"
 
 # A fresh cloud image runs apt on its own timers right after boot, so apt waits for their lock instead of failing.
 apt_get() {
@@ -56,9 +57,47 @@ install_firewall() {
 
 # The units run this VM's clone in place, so a fast-forward reaches them with no reinstall. Only a changed unit file waits for the next vm-up.
 install_timers() {
-	install -m 0644 "$here/pots-keeper.service" "$here/pots-keeper.timer" "$here/pots-update.service" "$here/pots-update.timer" /etc/systemd/system/
+	install -m 0644 "$here/pots-keeper.service" "$here/pots-keeper.timer" "$here/pots-update.service" "$here/pots-update.timer" \
+		"$here/pots-tailnet-guard.service" "$here/pots-tailnet-guard.timer" /etc/systemd/system/
 	systemctl daemon-reload
-	systemctl enable --now pots-keeper.timer pots-update.timer
+	systemctl enable --now pots-keeper.timer pots-update.timer pots-tailnet-guard.timer
+}
+
+install_tailscale() {
+	if tailscale_is_current /usr/bin/tailscale /usr/sbin/tailscaled; then
+		systemctl start tailscaled.service
+		return 0
+	fi
+	package_dir=$(mktemp -d)
+	tailscale_unpack "$(dpkg --print-architecture)" "$package_dir"
+	install -m 0755 "$package_dir/tailscale" /usr/bin/tailscale
+	install -m 0755 "$package_dir/tailscaled" /usr/sbin/tailscaled
+	install -m 0644 "$package_dir/systemd/tailscaled.service" /etc/systemd/system/
+	[ -f /etc/default/tailscaled ] || install -m 0644 "$package_dir/systemd/tailscaled.defaults" /etc/default/tailscaled
+	rm -rf "$package_dir"
+	systemctl daemon-reload
+	systemctl enable tailscaled.service
+	systemctl restart tailscaled.service
+}
+
+# The door account has no Docker access: it runs only the forced command bound to each key, and that command only through the sudo rule pots-door-keys writes with that key.
+install_door() {
+	id door > /dev/null 2>&1 || useradd --system --no-create-home --home-dir / --shell /bin/sh door
+	usermod --password '*' door
+	install -d -m 0755 /etc/pots-door
+	install -d -m 0700 /var/lib/pots-door
+	visudo --check --quiet --file "$here/pots-door.sudoers"
+	install -m 0440 "$here/pots-door.sudoers" /etc/sudoers.d/pots-door
+	install -m 0644 "$here/door-sshd.conf" /etc/pots-door/sshd_config
+	install -m 0644 "$here/../session/launch.env" /etc/pots-door/launch.env
+	install -m 0755 "$here/pots-door.py" /usr/local/sbin/pots-door
+	install -m 0755 "$here/door-keys.py" /usr/local/sbin/pots-door-keys
+	install -m 0755 "$here/door.sh" /usr/local/sbin/pots-door-serve
+	/usr/local/sbin/pots-door-keys prepare
+	install -m 0644 "$here/pots-door.service" /etc/systemd/system/
+	systemctl daemon-reload
+	systemctl enable pots-door.service
+	systemctl restart pots-door.service
 }
 
 swap_file_gib() {
@@ -100,5 +139,7 @@ esac
 install_docker
 install_sysbox
 install_firewall
+install_tailscale
+install_door
 configure_swap "$swap_gib"
 install_timers

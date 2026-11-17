@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd)
+
+[ "$#" -ge 1 ] || { echo 'usage: tailnet-policy POT... (every pot of the mesh); prints the pots entries of the tailnet policy for the login in tailnet.json' >&2; exit 2; }
+mesh=$(mktemp)
+trap 'rm -f "$mesh"' EXIT INT TERM
+
+runtime_directory() (
+	SANDBOX=$1
+	. "$repo/lib/sandbox.sh"
+	printf '%s\n' "$POTS_RUNTIME"
+)
+
+mesh_line() (
+	SANDBOX=$1
+	. "$repo/lib/sandbox.sh"
+	doors=$(sandbox_doors)
+	printf '%s %s\n' "$SANDBOX" "$doors"
+)
+
+for pot in "$@"; do
+	mesh_line "$pot" >> "$mesh"
+done
+settings=$(runtime_directory "$1")
+python3 "$repo/lib/tailnet_policy.py" policy "$settings" < "$mesh"

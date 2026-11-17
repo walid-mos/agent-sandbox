@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+export HOME=/config
+. /opt/agent-sandbox/session/lib.sh
+[ -x "$POTS_TOOLS/bin/tailscaled" ] || idle_until_bootstrap pots-tailnet
+install -d -o abc -g abc -m 0755 /var/run/tailscale
+exec s6-setuidgid abc "$POTS_TOOLS/bin/tailscaled" --tun=userspace-networking --statedir="$HOME/.local/state/tailscale" --socket=/var/run/tailscale/tailscaled.sock

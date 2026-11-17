@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../lib/sandbox.sh"
+
+NODE="$POTS_REPO/lib/tailnet_node.py"
+VM_NODE="$POTS_SESSION_REPOSITORY/lib/tailnet_node.py"
+session=$(running_session)
+operator_node=$(tailscale status --json --peers=false | jq -er '.Self.DNSName | split(".")[0]')
+
+on_host() {
+	sandbox_vm sudo python3 "$VM_NODE" "$@"
+}
+
+on_session() {
+	session_exec --interactive "$session" "$POTS_SESSION_REPOSITORY/session/tailnet-node" "$@"
+}
+
+# A failed mint leaves the join without a key on its standard input, so the join fails and stops this script.
+join_node() {
+	runner=$1 role=$2
+	"$POTS_REPO/bin/tailnet-key" "$(python3 "$NODE" tag "$role" "$SANDBOX")" | "$runner" join "$role" "$SANDBOX"
+}
+
+# Each node stays shielded until verify has seen that the policy lets in and out only what the pots need.
+host_state=$(on_host state host "$SANDBOX")
+if [ "$host_state" = absent ]; then
+	join_node on_host host
+	sandbox_vm sudo systemctl restart pots-door.service
+fi
+on_host verify host "$SANDBOX" "$operator_node"
+session_state=$(on_session state session "$SANDBOX")
+if [ "$session_state" = absent ]; then
+	join_node on_session session
+fi
+on_session verify session "$SANDBOX" "$operator_node"
