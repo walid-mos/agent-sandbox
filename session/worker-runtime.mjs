@@ -3,7 +3,7 @@ import { rmSync, watch } from 'node:fs';
 import { join } from 'node:path';
 import { allTerminals } from './workers.mjs';
 import { hasQueued } from './queue.mjs';
-import { canFinish, followUp, isPublished, LIFECYCLE, publication, readLifecycle, readyAt, receiptPath, resultId, statePath, writeLifecycle } from './worker-lifecycle.mjs';
+import { canFinish, followUp, isPublished, LIFECYCLE, publication, readLifecycle, receiptPath, resultId, statePath, writeLifecycle } from './worker-lifecycle.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
 const PROTOCOL_VERSION = 1;
@@ -40,7 +40,6 @@ export class WorkerRuntime {
   #state;
   #received = new Set();
   #observer;
-  #timer;
   #removeInput;
 
   constructor(pi, worker) {
@@ -57,7 +56,6 @@ export class WorkerRuntime {
   }
 
   invalidate(context) {
-    clearTimeout(this.#timer);
     rmSync(receiptPath(this.#worker), { force: true });
     this.#publish(context, 'active');
   }
@@ -96,14 +94,7 @@ export class WorkerRuntime {
   }
 
   #finishWhenDue(context) {
-    if (!this.#hasReceipt()) return;
-    const due = readyAt(this.#state) - Date.now();
-    if (due > 0) {
-      clearTimeout(this.#timer);
-      this.#timer = setTimeout(() => this.finish(context), due);
-      return;
-    }
-    if (!this.#canClose(context)) return;
+    if (!this.#hasReceipt() || !this.#canClose(context)) return;
     this.#publish(context, 'closing');
     context.shutdown();
   }
@@ -127,7 +118,6 @@ export class WorkerRuntime {
   }
 
   stop() {
-    clearTimeout(this.#timer);
     this.#observer?.close();
     this.#removeInput?.();
   }
