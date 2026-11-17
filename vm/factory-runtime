@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from factory_root import ENVIRONMENT, GIT_OPTIONS, execute, fingerprints, gpg, private_directory
 from factory_socket import Refused
-from landing import fingerprint
+from landing import created_key
 from launch import LAUNCH
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,14 +109,9 @@ def recover():
 
 
 def ready():
-    key_home = Path(LAUNCH["POTS_LANDING_KEY_HOME"])
-    if not key_home.is_dir() or not (STATE / "bootstrap").is_dir():
+    identity = created_key(Path(LAUNCH["POTS_LANDING_KEY_HOME"]))
+    if not identity or not (STATE / "bootstrap").is_dir():
         print("factory: waiting for the operator's factory-bootstrap, landing-key and vm-up steps.", flush=True)
-        return False
-    try:
-        identity = fingerprint(key_home)
-    except Refused:
-        print("factory: the operator has not created the factory key yet.", flush=True)
         return False
     with tempfile.TemporaryDirectory(prefix="gnupg-", dir=STATE) as scratch:
         trusted = fingerprints(gpg(scratch, "--with-colons", "--show-keys", LAUNCH["POTS_TRUSTED_SIGNERS"]))

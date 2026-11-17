@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from factory_socket import serve
-from landing import Signer
+from landing import Signer, created_key
 from launch import LAUNCH
 
 REQUEST_BYTES = 2048
@@ -15,7 +15,7 @@ REQUEST_BYTES = 2048
 def main():
     if os.geteuid() != 0:
         raise SystemExit("landing-signer: only VM root can open the signing key.")
-    if not Path(LAUNCH["POTS_LANDING_KEY_HOME"]).is_dir():
+    if not created_key(Path(LAUNCH["POTS_LANDING_KEY_HOME"])):
         print("landing-signer: no factory key. The operator creates it from the Mac.", flush=True)
         return
     serve(LAUNCH["POTS_LANDING_SOCKET"], "landing", REQUEST_BYTES, Signer().sign, "landing: malformed request or unavailable state. No signature was published.")

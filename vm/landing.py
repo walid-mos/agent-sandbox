@@ -26,6 +26,13 @@ def fingerprint(home):
     return found[0]
 
 
+def created_key(home):
+    try:
+        return fingerprint(home) if home.is_dir() else None
+    except Refused:
+        return None
+
+
 class Signer:
     def __init__(self):
         self.home = Path(LAUNCH["POTS_LANDING_KEY_HOME"])
