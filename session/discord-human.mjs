@@ -1,21 +1,20 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { acceptDiscordClick, closeDiscordQuestion, registerDiscordQuestion } from './discord-clicks.mjs';
+import { acceptDiscordClick, closeDiscordQuestion, registeredPot, registrationOf } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
-import { all, ANSWERED, find, OPEN, RECEIVED } from './door-requests.mjs';
-import { prepareAsk, transmitAsk } from './doors.mjs';
-import { DIALOG_ID, discordMessageUrl, packet } from './human-contract.mjs';
-import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
+import { ANSWERED, RECEIVED, REFUSED } from './door-requests.mjs';
+import { DIALOG } from './door-messages.mjs';
+import { storedPacket } from './human-door-packets.mjs';
+import { reconcileRegistrations, registerQuestion, REGISTRATION_EXIT } from './discord-registration.mjs';
+import { dialogDoors, DOOR_RETRY_MS } from './human-doors.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
 import { main } from './main.mjs';
 import { commandWithInput } from './run.mjs';
-import { questionBlock } from './pots-questions.mjs';
 import { botHome, botId, isMastermind, sandbox } from './sandbox.mjs';
 
 const FOLDER = join(HUMAN_HOME, 'discord');
 const POLL_MS = 100;
 const DELIVERY_MS = 2000;
-const ANSWERED_ACK = JSON.stringify(packet('human.answered-ack', {}));
 const store = humanStore(FOLDER);
 
 function callDiscord(channel, method, body) {
@@ -28,7 +27,7 @@ async function updateMessage(id, questionId, update) {
   await store.locked(async ({ get, save }) => {
     const current = get(id);
     if (JSON.stringify(current.updates?.[questionId]) !== JSON.stringify(update)) return;
-    await callDiscord(current.registration.channelAccount, `PATCH /channels/${update.channelId}/messages/${update.messageId}`, update.body);
+    await callDiscord(registrationOf(current).channelAccount, `PATCH /channels/${update.channelId}/messages/${update.messageId}`, update.body);
     const updates = { ...current.updates };
     delete updates[questionId];
     save({ ...current, updates });
@@ -40,48 +39,12 @@ async function settle(record) {
   for (const [id, update] of Object.entries(record.updates ?? {})) await updateMessage(record.id, id, update);
 }
 
-async function posted(record) {
-  const { question, request, pot, guildId, messages } = record.registration;
-  const need = packet('human.posted', { dialog: record.id, request, digest: question.digest, guildId, at: new Date().toISOString(),
-    messages: messages.map((message, index) => ({ question: question.questions[index].id,
-      messageUrl: discordMessageUrl({ guildId, ...message }) })) });
-  const door = prepareAsk({ pot, need: JSON.stringify(need), served: request, key: `human-posted:${record.id}` });
-  const delivered = transmitAsk(door);
-  if (![OPEN, ANSWERED].includes(delivered.state)) throw new Error('discord-human: posted context was not delivered. Keep the question disabled and retry register.');
-}
-
-function registrationRequest(registration) {
-  const request = find(registration.request);
-  if (request?.direction !== RECEIVED || request.pot !== registration.pot) throw new Error('discord-human: no matching incoming door request.');
-  const block = questionBlock(request.need);
-  if (!block || JSON.stringify(JSON.parse(block)) !== JSON.stringify(registration.question)) throw new Error('discord-human: question differs from the incoming request.');
-  return request;
-}
-
-async function register(registration) {
-  registrationRequest(registration);
-  const record = await registerDiscordQuestion(registration, store, sandbox.humanDiscord);
-  await posted(record);
-  return { dialog: record.id, registered: true };
-}
-
-function completionPacket(request) {
-  let completion;
-  try { completion = JSON.parse(request.need); } catch { return undefined; }
-  if (completion?.type !== 'human.answered') return undefined;
-  return completion;
-}
-
-function completionOrigin(completion, pot) {
-  return DIALOG_ID.test(completion.dialog) && completion.request?.startsWith(`${pot}.`);
-}
-
-const isCompletionOwner = (record, pot) => !record?.registration || record.registration.pot === pot;
+const isCompletionOwner = (record, pot) => !record || registeredPot(record) === pot;
 const isCompletionAcknowledged = (request, record, completion) => request.state === ANSWERED && JSON.stringify(record?.closed) === JSON.stringify(completion);
 
 function currentCompletion(request) {
-  const completion = completionPacket(request);
-  if (!completion || !completionOrigin(completion, request.pot)) return undefined;
+  const completion = storedPacket(request, 'human.answered');
+  if (!completion) return undefined;
   const record = store.get(completion.dialog);
   const canComplete = [isCompletionOwner(record, request.pot), !isCompletionAcknowledged(request, record, completion)].every(Boolean);
   return canComplete ? completion : undefined;
@@ -92,21 +55,28 @@ async function completeRequest(request, onError) {
   if (!completion) return;
   try {
     await closeDiscordQuestion(completion, store, request.pot);
-    await replyReceived(request, ANSWERED_ACK);
+    await dialogDoors.acknowledge(request);
   } catch { onError('A question completion remains pending.'); }
 }
 
 async function completions(onError) {
-  for (const request of all().filter(item => item.direction === RECEIVED)) await completeRequest(request, onError);
+  for (const request of dialogDoors.all().filter(item => item.kind === DIALOG && item.direction === RECEIVED)) await completeRequest(request, onError);
 }
 
-async function deliverAnswer(record) {
-  const isWaiting = !record.outbox || record.replySent || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS;
+// A refusal is final for this answer, so it is reported once and kept instead of resending the same answer every pass.
+async function deliverAnswer(record, onError) {
+  const isWaiting = !record.outbox || record.replySent || record.answerFailure || Date.now() - (record.attemptedAt ?? 0) < DOOR_RETRY_MS;
   if (isWaiting) return;
   await store.patch(record.id, { attemptedAt: Date.now() });
-  const request = find(record.registration.request);
-  await replyReceived(request, JSON.stringify(record.outbox));
-  await store.patch(record.id, { replySent: find(request.id).state === ANSWERED });
+  const { request } = record.registration;
+  try {
+    await dialogDoors.reply(request, JSON.stringify(record.outbox));
+    await store.patch(record.id, { replySent: dialogDoors.find(request).state === ANSWERED });
+  } catch (error) {
+    if (dialogDoors.find(request)?.state !== REFUSED) throw error;
+    onError(error.message);
+    await store.patch(record.id, { answerFailure: error.message });
+  }
 }
 
 function startDiscordHuman({ onError = () => {} } = {}) {
@@ -140,10 +110,11 @@ function startDiscordHuman({ onError = () => {} } = {}) {
   async function delivery() {
     try {
       await completions(onError);
+      await reconcileRegistrations(store, onError);
       for (const record of store.all()) {
         try {
           await settle(record);
-          await deliverAnswer(record);
+          await deliverAnswer(record, onError);
         } catch { onError('A Discord update or door delivery remains pending.'); }
       }
     } catch { onError('A Discord update or door delivery remains pending.'); }
@@ -158,7 +129,9 @@ main(import.meta, async () => {
   if (process.argv[2] === 'register') {
     let registration;
     try { registration = JSON.parse(readFileSync(0, 'utf8')); } catch { throw new Error('discord-human: unreadable registration.'); }
-    process.stdout.write(`${JSON.stringify(await register(registration))}\n`);
+    const result = await registerQuestion(registration, { store, identity: sandbox.humanDiscord });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    process.exitCode = REGISTRATION_EXIT[result.state] ?? 1;
     return;
   }
   startDiscordHuman({ onError: message => process.stderr.write(`discord-human: ${message}\n`) });

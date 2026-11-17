@@ -12,7 +12,8 @@ const { answerQuestion, cancelDialog, completionNeed, acceptDoorAnswer, question
 const { registerPosted } = await import('../session/human-posted.mjs');
 const consume = async (f, input) => (await import('../session/human-consume.mjs')).consumePush(f.dialog.id, input, f.store);
 const { reconcileHuman } = await import('../session/human-relay.mjs');
-const { acceptDiscordClick, closeDiscordQuestion, registerDiscordQuestion } = await import('../session/discord-clicks.mjs');
+const { acceptDiscordClick, closeDiscordQuestion } = await import('../session/discord-clicks.mjs');
+const { acknowledgedRegistration: registerDiscordQuestion } = await import('./fixtures/discord-registration.mjs');
 const OPERATOR = '10000000000000001';
 const OTHER = '10000000000000002';
 const GUILD = '10000000000000003';
@@ -243,9 +244,9 @@ test('a select menu answers from its registered options, including several at on
   const record = f.discord.get(f.dialog.id);
   const select = { type: 1, components: [{ type: 3, custom_id: `human:${f.dialog.id}:0:select`,
     options: choices.map((label, index) => ({ label, value: String(index) })) }] };
-  await import('../session/discord-clicks.mjs').then(({ registerDiscordQuestion }) => registerDiscordQuestion(
+  await registerDiscordQuestion(
     { ...f.registration, question: { ...f.registration.question, questions: [{ ...f.registration.question.questions[0], multiple: true }] },
-      messages: [{ channelId: CHANNEL, messageId: MESSAGE, components: [select] }] }, humanStoreFor(f), { userId: OPERATOR }));
+      messages: [{ channelId: CHANNEL, messageId: MESSAGE, components: [select] }] }, humanStoreFor(f), { userId: OPERATOR });
   assert.equal(record.registration.messages.length, 1);
   const row = { channel: 'discord', at: Date.parse('2026-01-01T00:00:00Z'), person: `discord:@${OPERATOR}`, message: `discord:#${CHANNEL}/${MESSAGE}`,
     text: `chose in menu human:${f.dialog.id}:0:select: "${choices[0]}" (value 0)`,
@@ -259,8 +260,8 @@ test('a select menu answers from its registered options, including several at on
 test('a select value that is not a registered option claims nothing', async () => {
   const f = await fixture('ordinary');
   const select = { type: 1, components: [{ type: 3, custom_id: `human:${f.dialog.id}:0:select`, options: [{ label: choices[0], value: '0' }] }] };
-  const registered = await import('../session/discord-clicks.mjs').then(({ registerDiscordQuestion }) => registerDiscordQuestion(
-    { ...f.registration, messages: [{ channelId: CHANNEL, messageId: MESSAGE, components: [select] }] }, selectStore(f), IDENTITY));
+  const registered = await registerDiscordQuestion(
+    { ...f.registration, messages: [{ channelId: CHANNEL, messageId: MESSAGE, components: [select] }] }, selectStore(f), IDENTITY);
   assert.equal(registered.id, f.dialog.id);
   const row = { channel: 'discord', at: Date.parse('2026-01-01T00:00:00Z'), person: '', message: '', text: '',
     raw: JSON.stringify({ type: 3, guild_id: GUILD, channel_id: CHANNEL, member: { user: { id: OPERATOR } }, message: { id: MESSAGE },

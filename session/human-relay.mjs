@@ -1,9 +1,8 @@
-import { all, ANSWERED, find, RESENDABLE } from './door-requests.mjs';
-import { prepareAsk, transmitAsk } from './doors.mjs';
+import { ANSWERED, RESENDABLE } from './door-requests.mjs';
 import { deliverBotResult, syncBotDialogs } from './human-bot.mjs';
-import { LOCAL_POLICY, MASTERMIND_POT, packet } from './human-contract.mjs';
+import { LOCAL_POLICY, MASTERMIND_POT } from './human-contract.mjs';
 import { acceptDoorAnswer, cancelDialog, completionNeed, questionNeed, secretNeed } from './human-dialogs.mjs';
-import { DOOR_RETRY_MS, replyReceived } from './human-doors.mjs';
+import { dialogDoors, DOOR_RETRY_MS } from './human-doors.mjs';
 import { ensureSecretPage, syncSecretPage } from './human-pages.mjs';
 import { reconcilePosted } from './human-posted.mjs';
 import { humanStore } from './human-store.mjs';
@@ -11,8 +10,6 @@ import { main } from './main.mjs';
 import { sandbox } from './sandbox.mjs';
 
 const PASS_MS = 2000;
-const POSTED_ACK = JSON.stringify(packet('human.posted-ack', {}));
-const transport = { prepare: prepareAsk, transmit: transmitAsk, find, all, acknowledge: request => replyReceived(request, POSTED_ACK) };
 
 async function noteIssue(dialog, store, error) {
   return dialog.issue === error.message ? dialog : store.patch(dialog.id, { issue: error.message });
@@ -75,7 +72,7 @@ async function reconcileDialog(initial, options) {
   return sendNotice(dialog, 'delivery', dialog.kind === 'question' ? questionNeed(dialog) : secretNeed(dialog), options);
 }
 
-export async function reconcileHuman({ store = humanStore(), doors = transport, identity = sandbox.humanDiscord, pages = { ensure: ensureSecretPage, sync: syncSecretPage }, now = Date.now(), onError = () => {} } = {}) {
+export async function reconcileHuman({ store = humanStore(), doors = dialogDoors, identity = sandbox.humanDiscord, pages = { ensure: ensureSecretPage, sync: syncSecretPage }, now = Date.now(), onError = () => {} } = {}) {
   const options = { store, doors, identity, pages, now };
   await reconcilePosted({ store, doors, onError });
   for (const dialog of store.all()) {
