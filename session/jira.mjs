@@ -91,7 +91,7 @@ function writeAdapter(path, contents, original) {
   try {
     const staged = join(directory, 'mcp-adapter.json');
     writeFileSync(staged, contents, { mode: 0o600 });
-    if (original !== undefined && readFileSync(path, 'utf8') !== original) return false;
+    if (readAdapterFile(path, join(path, '..')) !== original) return false;
     renameSync(staged, path);
     chmodSync(path, 0o600);
   } finally {
@@ -109,23 +109,18 @@ function configure(piHome, sandboxPath = SANDBOX) {
     auth: false,
     headers: { Authorization: `!${[process.execPath, fileURLToPath(import.meta.url)].map(shellQuote).join(' ')} authorization` },
   } : undefined;
-  const mergeOnce = () => {
-    const attempt = count => {
-      const original = readAdapterFile(path, piHome);
-      if (original === undefined && jira === undefined) return true;
-      const contents = `${JSON.stringify(mergedAdapter(original === undefined ? {} : readConfiguration(path), jira), null, 2)}\n`;
-      if (contents === original) {
-        if (original !== undefined && (lstatSync(path).mode & 0o777) !== 0o600) chmodSync(path, 0o600);
-        return true;
-      }
-      if (readAdapterFile(path, piHome) !== original) return count < ADAPTER_MERGE_TRIES ? attempt(count + 1) : false;
-      mkdirSync(piHome, { recursive: true });
-      if (writeAdapter(path, contents, original)) return true;
-      return count < ADAPTER_MERGE_TRIES - 1 ? attempt(count + 1) : false;
-    };
-    return attempt(0);
-  };
-  if (mergeOnce()) return;
+  for (let attempt = 0; attempt < ADAPTER_MERGE_TRIES; attempt += 1) {
+    const original = readAdapterFile(path, piHome);
+    if (original === undefined && jira === undefined) return;
+    const contents = `${JSON.stringify(mergedAdapter(original === undefined ? {} : readConfiguration(path), jira), null, 2)}\n`;
+    if (readAdapterFile(path, piHome) !== original) continue;
+    if (contents === original) {
+      if ((lstatSync(path).mode & 0o777) !== 0o600) chmodSync(path, 0o600);
+      return;
+    }
+    mkdirSync(piHome, { recursive: true });
+    if (writeAdapter(path, contents, original)) return;
+  }
   throw new Error(`jira: ${path} kept changing while provisioning merged it. Close the app that writes it and run bin/session-refresh again.`);
 }
 
