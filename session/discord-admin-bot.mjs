@@ -6,7 +6,8 @@ import { linkFolder } from './link.mjs';
 import { main } from './main.mjs';
 import { ROUTER_MODEL } from './models.mjs';
 import { ensureRouterBot } from './router-bot.mjs';
-import { isMastermind } from './sandbox.mjs';
+import { isMastermind, sandbox } from './sandbox.mjs';
+import { isDiscordAdminEnabled } from './discord-admin-enabled.mjs';
 
 const VERSIONED = join(dirname(fileURLToPath(import.meta.url)), 'discord-admin');
 
@@ -18,6 +19,10 @@ function requireBotDefinition(definition) {
 main(import.meta, () => {
   if (!isMastermind) {
     process.stdout.write('discord-admin: this pot is not Mastermind, so it runs no Discord Admin bot.\n');
+    return;
+  }
+  if (!isDiscordAdminEnabled(sandbox)) {
+    process.stdout.write('discord-admin: disabled in private configuration, so bootstrap creates no bot.\n');
     return;
   }
   const home = ensureRouterBot(DISCORD_ADMIN, 'Administers Discord through Mastermind with protected, audited REST operations');

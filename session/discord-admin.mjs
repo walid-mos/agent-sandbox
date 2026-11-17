@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { discordAdminApi } from './discord-admin-api.mjs';
+import { requireDiscordAdminEnabled } from './discord-admin-enabled.mjs';
 import { discordAdminApprovals } from './discord-admin-approvals.mjs';
 import { inspectDiscord } from './discord-admin-inspect.mjs';
 import { ADMIN_OPERATIONS } from './discord-admin-operations.mjs';
@@ -48,5 +49,6 @@ async function run(mode) {
 
 main(import.meta, async () => {
   if (!isMastermind) throw new Error('discord-admin: only the Mastermind pot runs this command.');
+  requireDiscordAdminEnabled(sandbox);
   process.stdout.write(`${JSON.stringify(await run(process.argv[2]))}\n`);
 });
