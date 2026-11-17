@@ -3,6 +3,7 @@ import { closeDiscordQuestion, registerOwnerQuestion } from './discord-clicks.mj
 import { DIALOG_ID, MASTERMIND_POT, packet } from './human-contract.mjs';
 import { questionDigest, questionPacket } from './human-dialogs.mjs';
 
+export const DISCORD_ADMIN = { id: 'discord-admin', name: 'Discord Admin' };
 export const APPROVE = 'Approve this operation';
 export const DECLINE = 'Cancel';
 const QUESTION = 'operation';
@@ -104,6 +105,8 @@ function approvedRequest(id, pending) {
   if (!prepared) throw new Error('discord-admin: no approval has that dialog ID.');
   return { ...JSON.parse(prepared.question.scope), approval: id };
 }
+
+export const approvalWake = dialog => ['--from', DISCORD_ADMIN.id, '--note', `${DISCORD_ADMIN.name} dialog ${dialog} has a registered click. Delegate approve with this ID to ${DISCORD_ADMIN.id}. The command rechecks the exact operation and consumes it once.`];
 
 export function discordAdminApprovals(dependencies) {
   return { authorize: (request, identity) => authorize(request, identity, dependencies),

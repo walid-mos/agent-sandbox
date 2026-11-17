@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DISCORD_ADMIN } from './discord-admin-approvals.mjs';
 import { linkFolder } from './link.mjs';
 import { main } from './main.mjs';
 import { ROUTER_MODEL } from './models.mjs';
 import { ensureRouterBot } from './router-bot.mjs';
 import { isMastermind } from './sandbox.mjs';
 
-export const DISCORD_ADMIN = { id: 'discord-admin', name: 'Discord Admin' };
 const VERSIONED = join(dirname(fileURLToPath(import.meta.url)), 'discord-admin');
 
 function requireBotDefinition(definition) {
