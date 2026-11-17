@@ -72,6 +72,7 @@ export async function recordStatus(candidate, store) {
 
 export async function expireLaunches(store, notify, now = Date.now()) {
   for (const record of store.all()) {
+    if (stateAt(record, now - EXPIRY_GRACE_MS) !== EXPIRED || record.expiryNotified) continue;
     const id = record.id;
     const expired = await store.locked(({ get, save }) => {
       const current = get(id);
