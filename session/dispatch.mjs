@@ -19,8 +19,8 @@ const START_OPTIONS = { max: { type: 'boolean' } };
 function validate(repository, branch) {
   const owner = /^([^/]+)\/[a-zA-Z0-9_.-]+$/.exec(repository ?? '')?.[1];
   if (!owners.includes(owner)) throw new Error(`dispatch: use owner/repo under ${owners.join(' or ')}.`);
-  if (!/^(feat|fix|chore|docs|refactor|test)\/[a-z0-9-]+$/.test(branch ?? '')) {
-    throw new Error('dispatch: use a lowercase branch such as feat/worker-task');
+  if (!/^(feat|fix|chore|docs|refactor|test)\/[a-zA-Z0-9-]+$/.test(branch ?? '')) {
+    throw new Error('dispatch: use a branch such as feat/DA-250-worker-task, with a supported lowercase prefix and only letters, digits or hyphens after the slash');
   }
 }
 

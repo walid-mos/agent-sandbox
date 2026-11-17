@@ -75,5 +75,6 @@ if [ -n "$skipped" ]; then
 	printf 'check: the config sync between Macs skips these pane files. Rename them:\n%s\n' "$skipped" >&2
 	exit 1
 fi
+node "$root/probes/dispatch-branches.mjs"
 git -C "$root" diff --check
 printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'

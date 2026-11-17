@@ -1,5 +1,5 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-  "entry": ["herdr/main.js", "herdr/pots-terminals.js", "session/*.mjs", "session/factory-image/*.mjs", "mac/*.ts"],
+  "entry": ["herdr/main.js", "herdr/pots-terminals.js", "session/*.mjs", "session/factory-image/*.mjs", "mac/*.ts", "probes/dispatch-branches.mjs"],
   "ignoreUnresolvedImports": ["./ui.js", "./state.js", "./sandboxes.js"]
 }
