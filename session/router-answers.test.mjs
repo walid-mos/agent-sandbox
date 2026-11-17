@@ -15,7 +15,7 @@ const router = createServer((request, response) => {
     const reply = replies[model] ?? { status: 404, served: '', body: { error: { message: `no reply scripted for ${model}` } } };
     if (reply.disconnect) return request.socket.destroy();
     response.writeHead(reply.status, { 'Content-Type': 'application/json', 'X-Magpie-Model': reply.served });
-    response.end(JSON.stringify(reply.body));
+    response.end(typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body));
   });
 });
 router.listen(0, '127.0.0.1');
@@ -81,6 +81,13 @@ test('preflights both defaults and rejects missing, empty, cyclic or unpredictab
     await assert.rejects(answers(configuration), /router-restore: group\/max: .*Check the seeded groups/);
     assert.deepEqual(asked, []);
   }
+});
+
+test('keeps the HTTP status when the router answers with a body that is not JSON', async () => {
+  replies = { 'group/expert': { status: 502, served: 'codex/sol', body: '<html>bad gateway</html>' } };
+  await assert.rejects(answers(seeded()), {
+    message: 'router-restore: group/router through group/expert expected codex/sol:high and got no answer (HTTP 502, selected codex/sol). Check that model on its provider and credential freshness.',
+  });
 });
 
 test('reports a disconnected router with the group and expected member', async () => {

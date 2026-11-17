@@ -51,7 +51,8 @@ async function ask(routerApi, plan) {
       signal: AbortSignal.timeout(ANSWER_TIMEOUT_MS),
     });
     served = response.headers.get(SERVED_HEADER) || served;
-    return { status: response.status, served, answer: await response.json() };
+    const answer = await response.json().catch(() => ({}));
+    return { status: response.status, served, answer };
   } catch {
     throw new Error(`${expected(plan, served)}: request failed or response was unreadable. Check the router.`);
   }
