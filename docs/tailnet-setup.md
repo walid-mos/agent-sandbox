@@ -4,11 +4,14 @@ The pots join the human's tailnet through two one-time human steps in the Tailsc
 
 ## 1. Apply the pots policy
 
-On the operator's machine, print the pots entries from every pot's `doors`:
+On the operator's machine, write your Tailscale login, the one your devices sign in with, then print the pots entries from it and every pot's `doors`:
 
 ```sh
+printf '{"operatorLogin": "%s"}\n' you@example.com > ~/.config/agent-sandbox/tailnet.json
 ./bin/tailnet-policy mastermind nextnode accor personal
 ```
+
+`./bin/vm-config`, which `./bin/vm-up` runs, installs that file in each VM, where the node checks read the same login.
 
 Merge what it prints into the tailnet policy file (Access controls, JSON editor): add its `tagOwners` entries and its `grants` entries to the existing ones.
 
@@ -16,8 +19,8 @@ Merge what it prints into the tailnet policy file (Access controls, JSON editor)
 | --- | --- |
 | `tag:pot-keys` owned by `autogroup:admin` | The tag of the OAuth client below. No node carries it |
 | `tag:pot-<pot>` and `tag:pot-<pot>-host`, owned by `tag:pot-keys` | The client can mint keys for these tags and no other |
-| `autogroup:member` to every `tag:pot-<pot>`, tcp 443, 10001-18790 and 18792-65535 | The human's devices open the session's Serve links and tailnet-link previews. 18791 stays out: tailnet-link's file server listens there and trusts the login header Serve adds, and a userspace node hands a port without a Serve handler to its loopback, so a direct grant would let a device forge that header |
-| `autogroup:member` to every `tag:pot-<pot>-host`, tcp 22 | The human's devices enter a session through the VM's forced ssh command |
+| Your login to every `tag:pot-<pot>`, tcp 443, 10001-18790 and 18792-65535 | Your devices open the session's Serve links and tailnet-link previews. A userspace node hands each of these ports without a Serve handler to the session's loopback, so your devices reach every session listener on them, served or not. No other user of the tailnet and no pot reaches a session. 18791 stays out: tailnet-link's file server listens there and trusts the login header Serve adds, and a userspace node hands a port without a Serve handler to its loopback, so a direct grant would let a device forge that header |
+| Your login to every `tag:pot-<pot>-host`, tcp 22 | Your devices enter a session through the VM's forced ssh command |
 | `tag:pot-<x>` to `tag:pot-<y>-host`, tcp 2222, when the `doors` of x name y or the `doors` of y name x | A session node knocks at a door its `doors` name, or at the door of a pot that asked it, to reply. Never at its own VM, never at another session |
 
 The rest of the policy must not widen these grants. `bin/tailnet-up` keeps a node's shields up and stops when the filter the node receives:
@@ -27,7 +30,7 @@ The rest of the policy must not widen these grants. `bin/tailnet-up` keeps a nod
 - lets the node use Funnel through `nodeAttrs`;
 - lets the node reach any other service of any peer.
 
-`bin/check` refuses a generator that grants another port, a door off the `doors`, uses the source `*`, or prints `nodeAttrs`, `autoApprovers` or `ssh`. `autogroup:member` covers every user of the tailnet. On a tailnet shared with other people, replace it with the operator's own user in both member grants.
+`bin/check` refuses a generator that grants another port, grants a port to anyone but the given login or a pot tag, opens a door off the `doors`, or prints `nodeAttrs`, `autoApprovers` or `ssh`.
 
 Adding a pot or changing a pot's `doors` means running `bin/tailnet-policy` again and replacing the earlier pots entries with what it prints, then running `bin/pots-doors`.
 

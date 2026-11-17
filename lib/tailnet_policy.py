@@ -2,14 +2,13 @@
 import json
 import sys
 
-from tailnet_node import ADMIN_PORT, DOOR_PORT, ROLES, node_tag
+from tailnet_node import ADMIN_PORT, DOOR_PORT, ROLES, login_guidance, node_tag, read_operator_login
 
 KEYS_TAG = "tag:pot-keys"
 KEYS_TAG_OWNER = "autogroup:admin"
-MEMBERS = "autogroup:member"
 ASK = "ask"
 REPLY = "reply"
-USAGE = "usage: tailnet_policy.py access|policy < lines 'POT DOOR...', one per pot of the mesh, each with the pots its doors name"
+USAGE = "usage: tailnet_policy.py access|policy SETTINGS_DIRECTORY < lines 'POT DOOR...', one per pot of the mesh, each with the pots its doors name"
 
 
 def fail(message):
@@ -53,12 +52,13 @@ def door_grants(doors):
             for caller, hosts in sorted(receivers.items())]
 
 
-def policy(doors):
+def policy(doors, settings):
+    login = read_operator_login(settings) or fail(login_guidance(settings))
     pots = sorted(doors)
     owners = {KEYS_TAG: [KEYS_TAG_OWNER]} | {node_tag(role, pot): [KEYS_TAG] for pot in pots for role in ("session", "host")}
     members = [
-        {"src": [MEMBERS], "dst": [node_tag("session", pot) for pot in pots], "ip": [tcp(ports) for ports in ROLES["session"]["inbound"]]},
-        {"src": [MEMBERS], "dst": [node_tag("host", pot) for pot in pots], "ip": [tcp((ADMIN_PORT, ADMIN_PORT))]},
+        {"src": [login], "dst": [node_tag("session", pot) for pot in pots], "ip": [tcp(ports) for ports in ROLES["session"]["inbound"]]},
+        {"src": [login], "dst": [node_tag("host", pot) for pot in pots], "ip": [tcp((ADMIN_PORT, ADMIN_PORT))]},
     ]
     return {"tagOwners": owners, "grants": members + door_grants(doors)}
 
@@ -69,10 +69,11 @@ def print_access(doors):
 
 
 ACTIONS = {
-    "access": print_access,
-    "policy": lambda doors: print(json.dumps(policy(doors), indent=2)),
+    ("access", 0): print_access,
+    ("policy", 1): lambda doors, settings: print(json.dumps(policy(doors, settings), indent=2)),
 }
 
-if len(sys.argv) != 2 or sys.argv[1] not in ACTIONS:
+action = (sys.argv[1] if len(sys.argv) > 1 else "", len(sys.argv) - 2)
+if action not in ACTIONS:
     fail(USAGE)
-ACTIONS[sys.argv[1]](read_mesh(sys.stdin.read().splitlines()))
+ACTIONS[action](read_mesh(sys.stdin.read().splitlines()), *sys.argv[2:])

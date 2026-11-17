@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 
 REQUIRED = ("sandbox.json", "vault.json")
-OPTIONAL = ("git-identity.json",)
+OPTIONAL = ("git-identity.json", "tailnet.json")
 SESSION_READABLE_DIRECTORY = 0o755
 SESSION_READABLE_FILE = 0o644
 
