@@ -68,3 +68,20 @@ test('observing a settled recovery permits recovery after a later crash', async 
   inspect([], restarted.inspectWorker);
   assert.equal(queued().length, 1);
 });
+
+for (const field of ['status', 'rev-list']) {
+  test(`external publication changing ${field} upgrades a prior report to a collectable result once`, () => {
+    settle();
+    publication[field] = field === 'status' ? ' M task.mjs' : '1';
+    inspect();
+    assert.equal(wakes.length, 1);
+    assert.equal(wakes[0].result, undefined);
+    publication[field] = field === 'status' ? '' : '0';
+    inspect();
+    assert.equal(wakes.length, 2);
+    assert.equal(wakes[1].result.state.launchId, 'launch-1');
+    assert.equal(workers()[0].result.id, wakes[1].result.id);
+    inspect();
+    assert.equal(wakes.length, 2);
+  });
+}

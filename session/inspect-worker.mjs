@@ -17,8 +17,7 @@ function gitFacts(worker) {
   };
 }
 
-function report(worker, terminal, status, wake, state, isSettled) {
-  const facts = gitFacts(worker);
+function report(worker, terminal, status, wake, state, facts, isSettled) {
   const title = terminal.labels[TITLE_LABEL];
   const isFinished = isSettled && isPublished(facts);
   const result = isFinished ? keepResult(worker, terminal, state) : undefined;
@@ -66,10 +65,12 @@ function inspectLive(worker, terminal, state, { now, terminals }) {
 
 function reportCurrent(worker, terminal, state, isSettled) {
   const { status = 'starting', turn = 0 } = terminal;
-  const result = isSettled ? state.generation : 'open';
+  if (!REPORTABLE.has(status)) return;
+  const facts = gitFacts(worker);
+  const result = isSettled && isPublished(facts) ? state.generation : 'open';
   const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${result}`;
-  if (!REPORTABLE.has(status) || worker.lastReport === wake) return;
-  report(worker, terminal, status, wake, state, isSettled);
+  if (worker.lastReport === wake) return;
+  report(worker, terminal, status, wake, state, facts, isSettled);
 }
 
 function inspectLaunch(worker, view) {
