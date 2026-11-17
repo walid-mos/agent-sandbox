@@ -16,6 +16,12 @@ function hasNoPendingWork(pi) {
   });
 }
 
+function hasPublishedWork(cwd) {
+  const options = { cwd };
+  return !command('git', ['status', '--porcelain'], options) &&
+    command('git', ['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'], options) === '0';
+}
+
 export class WorkerRuntime {
   #worker;
   #pi;
@@ -67,31 +73,41 @@ export class WorkerRuntime {
 
   finish(context) {
     try {
-      const receipt = readLifecycle(lifecyclePath(this.#worker, 'receipt'));
-      if (!this.#state || receipt?.id !== resultId(this.#state)) return;
-      const due = this.#state.settledAt + SETTLED_GRACE_MS - Date.now();
-      if (due > 0) {
-        this.#timer = setTimeout(() => this.finish(context), due);
-        return;
-      }
-      if (!this.#canClose(context)) return;
-      this.#publish(context, 'closing');
-      context.shutdown();
+      this.#finishWhenDue(context);
     } catch (error) {
       process.stderr.write(`pots lifecycle: close deferred: ${error instanceof Error ? error.message : 'inspection failed'}\n`);
     }
   }
 
+  #hasReceipt() {
+    const receipt = readLifecycle(lifecyclePath(this.#worker, 'receipt'));
+    return this.#state && receipt?.id === resultId(this.#state);
+  }
+
+  #finishWhenDue(context) {
+    if (!this.#hasReceipt()) return;
+    const due = this.#state.settledAt + SETTLED_GRACE_MS - Date.now();
+    if (due > 0) {
+      this.#timer = setTimeout(() => this.finish(context), due);
+      return;
+    }
+    if (!this.#canClose(context)) return;
+    this.#publish(context, 'closing');
+    context.shutdown();
+  }
+
+  #hasFinishedSession(context) {
+    return [context.isIdle(), !context.hasPendingMessages(), !context.ui.getEditorText().trim(),
+      context.sessionManager.getLeafId() === this.#state.leaf, hasFinalReply(context.sessionManager.getBranch()), hasNoPendingWork(this.#pi)].every(Boolean);
+  }
+
   #canClose(context) {
-    if (!context.isIdle() || context.hasPendingMessages() || context.ui.getEditorText().trim()) return false;
+    if (!this.#hasFinishedSession(context)) return false;
     if (queued().some(request => request.worker === this.#worker.name)) return false;
-    if (context.sessionManager.getLeafId() !== this.#state.leaf || !hasFinalReply(context.sessionManager.getBranch()) || !hasNoPendingWork(this.#pi)) return false;
     const terminals = allTerminals();
     const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
-    if (!terminal || !canFinish(this.#state, terminal, Date.now()) || hasUncollectedHelpers(terminal, terminals)) return false;
-    const options = { cwd: context.cwd };
-    if (command('git', ['status', '--porcelain'], options)) return false;
-    return command('git', ['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'], options) === '0';
+    if (!terminal) return false;
+    return [canFinish(this.#state, terminal, Date.now()), !hasUncollectedHelpers(terminal, terminals), hasPublishedWork(context.cwd)].every(Boolean);
   }
 
   stop() {

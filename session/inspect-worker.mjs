@@ -19,52 +19,66 @@ function gitFacts(worker) {
   };
 }
 
-const terminalDetails = terminal => JSON.parse(command('hc', ['get', '--json', terminal.address]));
-
-// Receipt covers this immutable result only, never a later turn.
 function report(worker, terminal, status, wake, state, now) {
   const facts = gitFacts(worker);
-  const title = terminal.address && terminalDetails(terminal).labels?.[TITLE_LABEL];
-  const result = canFinish(state, terminal, now) && facts.uncommitted === 0 && facts.unpushed === 0 ? keepResult(worker, terminal, state) : undefined;
+  const title = terminal.labels[TITLE_LABEL];
+  const isFinished = [canFinish(state, terminal, now), facts.uncommitted === 0, facts.unpushed === 0].every(Boolean);
+  const result = isFinished ? keepResult(worker, terminal, state) : undefined;
   const note = { worker: worker.name, title, terminal: terminal.address, status, ...facts, cleanPass: passes(worker), pullRequest: worker.pullRequest, result };
   save({ ...worker, status, result, ...facts });
   command('pots', ['wake', '--bot', botId, '--id', wake, '--note', JSON.stringify(note)]);
   save({ ...worker, status, lastReport: wake, result, ...facts });
 }
 
-/** Reports and repairs one worker, and resolves to the time it needs another look, if any. */
-export function inspectWorker(worker, { terminals, now, pending }) {
-  if (worker.owner !== botId || !worker.launchId) return undefined;
-  // A stop can land while a resume is under way, so a stopped worker's terminal is ended whenever it is seen live.
-  if (isStopped(worker)) {
-    endTerminal(worker, terminals);
-    return undefined;
-  }
-  const state = lifecycleOf(worker);
-  if (state?.sessionFile && state.sessionFile !== worker.sessionFile) {
-    worker = { ...worker, sessionFile: state.sessionFile, sessionId: state.sessionId };
-    save(worker);
-  }
-  const terminal = terminalOf(worker, terminals) ?? { state: 'finished' };
-  if (terminal.state === 'finished' && state?.phase === 'closing') {
+function recover(worker, state, pending) {
+  if (state?.phase === 'closing') {
     save({ ...worker, isComplete: true, isClosed: true });
-    return undefined;
+    return;
   }
-  if (terminal.state === 'finished' && (worker.isComplete || worker.isClosed || pending.has(worker.name))) return undefined;
-  if (terminal.state === 'finished' && !resumed.has(worker.launchId)) {
-    endTerminal(worker, terminals);
-    enqueue({ worker: worker.name });
-    resumed.add(worker.launchId);
-    return undefined;
-  }
-  const status = terminal.state === 'finished' ? 'finished' : terminal.status ?? 'starting';
-  if (status === 'working' && worker.isComplete) save({ ...worker, status, isComplete: false });
-  // startedAt changes with every launch, so a resumed terminal never repeats a wake ID of the one before it.
-  const readyAt = state?.phase === 'settled' ? state.settledAt + SETTLED_GRACE_MS : undefined;
-  if (readyAt && now < readyAt) return readyAt;
+  if ([worker.isComplete, worker.isClosed, pending.has(worker.name), resumed.has(worker.launchId)].some(Boolean)) return;
+  enqueue({ worker: worker.name });
+  resumed.add(worker.launchId);
+}
+
+function recordSession(worker, state) {
+  if (!state?.sessionFile || state.sessionFile === worker.sessionFile) return worker;
+  const current = { ...worker, sessionFile: state.sessionFile, sessionId: state.sessionId };
+  save(current);
+  return current;
+}
+
+function inspectLive(worker, terminal, state, { now, terminals }) {
+  const readyAt = state?.settledAt + SETTLED_GRACE_MS;
+  if (now < readyAt) return readyAt;
   const completion = hasUncollectedHelpers(terminal, terminals) ? undefined : state;
-  const wake = `${worker.name}-${worker.startedAt}-${terminal.turn ?? 0}-${status}-${state?.generation ?? 'unmanaged'}-${canFinish(completion, terminal, now) ? 'result' : 'attention'}`;
-  if (!REPORTABLE.has(status) || worker.lastReport === wake) return terminal.lookAgainAt;
-  report(worker, terminal, status, wake, completion, now);
-  return terminal.lookAgainAt;
+  reportCurrent(worker, terminal, completion, now);
+  return undefined;
+}
+
+function reportCurrent(worker, terminal, state, now) {
+  const { status = 'starting', turn = 0 } = terminal;
+  const { generation = 'unmanaged' } = state ?? {};
+  const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${generation}-${canFinish(state, terminal, now)}`;
+  if (!REPORTABLE.has(status) || worker.lastReport === wake) return;
+  report(worker, terminal, status, wake, state, now);
+}
+
+function inspectLaunch(worker, view) {
+  const state = lifecycleOf(worker);
+  const current = recordSession(worker, state);
+  const terminal = terminalOf(current, view.terminals);
+  if (!terminal || terminal.state === 'finished') {
+    recover(current, state, view.pending);
+    return undefined;
+  }
+  return inspectLive(current, terminal, state, view);
+}
+
+export function inspectWorker(worker, view) {
+  if (worker.owner !== botId || !worker.launchId) return undefined;
+  if (isStopped(worker)) {
+    endTerminal(worker, view.terminals);
+    return undefined;
+  }
+  return inspectLaunch(worker, view);
 }

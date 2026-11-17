@@ -20,13 +20,25 @@ export function keepResult(worker, terminal, state) {
   return { id, state, screen, transcript };
 }
 
-export function acknowledgeResult([name, id]) {
+function workerForResult(name, id) {
   const worker = workers().find(candidate => candidate.name === name && candidate.owner === botId);
-  if (!worker?.result || worker.result.id !== id) throw new Error('dispatch: read the current saved result, then finish with its exact result ID.');
+  const result = worker?.result;
+  if (!result || result.id !== id) throw new Error('dispatch: read the current saved result, then finish with its exact result ID.');
+  return worker;
+}
+
+function verifyCurrentResult(worker, id) {
   const state = lifecycleOf(worker);
   const terminals = allTerminals();
   const terminal = terminals.find(candidate => candidate.address === worker.terminal);
-  if (!state || !terminal || resultId(state) !== id || !canFinish(state, terminal, Date.now()) || hasUncollectedHelpers(terminal, terminals)) throw new Error('dispatch: the result changed or the worker still needs attention. Read its current report.');
+  if (!state || !terminal) throw new Error('dispatch: the result is no longer live. Read its current report.');
+  const isCurrent = [resultId(state) === id, canFinish(state, terminal, Date.now()), !hasUncollectedHelpers(terminal, terminals)].every(Boolean);
+  if (!isCurrent) throw new Error('dispatch: the result changed or the worker still needs attention. Read its current report.');
+}
+
+export function acknowledgeResult([name, id]) {
+  const worker = workerForResult(name, id);
+  verifyCurrentResult(worker, id);
   if (queued().some(request => request.worker === name)) throw new Error('dispatch: a follow-up is queued. Let the worker read it first.');
   writeLifecycle(lifecyclePath(worker, 'receipt'), { id, receivedBy: botId, receivedAt: Date.now() });
   process.stdout.write(`Acknowledged ${id}. Pots will close ${name} only while its session stays finished.\n`);

@@ -123,6 +123,13 @@ test('startup without an agent status stays live regardless of age', () => {
   assert.deepEqual(boundary().calls, []);
 });
 
+test('crash recovery does not reread a terminal the watcher has already swept', () => {
+  setTerminals([{ ...terminal, state: 'finished' }]);
+  inspect();
+  assert.equal(queued()[0].worker, 'owned');
+  assert.deepEqual(boundary().calls, []);
+});
+
 test('first launch preallocates one exact session identity before starting Pi', () => {
   const first = { ...worker, sessionFile: undefined, sessionId: undefined, launchId: undefined, terminal: undefined,
     startedAt: undefined, brief: '/brief.md' };

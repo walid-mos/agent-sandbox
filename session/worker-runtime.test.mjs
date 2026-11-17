@@ -116,13 +116,16 @@ test('unknown pending-work contracts fail closed', t => {
 for (const pending of ['question', 'editor', 'working', 'goal', 'helper', 'dirty', 'unpushed']) {
   test(`${pending} arriving after receipt prevents shutdown`, t => {
     acknowledge(t);
-    if (pending === 'question') context.hasPendingMessages = () => true;
-    if (pending === 'editor') context.ui.getEditorText = () => 'draft';
-    if (pending === 'working') context.isIdle = () => false;
-    if (pending === 'goal') branch = [{ type: 'custom', customType: 'pi-goal-state-v1', data: { items: [{ done: false }] } }, final];
-    if (pending === 'helper') publishBoundary({ terminals: [terminal, { address: 'helper', parent: 't-owned', state: 'live', status: { state: 'done' } }] });
-    if (pending === 'dirty') publishBoundary({ dirty: ' M task.mjs' });
-    if (pending === 'unpushed') publishBoundary({ unpushed: '2' });
+    const arrive = {
+      question: () => { context.hasPendingMessages = () => true; },
+      editor: () => { context.ui.getEditorText = () => 'draft'; },
+      working: () => { context.isIdle = () => false; },
+      goal: () => { branch = [{ type: 'custom', customType: 'pi-goal-state-v1', data: { items: [{ done: false }] } }, final]; },
+      helper: () => publishBoundary({ terminals: [terminal, { address: 'helper', parent: 't-owned', state: 'live', status: { state: 'done' } }] }),
+      dirty: () => publishBoundary({ dirty: ' M task.mjs' }),
+      unpushed: () => publishBoundary({ unpushed: '2' }),
+    };
+    arrive[pending]();
     runtime.finish(context);
     assert.equal(shutdowns, 0);
   });
