@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { commandOutput } from '../session/run.mjs';
+import { parsedLine } from '../session/jsonl.mjs';
 import { REPORT_CHARACTERS } from '../session/launch-contract.mjs';
 
 const FINAL_STOP = 'stop';
@@ -26,8 +27,8 @@ export function herdrRunner(store, program = [process.execPath, fileURLToPath(ne
       '--label', `mac-launch.id=${request.launch}`, '--', ...program, store.folder, request.launch];
     try {
       await commandOutput('hc', arguments_, { timeout: 10_000 });
-      const terminal = JSON.parse(await commandOutput('hc', ['get', '--json', name], { timeout: STATUS_MS }));
-      if (terminal.labels?.['mac-launch.id'] !== request.launch) throw new Error('wrong terminal');
+      const terminal = await terminalNamed(name);
+      if (terminal?.labels?.['mac-launch.id'] !== request.launch) throw new Error('wrong terminal');
       return { name, session, createdMs: terminal.created_ms };
     } catch {
       throw new Error('mac-launch: Pi did not start in Herdr. Inspect the ml- terminal before making a new request.');
@@ -35,10 +36,12 @@ export function herdrRunner(store, program = [process.execPath, fileURLToPath(ne
   }
   async function result(run) {
     const terminal = await terminalNamed(run.name);
-    const ended = lastTurn(run.session);
     const isGone = !terminal || terminal.created_ms !== run.createdMs;
     const hasStopped = isGone || IDLE.includes(terminal.status) || terminal.state === 'finished';
-    if (ended && hasStopped) return ended;
+    // A running Pi's log is only read once its terminal stops, so a long session is not parsed on every poll.
+    if (!hasStopped) return undefined;
+    const ended = lastTurn(run.session);
+    if (ended) return ended;
     if (isGone) return { status: 'failed', detail: 'The Herdr terminal is gone and Pi left no final reply.' };
     if (terminal.state === 'finished') return { status: 'failed', detail: 'Pi stopped without a final reply.' };
     return undefined;
@@ -51,13 +54,11 @@ const textOf = message => (message.content ?? []).filter(part => part.type === '
 // A turn that ended on something else than a clean stop reports why, so a launch never waits for a reply that will not come.
 function lastTurn(path) {
   if (!existsSync(path)) return undefined;
-  const messages = readFileSync(path, 'utf8').split('\n').filter(Boolean).flatMap(line => {
-    try { return [JSON.parse(line)]; } catch { return []; }
-  });
+  const messages = readFileSync(path, 'utf8').split('\n').filter(Boolean).flatMap(parsedLine);
   const last = messages.findLast(entry => entry.type === 'message' && entry.message?.role === 'assistant')?.message;
   if (!last) return undefined;
-  const error = last.errorMessage?.slice(0, LAST_ERROR_CHARACTERS);
-  if (last.stopReason === FINAL_STOP) return textOf(last) ? { status: 'finished', report: textOf(last) } : undefined;
+  const text = textOf(last);
+  if (last.stopReason === FINAL_STOP) return text ? { status: 'finished', report: text } : undefined;
   if (last.stopReason === undefined || last.stopReason === 'toolUse') return undefined;
-  return { status: 'failed', detail: error || textOf(last).slice(0, LAST_ERROR_CHARACTERS) || `Pi ended its turn with ${last.stopReason}.` };
+  return { status: 'failed', detail: last.errorMessage?.slice(0, LAST_ERROR_CHARACTERS) || text.slice(0, LAST_ERROR_CHARACTERS) || `Pi ended its turn with ${last.stopReason}.` };
 }
