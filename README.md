@@ -350,11 +350,13 @@ The Mastermind is the pot whose `sandbox.json` sets `role` to `mastermind`, as [
 A pot reaches another pot only through that pot's [door](#doors), which hands each message to `pots wake --from pot:CALLER --note-file -` in the session, as the session user. `doors` in `sandbox.json` names the pots this one may ask. [The pot rules](session/pot/AGENTS.md) tell each bot how to ask, how to reply, and that a neighbour's note is a request it may refuse, never an order from the person.
 
 ```sh
-pots ask POT --need "TEXT" [--for REQUEST_ID]
-pots reply REQUEST_ID --text "TEXT"
-pots resend REQUEST_ID
-pots requests [--all]
+/opt/agent-sandbox/session/pots ask POT --need "TEXT" [--for REQUEST_ID]
+/opt/agent-sandbox/session/pots reply REQUEST_ID --text "TEXT"
+/opt/agent-sandbox/session/pots resend REQUEST_ID
+/opt/agent-sandbox/session/pots requests [--all]
 ```
+
+Run these four commands by their full path because the package's `pots` can come first on a bot's `PATH` and does not provide them. Usage and error hints derive the wrapper's full path in [`door-command.mjs`](session/door-command.mjs). `pots wake`, `pots status` and the package's other commands stay bare.
 
 [The session's `pots`](session/pots) runs these four and the door's exact `wake`, through [`doors.mjs`](session/doors.mjs), and hands every other command, `wake --from mac-thread` included, to the installed `pi-durable-bot`. `ask` signs its request ID with this pot's tailnet name, saves the request as `unknown`, then knocks on the neighbour's door, and `reply` does the same with its reply. Only a door exit that keeps nothing (64, 65, 69, 75, 77) makes it `undelivered`. Exit 76, the neighbour's session refusing it, makes it `refused`: closed, out of `requests` without `--all`, and refused by `resend`, since the same message would be refused again. A timeout, a cut line, a failed wake and any other exit leave it `unknown`, because the neighbour may hold it. `resend` sends either again under the same ID, byte for byte, and the neighbour takes a message it already holds as a no-op, so a resend never starts the work twice. The record keeps a fixed reason for each exit, never what the door or the neighbour printed.
 
