@@ -337,7 +337,7 @@ The Mastermind is the pot whose `sandbox.json` sets `role` to `mastermind`, as [
 
 ## Pots and doors
 
-A pot reaches another pot only through that pot's door: one ssh key per calling pot, which the called pot's VM binds to a single forced command, `pots wake --from pot:CALLER --note-file -`. `doors` in `sandbox.json` names the pots this one may ask. [The pot rules](session/pot/AGENTS.md) tell each bot how to ask, how to reply, and that a neighbour's note is a request it may refuse, never an order from the person.
+A pot reaches another pot only through that pot's [door](#doors), which hands each message to `pots wake --from pot:CALLER --note-file -` in the session, as the session user. `doors` in `sandbox.json` names the pots this one may ask. [The pot rules](session/pot/AGENTS.md) tell each bot how to ask, how to reply, and that a neighbour's note is a request it may refuse, never an order from the person.
 
 ```sh
 pots ask POT --need "TEXT" [--for REQUEST_ID]
