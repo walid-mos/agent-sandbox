@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { humanStore } from '../session/human-store.mjs';
 import { launchNotice, launchRequest, launchStatus, noticeOf, noticeText } from '../session/launch-contract.mjs';
-import { launchSettings, openLaunch, retireLaunch, shownLaunch, recordStatus, expireLaunches } from '../session/launch-requests.mjs';
+import { askClosure, launchSettings, listedLaunches, openLaunch, shownLaunch, recordStatus, expireLaunches } from '../session/launch-requests.mjs';
 import { ownedFolder, now, settings as gateSettings } from './fixtures/mac-launch.mjs';
 import { piArguments } from '../mac/launch-pi.mjs';
 
@@ -36,13 +36,37 @@ test('the source expires and retires its prompt and refuses a mismatched report'
   const opened = await openLaunch(input, { settings, store, pot: 'alpha', now });
   assert.equal(shownLaunch(opened.launch, store, now).state, 'open');
   assert.equal(shownLaunch(opened.launch, store, now + 1_800_000).state, 'expired');
-  await retireLaunch(opened.launch, 'superseded', store, now);
+  await askClosure(opened.launch, 'superseded', store, now);
   assert.equal(shownLaunch(opened.launch, store, now).state, 'superseded');
-  await assert.rejects(retireLaunch(opened.launch, 'cancelled', store, now));
+  await assert.rejects(askClosure(opened.launch, 'cancelled', store, now));
   await assert.rejects(recordStatus(launchStatus({ ...opened, digest: 'b'.repeat(64), status: 'started' }), store));
   const second = await openLaunch(input, { settings, store, pot: 'alpha', now });
   await recordStatus(launchStatus({ ...second, status: 'started' }), store);
-  await assert.rejects(retireLaunch(second.launch, 'superseded', store, now));
+  await assert.rejects(askClosure(second.launch, 'superseded', store, now));
+});
+
+const listed = (store, launch) => listedLaunches(store, now).find(entry => entry.launch === launch);
+
+test('a cancellation is only asked until the Mac reports the launch closed', async t => {
+  const store = humanStore(ownedFolder(t));
+  const opened = await openLaunch(input, { settings: { targets: { 'mac-studio': 'Mac Studio' } }, store, pot: 'alpha', now });
+  await askClosure(opened.launch, 'cancelled', store, now);
+  assert.equal(listed(store, opened.launch).state, 'open');
+  assert.equal(listed(store, opened.launch).asked, 'cancelled');
+  const report = await recordStatus(launchStatus({ ...opened, status: 'cancelled' }), store);
+  assert.equal(report.tooLate, undefined);
+  assert.equal(listed(store, opened.launch).state, 'cancelled');
+});
+
+test('a start the Mac committed first is reported as too late for the cancellation', async t => {
+  const store = humanStore(ownedFolder(t));
+  const settings = { targets: { 'mac-studio': 'Mac Studio' } };
+  const cancelled = await openLaunch(input, { settings, store, pot: 'alpha', now });
+  await askClosure(cancelled.launch, 'cancelled', store, now);
+  assert.equal((await recordStatus(launchStatus({ ...cancelled, status: 'started' }), store)).tooLate, 'cancelled');
+  assert.equal(listed(store, cancelled.launch).state, 'started');
+  const plain = await openLaunch(input, { settings, store, pot: 'alpha', now });
+  assert.equal((await recordStatus(launchStatus({ ...plain, status: 'started' }), store)).tooLate, undefined);
 });
 
 test('an offline Mac does not prevent the pot reporting expiry, with retries', async t => {
@@ -58,10 +82,13 @@ test('an offline Mac does not prevent the pot reporting expiry, with retries', a
 });
 
 test('the last process before Pi rechecks sleep, identity, expiry and exact bytes', () => {
-  const approved = { ...request(), at: new Date(now).toISOString(), userId: gateSettings.humanDiscord.userId };
+  const approved = { ...request(), state: 'claimed', decidedAt: now, userId: gateSettings.humanDiscord.userId };
   const offer = { request: request(), prompt: input.prompt };
   assert.equal(piArguments(offer, gateSettings, approved, 'session.jsonl', now).at(-1), 'Reply ready.');
+  assert.equal(piArguments(offer, gateSettings, approved, 'session.jsonl', now + 30_000).at(-1), 'Reply ready.');
   assert.throws(() => piArguments(offer, gateSettings, approved, 'session.jsonl', now + 30_001));
+  assert.throws(() => piArguments(offer, gateSettings, { ...approved, state: 'cancelled' }, 'session.jsonl', now));
+  assert.throws(() => piArguments(offer, gateSettings, { ...approved, decidedAt: request().expiresAt }, 'session.jsonl', request().expiresAt));
   assert.throws(() => piArguments({ ...offer, prompt: 'Other bytes' }, gateSettings, approved, 'session.jsonl', now));
   assert.throws(() => piArguments(offer, gateSettings, { ...approved, userId: '777777777777777777' }, 'session.jsonl', now));
   assert.throws(() => piArguments(offer, { ...gateSettings, humanDiscord: { ...gateSettings.humanDiscord, macLaunchEnabled: false } }, approved, 'session.jsonl', now));

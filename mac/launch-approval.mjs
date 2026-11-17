@@ -2,6 +2,9 @@ import { DIALOG_ID, discordEvidence, discordMessageUrl, isSnowflake, LAUNCH_POLI
 import { fetchedRequest, CLOCK_SKEW_MS, OPEN, sameRequest } from '../session/launch-contract.mjs';
 
 export const PRESS_MAX_AGE_MS = 30_000;
+// The press has its own limit up to the claim, so a slow start is judged from the claim and a Mac that slept in between still starts nothing.
+export const CLAIM_MAX_AGE_MS = 30_000;
+export const CLAIMED = 'claimed';
 const DISCORD_EPOCH = 1420070400000n;
 const TIMESTAMP_SHIFT = 22n;
 const pressedAt = id => Number((BigInt(id) >> TIMESTAMP_SHIFT) + DISCORD_EPOCH);
@@ -13,11 +16,16 @@ export function pressedButton(customId) {
   return Object.values(BUTTON).includes(action) && DIALOG_ID.test(launch) ? { action, launch } : undefined;
 }
 
-export function verifyOffer(shown, notice, settings, now) {
+export function boundRequest(shown, notice, settings) {
   const { request, prompt, state } = fetchedRequest(shown);
   const isBound = ['launch', 'pot', 'target'].every(key => request[key] === notice[key])
     && (notice.digest === undefined || sameRequest(request, notice));
   if (!isBound || request.target !== settings.name || !settings.pots.includes(request.pot)) throw new Error('mac-launch: the fetched launch names another pot or Mac.');
+  return { request, prompt, state };
+}
+
+export function verifyOffer(shown, notice, settings, now) {
+  const { request, prompt, state } = boundRequest(shown, notice, settings);
   if (state !== OPEN || now >= request.expiresAt || now < request.createdAt - CLOCK_SKEW_MS) throw new Error('mac-launch: this launch is closed, expired or from the future.');
   const refused = request.acts.filter(act => settings.refusedActs.includes(act));
   if (refused.length) throw new Error(`mac-launch: this Mac refuses ${refused.join(', ')}. Start that work manually.`);

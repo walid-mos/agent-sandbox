@@ -5,7 +5,7 @@ import { find as findDoorRequest, OPEN as WAITING, RECEIVED } from './door-reque
 import { ownName } from './doors.mjs';
 import { isSnowflake, MASTERMIND_POT, text } from './human-contract.mjs';
 import { launchNotice, noticeOf, noticeText, OPEN } from './launch-contract.mjs';
-import { launchSettings, launchStore, listedLaunches, openLaunch, recordStatus, retireLaunch, shownLaunch, wakeBot } from './launch-requests.mjs';
+import { askClosure, launchSettings, launchStore, listedLaunches, openLaunch, recordStatus, shownLaunch, wakeBot } from './launch-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, commandWithInput } from './run.mjs';
 import { botId, isMastermind, sandbox } from './sandbox.mjs';
@@ -14,6 +14,8 @@ const USAGE = 'usage: mac-launch.mjs request --target MAC --title TITLE [--acts 
 const POST_MS = 10_000;
 const REQUEST_OPTIONS = { target: { type: 'string' }, title: { type: 'string' }, acts: { type: 'string' }, cost: { type: 'string' }, replaces: { type: 'string' } };
 const print = value => process.stdout.write(`${JSON.stringify(value)}\n`);
+const asked = (launch, state) => ({ launch, asked: state, effective: false,
+  next: `The Mac decides. It reports ${state} once it has closed this launch, or started with tooLate set if the operator's press came first.` });
 
 function postNotice(content) {
   const { channelAccount, channelId } = launchSettings(sandbox);
@@ -27,8 +29,9 @@ async function sendNotice(request) {
   return command(DOOR_COMMAND, ['ask', MASTERMIND_POT, '--need', need]);
 }
 
-async function retireAndTell(id, state, store) {
-  await sendNotice(await retireLaunch(id, state, store));
+async function askAndTell(id, state, store) {
+  await sendNotice(await askClosure(id, state, store));
+  print(asked(id, state));
 }
 
 async function request(arguments_) {
@@ -38,15 +41,14 @@ async function request(arguments_) {
   if (values.replaces && shownLaunch(values.replaces, store).state !== OPEN) throw new Error(`mac-launch: launch ${values.replaces} is no longer open, so a new launch cannot replace it.`);
   const opened = await openLaunch({ target: values.target, title: values.title, acts: values.acts ? values.acts.split(',') : [], cost: values.cost ?? '', prompt: readFileSync(file, 'utf8') },
     { store, settings: launchSettings(sandbox), pot: ownName() });
-  if (values.replaces) await retireAndTell(values.replaces, 'superseded', store);
+  if (values.replaces) await askAndTell(values.replaces, 'superseded', store);
   await sendNotice(opened);
   print(opened);
 }
 
 async function cancel([id]) {
   launchSettings(sandbox);
-  await retireAndTell(id, 'cancelled', launchStore());
-  print({ launch: id, state: 'cancelled' });
+  await askAndTell(id, 'cancelled', launchStore());
 }
 
 async function announce([id]) {

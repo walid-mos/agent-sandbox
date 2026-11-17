@@ -27,9 +27,21 @@ Four facts make that event impossible for a pot's model to produce or replay.
 3. **Discord sets the clicker's user ID from the pressing account's login.** A bot token cannot press a button: Discord's interaction endpoint takes a user's session only. The gate compares that ID with the one operator ID in the Mac's private configuration, through the same contract function as the push policy.
 4. **The gate keeps its own record of what the button means.** The event must name the exact message the gate posted, unedited, with the attachment the gate uploaded. The gate launches the bytes it stored when it posted that message, never bytes a click or a pot hands over.
 
-A replay fails on the same record. The gate writes a `used` marker with an exclusive create before it starts anything, and a press older than 30 seconds is refused. The gate never resumes a gateway session, so Discord never redelivers a press the Mac missed.
+A replay fails on the same record. The gate writes its claim with an exclusive create before it starts anything, and a press older than 30 seconds is refused. The gate never resumes a gateway session, so Discord never redelivers a press the Mac missed.
 
 **This rests on one condition the gate cannot check.** The operator's own Discord login must not exist inside a pot: no Discord web session in a pot's browser, no user token in a pot's files. A model that holds his login can press as him. The same holds for anyone who takes over his Discord account. Both are outside this perimeter, and the setup block says so.
+
+### One decision per launch, written on the Mac
+
+A launch leaves the offered state once. The gate writes one decision file for it, with an exclusive create, and flushes the file and its directory entry before it acts. The first decision written is the only one. It is a claim, which the operator's press makes, or a closure: refused, cancelled, superseded, expired or failed. One gate handles every event in one queue, and the exclusive create holds even if two gates ran.
+
+A pot cannot close a launch. `cancel` and `--replaces` record what the pot asks and send the notice again. The Mac reads the pot's answer and writes the closure itself, also for a launch it never offered. Only then does it report `cancelled` or `superseded`, and the pot's record changes state on that report alone. Until then the pot lists the launch as open, with `asked` set.
+
+When the Mac claims the operator's press first, the launch runs. The Mac reports `started`, and the pot's note for that status carries `tooLate` with the closure that lost. The Mac never reports a claimed launch as cancelled.
+
+The gate asks the pot once more at the press. A closed answer becomes the Mac's closure instead of a claim. A pot that does not answer starts nothing and leaves the press unused, and the operator gets a private reply telling him to press again. That last look narrows the window. It is not the boundary, because a pot may ask a moment after it.
+
+So a launch is dead from the moment the Mac writes its closure. From then on no press, no notice and no answer from the pot starts it, a pot that shows it open again included. A launch a pot asked to close, and that the Mac has not closed yet, is still live and its button still works. A pot that hides its own cancellation from the Mac gets no confirmation: the operator still decides on the Mac's own message.
 
 ### Credentials
 
@@ -40,7 +52,9 @@ A replay fails on the same record. The gate writes a `used` marker with an exclu
 
 The gate holds no pot credential. It reaches a pot the way the operator's Herdr already does, with `hc exec --on POT`.
 
-The Mac owns its settings, offers and used markers. One gate serializes events and updates those records. An exclusive used marker guards terminal creation across gate restarts. Keep those markers when restoring the Mac.
+The Mac owns its settings, offers and decisions. One gate serializes events and updates those records. The exclusive decision file guards terminal creation across gate restarts. Keep those files when restoring the Mac.
+
+A gate that stopped after a claim and before it recorded the start reports `failed` and never launches that approval again. A Pi may be running in that case, and the report says so.
 
 The token stays in memory after its Keychain read. Subprocess environments, arguments, reports and errors never carry it. A pot has no Mac mount, no process access there and no inbound endpoint. It cannot change the Mac's environment, lookup paths, sourced files, tool configuration or shared files. The Mac user's tools and configuration are trusted. An approved Pi shares that user and can read or alter the gate and its Keychain. Approval admits that prompt's work to the trusted Mac side. The act scan and system instruction do not isolate it from the gate.
 
@@ -51,13 +65,13 @@ The token stays in memory after its Keychain read. Subprocess environments, argu
 | Network to the Mac | Open a connection to the gate | The gate listens on nothing. Its only connections are outbound: Discord's gateway and REST API, and `hc exec --on POT`. |
 | Forged click | Send an event that names the operator | Events arrive only over the gate's own authenticated connection. A pot has no token for it. |
 | Its own button | Post a look-alike message with a button | Discord sends that press to the pot's application. The gate never sees it, and its own record names another message. |
-| Replay | Reuse an approval | Exclusive `used` marker per launch, 30-second press age, no gateway resume. |
+| Replay | Reuse an approval | One exclusive decision file per launch, 30-second press age, no gateway resume. |
 | Swap after approval | Change the prompt between display and launch | The gate launches its stored bytes, whose digest it recomputes at the press. The pot's copy is read again at the press and can only stop the launch. |
 | Swap before approval | Make the operator see other text than what runs | The prompt is shown as the gate's own attachment on the gate's own message. A press on an edited message, or one whose attachment or text differs from the gate's record, is refused. |
 | Invisible text | Hide an instruction, or an act name, from a reader | A prompt holding a control, format, private-use or line-separator character is refused, at the pot and again on the Mac. The act scan removes combining and ignorable characters before matching, so an act name cannot hide behind one. |
 | Undeclared privileged act | Ask for `vm-up` under a harmless title | The gate scans the prompt, the title and the stated cost for each privileged act's markers and refuses a request that names one it does not declare. The declared acts are on the button message. |
-| Stale prompt | Launch a superseded, cancelled or expired prompt | The gate asks the requesting pot for the launch's state at the press and launches only an open, unexpired one with the same digest. A dead offer loses its buttons and its attachment. |
-| Late launch | Fire after the Mac slept | Press age checked against Discord's own timestamp, twice: when the press arrives and just before the Pi starts. |
+| Stale prompt | Launch a superseded, cancelled or expired prompt | A closure the Mac wrote is final: no press, notice or later answer from the pot reopens it. The gate also asks the pot at the press, and a closed answer becomes a closure instead of a claim. A dead offer loses its buttons and its attachment. [One decision per launch](#one-decision-per-launch-written-on-the-mac) says what the Mac cannot know. |
+| Late launch | Fire after the Mac slept | The press is at most 30 seconds old, by Discord's own timestamp, when the Mac claims it. The Pi starts at most 30 seconds after the claim, by the Mac's clock. |
 | Data from the pot | Break out of a field | The gate parses the pot's answer as JSON under a size cap. Values reach `hc` and `pi` as separate arguments, never through a shell, and reach Discord inside code spans with mentions disabled. |
 | Report path | Use a status to start work | `hc exec` runs one fixed command in the pot with JSON on standard input. The pot's rules read it as a report. |
 | Gate code | Change the gate through a pull request | The Mac runs a tip the operator signed. A prompt that names the gate's own files or switch must declare `launch-gate`, which the gate refuses by default. |
@@ -92,8 +106,8 @@ Each guarantee has an attack that must fail. `bin/check` runs them.
 | Guarantee | Probe |
 | --- | --- |
 | Only the operator's press on the gate's own unedited message launches, once, in time, with the switch on | `probes/human-mac-launch-gate.mjs` |
-| A request with invisible text, an undeclared or refused act, a wrong digest or another target makes no offer. A superseded, cancelled or expired launch is dead at the source | `probes/human-mac-launch-request.mjs` |
-| From notice to report through the whole gate: foreign notices, a pot that changes its answer, a double press, a failed start, a disabled switch | `probes/human-mac-launch-service.mjs` |
+| A request with invisible text, an undeclared or refused act, a wrong digest or another target makes no offer. A pot's cancellation stays asked until the Mac reports it, and a start the Mac committed first is reported as too late | `probes/human-mac-launch-request.mjs` |
+| From notice to report through the whole gate: foreign notices, a pot that changes its answer or reopens a closed launch, a claim that beat a cancellation, a pot that does not answer, a double press, a failed start, a disabled switch | `probes/human-mac-launch-service.mjs` |
 | The gateway client identifies, heartbeats, reconnects without resuming, and stops on a refused token | `probes/human-mac-launch-discord.mjs` |
 
 `node probes/mac-launch-runner.mjs` starts a stand-in `pi` through the real `hc` and reads its report back. It needs Herdr, so it runs by hand and not in `bin/check`.
@@ -121,27 +135,37 @@ sequenceDiagram
     G->>P: hc exec: status offered
     O->>D: Press "Launch on NAME"
     D-->>G: Press, with the operator's user ID
-    G->>G: Check operator, message, digest, age, state
+    G->>D: Answer the press at once
+    G->>G: Check operator, message, digest and age
     G->>P: hc exec: show this launch again
-    G->>G: Write the used marker
-    G->>G: hc run: Pi with the stored prompt
-    G->>D: Replace the buttons with "Started"
-    G->>P: hc exec: status started
-    G->>P: hc exec: status finished, with the final reply
+    alt The pot answers open
+        G->>G: Write the claim, exclusive and flushed
+        G->>G: hc run: Pi with the stored prompt
+        G->>P: hc exec: status started
+        G->>P: hc exec: status finished, with the final reply
+    else The pot answers closed
+        G->>G: Write the closure
+        G->>P: hc exec: status cancelled or superseded
+    else The pot does not answer
+        G->>D: Private reply to the operator: nothing started, press again
+    end
+    G->>D: Replace the buttons with the final state
 ```
 
 ```mermaid
 stateDiagram-v2
     [*] --> Offered: Valid open request fetched
-    [*] --> Refused: Invalid request
-    Offered --> Approved: Operator's press passes every check
-    Offered --> Refused: Operator presses Refuse
-    Offered --> Superseded: The pot replaced it
-    Offered --> Cancelled: The pot cancelled it
-    Offered --> Expired: 30 minutes passed
-    Approved --> Started: Pi runs in Herdr
-    Approved --> Failed: Pi did not start
+    [*] --> Closed: The pot closed it before any offer
+    Offered --> Claimed: Operator's press, decision file written first
+    Offered --> Closed: Refused, cancelled, superseded or expired, decision file written first
+    Claimed --> Started: Pi runs in Herdr
+    Claimed --> Failed: Pi did not start
     Started --> Finished: Final reply read
+    Started --> Failed: Terminal gone with no reply
+    note right of Claimed
+        A closure asked after the claim changes nothing.
+        The pot hears started, with tooLate.
+    end note
 ```
 
 Every state but `Offered` is final for the approval. A launch that failed, expired or was refused needs a new request and a new press.
@@ -174,7 +198,7 @@ node "$launch" list
 node "$launch" announce REQUEST_ID
 ```
 
-`request` stores the prompt, sends the notice to Mastermind through the door and prints the launch. `--replaces` supersedes an earlier launch in the same step. `announce` runs on Mastermind only: it posts a received notice in the launch channel and replies to the door request with a posting confirmation. The gate itself calls two more, `show LAUNCH_ID` and `status`.
+`request` stores the prompt, sends the notice to Mastermind through the door and prints the launch. `--replaces` asks the Mac to supersede an earlier launch in the same step, and `cancel` asks it to cancel one. Both print `asked` with `effective: false`. The launch is closed when the Mac reports it, and `list` shows `asked` until then. If the earlier launch started first, the replacement stays open: cancel it if it must not run too. `announce` runs on Mastermind only: it posts a received notice in the launch channel and replies to the door request with a posting confirmation. The gate itself calls two more, `show LAUNCH_ID` and `status`.
 
 A prompt must not begin with `@` or `/`, which Pi reads as a file argument or as one of its own commands. It is at most 12 000 bytes of UTF-8 text with no control, format, private-use or line-separator character but line feed and tab. A title and a cost are one line of at most 100 characters.
 
@@ -200,7 +224,7 @@ A notice carries no prompt and no state. It tells the named Mac to fetch the lau
 {"type":"mac.launch-request","version":1,"launch":"LAUNCH_ID","pot":"accor","target":"mac-studio","title":"Manage Workspace and Boats","digest":"SHA256_OF_PROMPT_BYTES","acts":["spend"],"cost":"One small Boat VM for an hour","createdAt":1794945000000,"expiresAt":1794946800000,"state":"open","prompt":"PROMPT_TEXT"}
 ```
 
-`digest` is the SHA-256 of the prompt's UTF-8 bytes. `state` is `open` only while the launch can still be offered or pressed.
+`digest` is the SHA-256 of the prompt's UTF-8 bytes. `state` is `open` while the pot wants the launch offered. It is `cancelled` or `superseded` from the moment the pot asks, so the Mac can write the closure.
 
 ### Offer
 
@@ -219,12 +243,12 @@ Expires <t:1794946800:R>
 
 Its buttons carry `ml:LAUNCH_ID:DIGEST` for "Launch on Mac Studio" and `mx:LAUNCH_ID:DIGEST` for "Refuse". A dead offer keeps its first two lines and its final state, and loses its buttons and its attachment.
 
-### Approval record
+### Decision record
 
-The gate keeps this on the Mac, under `~/.config/agent-sandbox/mac-launch/`, written once with an exclusive create:
+The gate keeps one per launch on the Mac, as `~/.config/agent-sandbox/mac-launch/LAUNCH_ID.decision`, written once with an exclusive create. A closure holds its `state` and `decidedAt`, and a refusal adds the press. A claim holds the press it consumed:
 
 ```json
-{"launch":"LAUNCH_ID","digest":"SHA256_OF_PROMPT_BYTES","target":"mac-studio","pot":"accor","interaction":"INTERACTION_ID","userId":"CONFIGURED_OPERATOR_ID","guildId":"GUILD","messageUrl":"https://discord.com/channels/GUILD/CHANNEL/OFFER_MESSAGE","at":"ISO_PRESS_TIMESTAMP"}
+{"state":"claimed","decidedAt":1794945600000,"launch":"LAUNCH_ID","digest":"SHA256_OF_PROMPT_BYTES","target":"mac-studio","pot":"accor","interaction":"INTERACTION_ID","userId":"CONFIGURED_OPERATOR_ID","guildId":"GUILD","messageUrl":"https://discord.com/channels/GUILD/CHANNEL/OFFER_MESSAGE","at":"ISO_PRESS_TIMESTAMP"}
 ```
 
 ### Status
@@ -235,7 +259,7 @@ The gate reports to the requesting pot with `hc exec --on POT -i node /opt/agent
 {"type":"mac.launch-status","version":1,"launch":"LAUNCH_ID","target":"mac-studio","digest":"SHA256_OF_PROMPT_BYTES","status":"finished","detail":"","messageUrl":"https://discord.com/channels/GUILD/CHANNEL/OFFER_MESSAGE","report":"FINAL_REPLY"}
 ```
 
-`status` is `offered`, `started`, `finished`, `refused`, `expired`, `superseded`, `cancelled` or `failed`. The pot checks the launch and its digest against its own record, stores the status and wakes its bot with `from` set to `mac-launch` and that packet as the note. A status the pot did not get is sent again until it lands. `report` is the Pi's final reply, cut at 8000 characters.
+`status` is `offered`, `started`, `finished`, `refused`, `expired`, `superseded`, `cancelled` or `failed`. The pot checks the launch and its digest against its own record, stores the status and wakes its bot with `from` set to `mac-launch` and that packet as the note. When `started` arrives for a launch the pot had asked to close, the note also holds `tooLate` with that closure. A status the pot did not get is sent again until it lands. `report` is the Pi's final reply, cut at 8000 characters.
 
 A report is all that flows back. The gate has no way to send a pot's words into a running Pi: a new instruction is a new request with its own press.
 
