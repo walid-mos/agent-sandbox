@@ -13,7 +13,9 @@ const LINE_CHARACTERS = 100;
 const DETAIL_CHARACTERS = 500;
 export const OPEN = 'open';
 export const OFFERED = 'offered';
-export const STATUSES = [OFFERED, 'started', 'finished', 'refused', 'expired', 'superseded', 'cancelled', 'failed'];
+export const STARTED = 'started';
+export const EXPIRED = 'expired';
+export const STATUSES = [OFFERED, STARTED, 'finished', 'refused', EXPIRED, 'superseded', 'cancelled', 'failed'];
 export const isTarget = isPotName;
 export const LAUNCH_SCRIPT = `${assignments(readFileSync(new URL('./launch.env', import.meta.url), 'utf8')).POTS_SESSION_REPOSITORY}/session/mac-launch.mjs`;
 // Line feed and tab are the only characters a reader cannot see that a prompt may hold. The listed letters render as blanks.

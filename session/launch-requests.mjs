@@ -1,12 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
-import { checkedStatus, launchRequest, launchStatus, OFFERED, OPEN, shownRequest } from './launch-contract.mjs';
+import { checkedStatus, EXPIRED, launchRequest, launchStatus, OFFERED, OPEN, shownRequest, STARTED } from './launch-contract.mjs';
 import { command } from './run.mjs';
 
 const LAUNCH_ID_BYTES = 16;
-const EXPIRED = 'expired';
-const STARTED = 'started';
 const LIVE = [OPEN, OFFERED];
 // A Mac may claim a launch until its last moment and report the start a little later, so the pot waits this long before it tells its bot the launch expired.
 const EXPIRY_GRACE_MS = 60_000;
