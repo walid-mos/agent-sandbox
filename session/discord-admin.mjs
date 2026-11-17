@@ -5,7 +5,8 @@ import { discordAdminApi } from './discord-admin-api.mjs';
 import { requireDiscordAdminEnabled } from './discord-admin-enabled.mjs';
 import { discordAdminApprovals } from './discord-admin-approvals.mjs';
 import { inspectDiscord } from './discord-admin-inspect.mjs';
-import { ADMIN_OPERATIONS } from './discord-admin-operations.mjs';
+import { ADMIN_OPERATIONS, ADMIN_REQUEST_FIELDS } from './discord-admin-operations.mjs';
+import { ADMIN_APPROVAL_RULES } from './discord-admin-policy.mjs';
 import { discordAccount, discoverProtection } from './discord-admin-runtime.mjs';
 import { administerDiscord } from './discord-admin-service.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
@@ -13,9 +14,11 @@ import { main } from './main.mjs';
 import { botHome, isMastermind, sandbox } from './sandbox.mjs';
 
 function actions() {
-  return Object.fromEntries(Object.entries(ADMIN_OPERATIONS).map(([action, operation]) => [action, {
+  const operations = Object.fromEntries(Object.entries(ADMIN_OPERATIONS).map(([action, operation]) => [action, {
     permission: operation.permission, fields: Object.keys(operation.fields), required: operation.required, targets: operation.targets,
+    optionalTargets: operation.optionalTargets, alwaysRequiresApproval: operation.approval,
   }]));
+  return { requestFields: ADMIN_REQUEST_FIELDS, approvalRules: ADMIN_APPROVAL_RULES.map(rule => rule.description), operations };
 }
 
 function readInput() {

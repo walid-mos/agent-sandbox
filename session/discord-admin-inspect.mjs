@@ -8,7 +8,7 @@ export async function inspectDiscord(input, { api, guildId }) {
   };
   if (input.view === 'diagnostics') return diagnostics(api, guildId);
   if (!Object.hasOwn(paths, input.view)) throw new Error('discord-admin: inspect channels, roles, threads, members, bans or diagnostics.');
-  return { view: input.view, result: await api('GET', paths[input.view]), ...(input.view === 'members' && { limit: 1000, note: 'First page only. Missing Server Members Intent produces an explicit API failure.' }) };
+  return { view: input.view, result: await api('GET', paths[input.view]), ...(['members', 'bans'].includes(input.view) && { limit: 1000, note: 'First page only. Missing permission or required member intent produces an explicit API failure.' }) };
 }
 
 async function diagnostics(api, guildId) {

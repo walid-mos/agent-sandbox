@@ -37,8 +37,8 @@ const channelPath = request => `/channels/${request.channelId}`;
 const memberPath = request => `${guildPath(request)}/members/${request.userId}`;
 const rolePath = request => `${guildPath(request)}/roles/${request.roleId}`;
 const payloadBody = request => Object.keys(request.payload).length ? request.payload : undefined;
-const route = (method, path, permission, fields = {}, required = [], targets = [], { body = payloadBody, approval = false, member = false } = {}) =>
-  ({ method, path, permission, fields, required, targets, body, approval, loadsMember: member });
+const route = (method, path, permission, fields = {}, required = [], targets = [], { body = payloadBody, approval = false, member = false, optionalTargets = [] } = {}) =>
+  ({ method, path, permission, fields, required, targets, optionalTargets, body, approval, loadsMember: member });
 const ALWAYS_APPROVED = { approval: true };
 
 export const ADMIN_OPERATIONS = {
@@ -46,7 +46,7 @@ export const ADMIN_OPERATIONS = {
   'channel.edit': route('PATCH', channelPath, 'ManageChannels', channelFields, [], ['channelId']),
   'channel.delete': route('DELETE', channelPath, 'ManageChannels', {}, [], ['channelId'], ALWAYS_APPROVED),
   'thread.create': route('POST', request => `${channelPath(request)}${request.messageId ? `/messages/${request.messageId}` : ''}/threads`, 'CreatePublicThreads',
-    { name: string(100), type: threadType, auto_archive_duration: duration, invitable: boolean, rate_limit_per_user: integer(0, 21600) }, ['name'], ['channelId']),
+    { name: string(100), type: threadType, auto_archive_duration: duration, invitable: boolean, rate_limit_per_user: integer(0, 21600) }, ['name'], ['channelId'], { optionalTargets: ['messageId'] }),
   'thread.edit': route('PATCH', channelPath, 'ManageThreads', { name: string(100), archived: boolean, locked: boolean, auto_archive_duration: duration, rate_limit_per_user: integer(0, 21600) }, [], ['channelId']),
   'thread.delete': route('DELETE', channelPath, 'ManageThreads', {}, [], ['channelId'], ALWAYS_APPROVED),
   'role.create': route('POST', request => `${guildPath(request)}/roles`, 'ManageRoles', roleFields, ['name']),
@@ -62,10 +62,10 @@ export const ADMIN_OPERATIONS = {
   'member.ban': route('PUT', request => `${guildPath(request)}/bans/${request.userId}`, 'BanMembers', { delete_message_seconds: integer(0, 604800) }, [], ['userId'], ALWAYS_APPROVED),
   'member.unban': route('DELETE', request => `${guildPath(request)}/bans/${request.userId}`, 'BanMembers', {}, [], ['userId']),
   'invite.create': route('POST', request => `${channelPath(request)}/invites`, 'CreateInstantInvite', { max_age: integer(0, 604800), max_uses: integer(0, 100), temporary: boolean, unique: boolean }, [], ['channelId']),
-  'invite.delete': route('DELETE', request => `/invites/${request.code}`, 'ManageChannels'),
+  'invite.delete': route('DELETE', request => `/invites/${request.code}`, 'ManageChannels', {}, [], ['code']),
 };
 
-const envelope = ['guildId', 'action', 'reason', 'payload', 'channelId', 'userId', 'roleId', 'messageId', 'code', 'approval'];
+export const ADMIN_REQUEST_FIELDS = ['guildId', 'action', 'reason', 'payload', 'channelId', 'userId', 'roleId', 'messageId', 'code', 'approval'];
 
 function selectedOperation(action) {
   if (!Object.hasOwn(ADMIN_OPERATIONS, action)) throw new Error('discord-admin: unsupported operation. Use the advertised actions.');
@@ -73,23 +73,21 @@ function selectedOperation(action) {
 }
 
 function requireEnvelope(input) {
-  if (!Object.keys(input).every(key => envelope.includes(key))) throw new Error('discord-admin: unknown request field.');
+  if (!Object.keys(input).every(key => ADMIN_REQUEST_FIELDS.includes(key))) throw new Error('discord-admin: unknown request field.');
   if (!snowflake(input.guildId) || !string(400)(input.reason)) throw new Error('discord-admin: provide guildId and a non-empty audit reason of at most 400 characters.');
 }
 
 function requireTargetIds(input, operation) {
   for (const field of ['channelId', 'userId', 'roleId', 'messageId']) requireSnowflakeField(input, field);
-  if (!operation.targets.every(field => snowflake(input[field]))) throw new Error('discord-admin: missing operation target.');
-  if (input.action === 'invite.delete') requireInviteCode(input.code);
+  if (!operation.targets.every(field => targetValidator(field)(input[field]))) throw new Error('discord-admin: missing or invalid operation target.');
 }
 
 function requireSnowflakeField(input, field) {
   if (input[field] !== undefined && !snowflake(input[field])) throw new Error(`discord-admin: invalid ${field}.`);
 }
 
-function requireInviteCode(code) {
-  if (!/^[\w-]{2,100}$/.test(code ?? '')) throw new Error('discord-admin: invalid invite code.');
-}
+const TARGET_VALIDATORS = { code: code => typeof code === 'string' && /^[\w-]{2,100}$/.test(code) };
+const targetValidator = field => TARGET_VALIDATORS[field] ?? snowflake;
 
 function requirePayloadObject(payload) {
   if (!payload || Array.isArray(payload) || typeof payload !== 'object') throw new Error('discord-admin: payload must be an object.');
