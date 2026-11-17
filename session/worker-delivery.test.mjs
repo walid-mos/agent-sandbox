@@ -16,7 +16,8 @@ const { inspectWorker } = await import('./inspect-worker.mjs');
 const { serveQueue } = await import('./serve-queue.mjs');
 const { acknowledgeResult } = await import('./worker-results.mjs');
 const { enqueue, queued, QUEUE } = await import('./queue.mjs');
-const { receiptPath, statePath, writeLifecycle, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
+const { receiptPath, statePath, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
+const { writePrivateJson } = await import('./private-json.mjs');
 const { save, workers, WORKERS } = await import('./workers.mjs');
 const sessionFile = join(scratch, 'task', 'exact.jsonl');
 mkdirSync(join(scratch, 'task'));
@@ -53,7 +54,7 @@ function setTerminals(terminals) {
   writeFileSync(boundaryPath, JSON.stringify({ ...boundary(), terminals }));
 }
 function settle() {
-  writeLifecycle(statePath(worker), { ...worker, phase: 'settled', generation: 'result-1',
+  writePrivateJson(statePath(worker), { ...worker, phase: 'settled', generation: 'result-1',
     sessionId: 'exact', received: [], settledAt: Date.now() - SETTLED_GRACE_MS });
 }
 function inspect() {
@@ -153,13 +154,13 @@ test('follow-up stays durable until Pi accepts it and is sent only once per laun
   assert.equal(request.sentTo, worker.launchId);
   serve();
   assert.equal(boundary().calls.filter(call => call.args[0] === 'send').length, 1);
-  writeLifecycle(statePath(worker), { ...worker, phase: 'active', received: [request.file] });
+  writePrivateJson(statePath(worker), { ...worker, phase: 'active', received: [request.file] });
   serve();
   assert.equal(queued().length, 0);
 });
 
 test('a follow-up arriving as shutdown starts reopens the exact session, never the newer folder session', () => {
-  writeLifecycle(statePath(worker), { ...worker, phase: 'closing', received: [] });
+  writePrivateJson(statePath(worker), { ...worker, phase: 'closing', received: [] });
   enqueue({ worker: worker.name, message: 'Follow up after close' });
   serve();
   assert.equal(boundary().calls.some(call => call.args[0] === 'send'), false);
@@ -171,7 +172,7 @@ test('a follow-up arriving as shutdown starts reopens the exact session, never t
   assert.equal(queued().length, 1);
   const resumed = workers()[0];
   setTerminals([{ ...terminal, address: 't-resumed', labels: { 'pots.owner': 'nextnode', 'pots.launch': resumed.launchId } }]);
-  writeLifecycle(statePath(resumed), { ...resumed, phase: 'starting', received: [] });
+  writePrivateJson(statePath(resumed), { ...resumed, phase: 'starting', received: [] });
   serve();
   assert.equal(boundary().calls.filter(call => call.args[0] === 'send').length, 1);
   assert.equal(queued().length, 1);

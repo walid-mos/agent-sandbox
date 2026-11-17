@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readJson } from './private-json.mjs';
 import { command } from './run.mjs';
 import { isLive, ownsTerminal, WORKERS } from './workers.mjs';
 
@@ -14,20 +14,9 @@ const lifecycleFile = (worker, suffix) => join(LIFECYCLE, `${worker.name}-${work
 export const statePath = worker => lifecycleFile(worker, 'json');
 export const receiptPath = worker => lifecycleFile(worker, 'receipt');
 
-export function writeLifecycle(path, value) {
-  mkdirSync(LIFECYCLE, { recursive: true });
-  writeFileSync(`${path}.tmp`, JSON.stringify(value), { mode: 0o600 });
-  renameSync(`${path}.tmp`, path);
-}
-
-export function readLifecycle(path) {
-  if (!existsSync(path)) return undefined;
-  return JSON.parse(readFileSync(path, 'utf8'));
-}
-
 export function lifecycleOf(worker) {
   if (!worker.launchId) return undefined;
-  const state = readLifecycle(statePath(worker));
+  const state = readJson(statePath(worker));
   if (!state) return undefined;
   if (![state.launchId === worker.launchId, state.owner === worker.owner, state.name === worker.name].every(Boolean)) return undefined;
   return state;

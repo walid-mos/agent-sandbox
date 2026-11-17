@@ -3,7 +3,8 @@ import { rmSync, watch } from 'node:fs';
 import { join } from 'node:path';
 import { allTerminals } from './workers.mjs';
 import { hasQueued } from './queue.mjs';
-import { canFinish, followUp, isPublished, LIFECYCLE, publication, readLifecycle, receiptPath, resultId, statePath, writeLifecycle } from './worker-lifecycle.mjs';
+import { canFinish, followUp, isPublished, LIFECYCLE, publication, receiptPath, resultId, statePath } from './worker-lifecycle.mjs';
+import { readJson, writePrivateJson } from './private-json.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
 const PROTOCOL_VERSION = 1;
@@ -52,7 +53,7 @@ export class WorkerRuntime {
       sessionFile: context.sessionManager.getSessionFile(), sessionId: context.sessionManager.getSessionId(),
       leaf: context.sessionManager.getLeafId(), generation: randomUUID(), phase, received: [...this.#received],
       ...(phase === 'settled' && { settledAt: Date.now() }) };
-    writeLifecycle(statePath(this.#worker), this.#state);
+    writePrivateJson(statePath(this.#worker), this.#state);
   }
 
   invalidate(context) {
@@ -89,7 +90,7 @@ export class WorkerRuntime {
   }
 
   #hasReceipt() {
-    const receipt = readLifecycle(receiptPath(this.#worker));
+    const receipt = readJson(receiptPath(this.#worker));
     return this.#state && receipt?.id === resultId(this.#state);
   }
 

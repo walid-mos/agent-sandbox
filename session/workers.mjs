@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ROUTER_MODEL } from './models.mjs';
+import { readJson, writePrivateJson } from './private-json.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 
 export const WORKERS = join(homedir(), '.config/agent-sandbox/workers');
@@ -27,10 +28,7 @@ export function workers() {
 }
 
 export function save(worker) {
-  mkdirSync(WORKERS, { recursive: true });
-  const path = join(WORKERS, `${worker.name}.json`);
-  writeFileSync(`${path}.tmp`, JSON.stringify(worker), { mode: 0o600 });
-  renameSync(`${path}.tmp`, path);
+  writePrivateJson(join(WORKERS, `${worker.name}.json`), worker);
 }
 
 export function writeBrief(name, text) {
@@ -59,8 +57,7 @@ export function clearStop(worker) {
 const passRecord = name => join(WORKERS, `${name}.passes`);
 
 export function passes(worker) {
-  const path = passRecord(worker.name);
-  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {};
+  return readJson(passRecord(worker.name)) ?? {};
 }
 
 export function recordPass(worker, pass, commit) {
