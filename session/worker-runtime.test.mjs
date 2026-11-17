@@ -124,12 +124,12 @@ for (const pending of ['input', 'question', 'cancel', 'queue', 'ownership', 'rec
     runtime.finish(context);
     const arrive = {
       input: () => rawInput('x'),
-      question: () => publishBoundary({ terminals: [{ ...terminal, labels: { ...terminal.labels, 'agent.waiting': 'human' } }] }),
+      question: () => publishBoundary({ gitFailures: 0, terminals: [{ ...terminal, labels: { ...terminal.labels, 'agent.waiting': 'human' } }] }),
       cancel: () => runtime.stop(),
       queue: () => enqueue({ worker: worker.name, message: 'Continue' }),
       ownership: () => publishBoundary({ gitFailures: 0, terminals: [{ ...terminal, labels: {} }] }),
       receipt: () => writePrivateJson(receiptPath(worker), { id: 'stale' }),
-      helper: () => publishBoundary({ terminals: [terminal, { address: 'helper', parent: 't-owned', state: 'live' }] }),
+      helper: () => publishBoundary({ gitFailures: 0, terminals: [terminal, { address: 'helper', parent: 't-owned', state: 'live' }] }),
       background: () => { counts.awaited = 1; },
       branch: () => { context.sessionManager.getLeafId = () => 'leaf-2'; },
     };
