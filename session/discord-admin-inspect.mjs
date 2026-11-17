@@ -13,12 +13,10 @@ export async function inspectDiscord(input, { api, guildId }) {
 
 async function diagnostics(api, guildId) {
   const bot = await api('GET', '/users/@me');
-  const member = await api('GET', `/guilds/${guildId}/members/${bot.id}`);
-  const roles = await api('GET', `/guilds/${guildId}/roles`);
-  const app = await api('GET', '/oauth2/applications/@me');
+  const [member, roles, app] = await Promise.all([api('GET', `/guilds/${guildId}/members/${bot.id}`), api('GET', `/guilds/${guildId}/roles`), api('GET', '/oauth2/applications/@me')]);
   const granted = guildPermissions(roles, member.roles, guildId);
-  const hasAdministrator = (granted & DISCORD_PERMISSIONS.Administrator) !== 0n;
-  const missingPermissions = Object.entries(DISCORD_PERMISSIONS).filter(([name, bit]) => name !== 'Administrator' && !hasAdministrator && !(granted & bit)).map(([name]) => name);
+  const missing = Object.entries(DISCORD_PERMISSIONS).filter(([name, bit]) => name !== 'Administrator' && !(granted & bit)).map(([name]) => name);
+  const missingPermissions = granted & DISCORD_PERMISSIONS.Administrator ? [] : missing;
   return { view: 'diagnostics', missingPermissions, ...applicationDiagnostics(app),
     note: 'Read-only facts. Channel overrides and role hierarchy can further limit operations. No app settings were changed.' };
 }

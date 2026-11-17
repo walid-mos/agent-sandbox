@@ -44,11 +44,10 @@ export async function discoverProtection({ api, config, primaryHome, stateDirect
   const routes = owningMap(join(primaryHome, 'workspace/discord/routes.json'));
   const northStars = owningMap(join(primaryHome, 'workspace/discord/north-star-threads.json'));
   const routing = routeProtection(routes);
-  const guildId = requireOneGuild(await api('GET', '/users/@me/guilds'));
+  const [guilds, bot] = await Promise.all([api('GET', '/users/@me/guilds'), api('GET', '/users/@me')]);
+  const guildId = requireOneGuild(guilds);
   const northStar = northStarProtection(northStars, guildId);
-  const channels = await api('GET', `/guilds/${guildId}/channels`);
-  const roles = await api('GET', `/guilds/${guildId}/roles`);
-  const bot = await api('GET', '/users/@me');
+  const [channels, roles] = await Promise.all([api('GET', `/guilds/${guildId}/channels`), api('GET', `/guilds/${guildId}/roles`)]);
   const cachePath = join(stateDirectory, 'protected-channels.json');
   const cache = channelCache(cachePath, guildId);
   const names = [...new Set([config.bot.toLowerCase(), ...Object.keys(config.doors ?? {})])];

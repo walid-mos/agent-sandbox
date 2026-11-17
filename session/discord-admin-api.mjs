@@ -56,14 +56,20 @@ async function discordResult(response) {
   throw discordFailure(response, await response.json().catch(() => undefined));
 }
 
+async function request(transport, token, method, path, payload, reason) {
+  let response;
+  try { response = await transport(`${ORIGIN}${path}`, requestOptions(method, payload, reason, token)); }
+  catch { throw new Error('discord-admin: Discord request failed or timed out. Mutation outcome may be unknown. Inspect before any new attempt.'); }
+  return discordResult(response);
+}
+
 export function discordAdminApi(reference, transport = fetch) {
   let token;
+  let identity;
   return async (method, path, payload, reason) => {
     token ??= tokenAt(reference);
-    const options = requestOptions(method, payload, reason, token);
-    let response;
-    try { response = await transport(`${ORIGIN}${path}`, options); }
-    catch { throw new Error('discord-admin: Discord request failed or timed out. Mutation outcome may be unknown. Inspect before any new attempt.'); }
-    return discordResult(response);
+    if (method !== 'GET' || path !== '/users/@me') return request(transport, token, method, path, payload, reason);
+    identity ??= request(transport, token, method, path);
+    return identity.catch(error => { identity = undefined; throw error; });
   };
 }

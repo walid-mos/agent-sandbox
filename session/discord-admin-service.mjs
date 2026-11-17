@@ -25,16 +25,12 @@ async function protectedChannels(channels, protection, api) {
 
 async function snapshotOf(request, operation, { api, protection }) {
   requireProtection(protection, request.guildId);
-  const bot = await api('GET', '/users/@me');
-  const guild = await api('GET', `/guilds/${request.guildId}`);
-  const roles = await api('GET', `/guilds/${request.guildId}/roles`);
-  const botMember = await api('GET', `/guilds/${request.guildId}/members/${bot.id}`);
-  const owned = await protectedChannels(await api('GET', `/guilds/${request.guildId}/channels`), protection, api);
+  const [bot, guild, roles, channels, channel, parent, targetMember] = await Promise.all([api('GET', '/users/@me'), api('GET', `/guilds/${request.guildId}`),
+    api('GET', `/guilds/${request.guildId}/roles`), api('GET', `/guilds/${request.guildId}/channels`), optionalChannel(request.channelId, request.guildId, api),
+    optionalChannel(request.payload.parent_id, request.guildId, api), memberOf(request, operation, api)]);
   requireApplicationRole(request, { guild, roles, bot, protection });
-  const channel = await optionalChannel(request.channelId, guild.id, api);
-  const parent = await optionalChannel(request.payload.parent_id, guild.id, api);
-  const threadParent = await parentOfThread(channel, guild.id, api);
-  const targetMember = await memberOf(request, operation, api);
+  const [botMember, owned, threadParent] = await Promise.all([api('GET', `/guilds/${request.guildId}/members/${bot.id}`),
+    protectedChannels(channels, protection, api), parentOfThread(channel, guild.id, api)]);
   return { bot, guild, roles, botMember, channel, parent, threadParent, targetMember, ...owned };
 }
 

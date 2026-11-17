@@ -47,12 +47,20 @@ test('one adapter run reads its token reference once', async () => {
   const seen = [];
   try {
     const api = discordAdminApi(reference, async (url, options) => { seen.push(options.headers.Authorization); return { ok: true, status: 204 }; });
-    await api('GET', '/users/@me');
+    await api('GET', '/users/@me/guilds');
     writeFileSync(reference, `DISCORD_BOT_TOKEN=${randomBytes(24).toString('hex')}\n`, { mode: 0o600 });
-    await api('GET', '/users/@me');
+    await api('GET', '/users/@me/guilds');
   } finally { writeFileSync(reference, original, { mode: 0o600 }); }
   assert.equal(seen.length, 2);
   assert.equal(seen[1], seen[0]);
+});
+
+test('one adapter run fetches the bot identity once', async () => {
+  const paths = [];
+  const api = discordAdminApi(reference, async url => { paths.push(url); return { ok: true, status: 200, json: async () => ({ id: '100000000000000001' }) }; });
+  const [first, second] = await Promise.all([api('GET', '/users/@me'), api('GET', '/users/@me')]);
+  assert.deepEqual(second, first);
+  assert.equal(paths.length, 1);
 });
 
 test('transport errors do not copy provider exceptions into output', async () => {
