@@ -116,6 +116,9 @@ codex_installed() {
 install_codex() {
 	if codex_installed; then return 0; fi
 	env -i HOME="$HOME" PATH="$PATH" NPM_CONFIG_PREFIX="$NPM_CONFIG_PREFIX" \
+		HTTP_PROXY="${HTTP_PROXY:-}" HTTPS_PROXY="${HTTPS_PROXY:-}" ALL_PROXY="${ALL_PROXY:-}" NO_PROXY="${NO_PROXY:-}" \
+		http_proxy="${http_proxy:-}" https_proxy="${https_proxy:-}" all_proxy="${all_proxy:-}" no_proxy="${no_proxy:-}" \
+		SSL_CERT_FILE="${SSL_CERT_FILE:-}" SSL_CERT_DIR="${SSL_CERT_DIR:-}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-}" \
 		npm install --global --ignore-scripts --no-fund --no-audit "@openai/codex@$CODEX_VERSION"
 }
 
