@@ -2,10 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main } from './main.mjs';
-import { MAX_GROUP, ROUTER_GROUP } from './models.mjs';
+import { DEFAULT_GROUPS, GROUP_PREFIX } from './models.mjs';
 
-const CHECKED_GROUPS = [ROUTER_GROUP, MAX_GROUP];
-const GROUP_PREFIX = 'group/';
 const QUESTION = 'Reply only OK.';
 const ANSWER_TOKENS = 16;
 const ANSWER_TIMEOUT_MS = 120 * 1000;
@@ -69,7 +67,7 @@ function verdict({ group, target, member }, { status, served, answer }) {
 }
 
 export async function* routerAnswers({ groups }, routerApi) {
-  const plans = CHECKED_GROUPS.map(group => answerPlan(groups, group));
+  const plans = DEFAULT_GROUPS.map(group => answerPlan(groups, group));
   for (const plan of plans) yield verdict(plan, await ask(routerApi, plan));
 }
 
