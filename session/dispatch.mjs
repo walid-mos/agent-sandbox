@@ -12,7 +12,7 @@ import { botId, owners } from './sandbox.mjs';
 import { repositoryBrief, taskBrief } from './worker-brief.mjs';
 import { openWorkerPR, publishWorker, workerScope } from './worker-publication.mjs';
 import { acknowledgeResult } from './worker-results.mjs';
-import { clearStop, save, terminalName, WORKER_PREFIX, workers, writeBrief } from './workers.mjs';
+import { clearStop, PUBLICATION, save, terminalName, WORKER_PREFIX, workers, writeBrief } from './workers.mjs';
 
 const WORKSPACES = join(homedir(), 'Development');
 const DRAFT_PR = join(homedir(), '.pi/agent/skills/worktree/scripts/draft-pr');
@@ -46,10 +46,10 @@ function workspace(repository, branch, base) {
   return worktree;
 }
 
-function servedRequest(requested) {
-  const served = requested && find(requested);
-  if (requested && (served?.direction !== 'received' || served.state !== 'open')) throw new Error('dispatch: --for must name an open incoming door request.');
-  return served;
+function checkServedRequest(requested) {
+  if (!requested) return;
+  const served = find(requested);
+  if (served?.direction !== 'received' || served.state !== 'open') throw new Error('dispatch: --for must name an open incoming door request.');
 }
 
 function ensureNewWorker(name) {
@@ -62,7 +62,7 @@ function start(arguments_) {
   const [repository, branch, briefFile, requestedBase] = positionals;
   validate(repository, branch);
   validateLaunchText(values.title, values.subject);
-  servedRequest(values.for);
+  checkServedRequest(values.for);
   const name = terminalName(`${WORKER_PREFIX}${repository.split('/')[1]}-${branch}`, `${repository}/${branch}`);
   ensureNewWorker(name);
   const request = readFileSync(briefFile, 'utf8');
@@ -73,7 +73,7 @@ function start(arguments_) {
   const pullRequest = values.local ? undefined : command('bash', [DRAFT_PR, worktree, values.title, base], { cwd: worktree });
   const worker = { name, kind: 'repository', owner: botId, repository, branch, worktree, pullRequest, request, base,
     title: values.title, subject: values.subject, servedRequest: values.for, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }),
-    ...(values.local && { publication: 'local', originUrl: command('git', ['remote', 'get-url', 'origin'], { cwd: worktree }) }) };
+    ...(values.local && { publication: PUBLICATION.local, originUrl: command('git', ['remote', 'get-url', 'origin'], { cwd: worktree }) }) };
   queueWorker(worker, repositoryBrief(worker));
 }
 
@@ -102,7 +102,7 @@ function task(arguments_) {
     throw new Error('dispatch: task needs --title, --scope, a task name, absolute workdir, brief-file and absolute result-file.');
   }
   const worktree = taskDirectory(directory, resultFile);
-  servedRequest(values.for);
+  checkServedRequest(values.for);
   const name = terminalName(`${WORKER_PREFIX}task-${id}`);
   ensureNewWorker(name);
   const request = readFileSync(briefFile, 'utf8').trim();

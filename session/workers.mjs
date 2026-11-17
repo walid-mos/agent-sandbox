@@ -28,16 +28,23 @@ export function workers() {
   if (!existsSync(WORKERS)) return [];
   return readdirSync(WORKERS).filter(path => path.endsWith('.json'))
     .map(path => JSON.parse(readFileSync(join(WORKERS, path), 'utf8')))
-    .map(worker => ({ ...worker, ...publishedState(worker) }));
+    .map(withPublication);
 }
+
+export const ownedWorker = (name, owner) => workers().find(worker => worker.name === name && worker.owner === owner);
 
 export function save(worker) {
   writePrivateJson(join(WORKERS, `${worker.name}.json`), worker);
 }
 
-const publicationRecord = worker => join(WORKERS, `${worker.name}.publication`);
-export const publishedState = worker => readJson(publicationRecord(worker)) ?? {};
-export const recordPublication = (worker, state) => writePrivateJson(publicationRecord(worker), state);
+// A local repository worker waits for its first approved push, then for its draft PR, before it is published.
+export const PUBLICATION = Object.freeze({ local: 'local', awaitingPr: 'awaiting-pr', published: 'published' });
+const PUBLICATION_SUFFIX = '.publication';
+const publicationRecord = worker => join(WORKERS, `${worker.name}${PUBLICATION_SUFFIX}`);
+export const isPublicationRecord = file => `${file}`.endsWith(PUBLICATION_SUFFIX);
+// Publication is its own file, which the watcher never rewrites, so it wins over the copy in the worker's record.
+export const withPublication = worker => ({ ...worker, ...readJson(publicationRecord(worker)) });
+export const recordPublication = (worker, changes) => writePrivateJson(publicationRecord(worker), { ...readJson(publicationRecord(worker)), ...changes });
 
 export function writeBrief(name, text) {
   mkdirSync(WORKERS, { recursive: true });
@@ -140,6 +147,11 @@ function sessionArguments(worker, sessionDir, sessionId) {
   return ['--session', worker.sessionFile];
 }
 
+// The launcher hands a worker's Pi its identity through these variables, which worker-agent.mjs reads back.
+const LAUNCH_VARIABLES = { name: 'POTS_WORKER', owner: 'POTS_OWNER', launchId: 'POTS_LAUNCH' };
+export const launchedWorker = environment => Object.fromEntries(Object.entries(LAUNCH_VARIABLES).map(([field, variable]) => [field, environment[variable]]));
+const launchEnvironment = worker => Object.entries(LAUNCH_VARIABLES).map(([field, variable]) => `${variable}=${worker[field]}`);
+
 export function launch(worker, conversation) {
   const launchId = randomUUID();
   if (!worker.owner) throw new Error('dispatch: worker has no recorded Pots owner. Inspect it before relaunching.');
@@ -152,7 +164,7 @@ export function launch(worker, conversation) {
     name: worker.name, cwd: worker.worktree, tab: worker.name, label: 'pots.worker=true',
     labels: [`pots.owner=${worker.owner}`, `pots.launch=${launchId}`, ...(worker.title ? [`agent.title=${worker.title}`] : [])],
     options: ['--no-parent', '--no-notify', '--outlive-parent'],
-    vaultCommand: ['env', `POTS_WORKER=${worker.name}`, `POTS_OWNER=${worker.owner}`, `POTS_LAUNCH=${launchId}`,
+    vaultCommand: ['env', ...launchEnvironment(launched),
       'pi', '--extension', join(import.meta.dirname, 'worker-agent.mjs'), ...session,
       '--provider', 'magpie', '--model', model, ...humanDialogFlags(worker), ...conversation],
   });

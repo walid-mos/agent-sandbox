@@ -6,7 +6,7 @@ import { inspectWorker } from './inspect-worker.mjs';
 import { main } from './main.mjs';
 import { isRequest, QUEUE, queued } from './queue.mjs';
 import { serveQueue } from './serve-queue.mjs';
-import { allTerminals, closeTerminal, isLive, liveTerminals, terminalOf, WORKERS, workers } from './workers.mjs';
+import { allTerminals, closeTerminal, isLive, isPublicationRecord, liveTerminals, terminalOf, WORKERS, workers } from './workers.mjs';
 import { botId } from './sandbox.mjs';
 import { LIFECYCLE } from './worker-lifecycle.mjs';
 
@@ -103,7 +103,7 @@ main(import.meta, () => {
   mkdirSync(LIFECYCLE, { recursive: true });
   watch(LIFECYCLE, passSoon);
   watch(WORKERS, (_event, file) => {
-    if (`${file}`.endsWith('.publication')) passSoon();
+    if (isPublicationRecord(file)) passSoon();
   });
   followTerminals();
 });

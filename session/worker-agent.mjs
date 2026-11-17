@@ -1,14 +1,14 @@
 import { WorkerRuntime } from './worker-runtime.mjs';
-import { workers } from './workers.mjs';
+import { launchedWorker, ownedWorker } from './workers.mjs';
 
 export default function workerAgent(pi) {
-  const worker = { name: process.env.POTS_WORKER, owner: process.env.POTS_OWNER, launchId: process.env.POTS_LAUNCH };
+  const worker = launchedWorker(process.env);
   if (![worker.name, worker.owner, worker.launchId, process.env.HC_TERMINAL_ID].every(Boolean)) return;
   let runtime;
   pi.on('session_start', (_event, context) => {
     if (context.mode !== 'tui') return;
-    const record = workers().find(candidate => candidate.name === worker.name && candidate.owner === worker.owner && candidate.launchId === worker.launchId);
-    if (!record) throw new Error('pots lifecycle: this launch has no matching worker record.');
+    const record = ownedWorker(worker.name, worker.owner);
+    if (record?.launchId !== worker.launchId) throw new Error('pots lifecycle: this launch has no matching worker record.');
     const { kind, resultFile, publication } = record;
     runtime = new WorkerRuntime(pi, { ...worker, kind, resultFile, publication });
     runtime.start(context);

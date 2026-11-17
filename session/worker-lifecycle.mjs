@@ -5,7 +5,7 @@ import { readJson } from './private-json.mjs';
 import { isRequestName } from './queue.mjs';
 import { command } from './run.mjs';
 import { waitsForHuman } from './worker-human.mjs';
-import { isLive, ownsTerminal, publishedState, WORKERS } from './workers.mjs';
+import { isLive, ownsTerminal, PUBLICATION, WORKERS, withPublication } from './workers.mjs';
 
 export const LIFECYCLE = join(WORKERS, 'lifecycle');
 export const SETTLED_GRACE_MS = 5000;
@@ -25,26 +25,36 @@ export function lifecycleOf(worker) {
   return state;
 }
 
-export function publication(cwd) {
+// A task is complete when its result file is, and never touches Git.
+function taskFacts(worker) {
+  const result = existsSync(worker.resultFile) && lstatSync(worker.resultFile);
+  const resultReady = Boolean(result && result.isFile() && result.size > 0);
+  return { kind: 'task', resultFile: worker.resultFile, resultReady };
+}
+
+function repositoryFacts(worker, cwd) {
   const options = { cwd };
+  const phase = withPublication(worker).publication;
   return {
     uncommitted: command('git', ['status', '--porcelain'], options).split('\n').filter(Boolean).length,
     unpushed: Number(command('git', ['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'], options)),
+    ...(phase && { publication: phase }),
   };
 }
 
-export function completionFacts(worker, cwd = worker.worktree) {
-  if (worker.kind === 'task') {
-    const result = existsSync(worker.resultFile) && lstatSync(worker.resultFile);
-    const resultReady = Boolean(result && result.isFile() && result.size > 0);
-    return { kind: 'task', resultFile: worker.resultFile, resultReady };
-  }
-  const phase = publishedState(worker).publication ?? worker.publication;
-  return { ...publication(cwd), ...(phase && { publication: phase }) };
+export const completionFacts = (worker, cwd = worker.worktree) => worker.kind === 'task' ? taskFacts(worker) : repositoryFacts(worker, cwd);
+
+/** Completion facts, with the branch and commit a repository worker's report names. */
+export function reportFacts(worker) {
+  const facts = completionFacts(worker);
+  if (facts.kind === 'task') return facts;
+  const options = { cwd: worker.worktree };
+  return { branch: command('git', ['branch', '--show-current'], options), commit: command('git', ['rev-parse', '--short', 'HEAD'], options), ...facts };
 }
 
+// A repository worker started with its draft PR has no phase: it was published when it started.
 export const isPublished = facts => facts.kind === 'task' ? facts.resultReady
-  : facts.uncommitted === 0 && facts.unpushed === 0 && !['local', 'awaiting-pr'].includes(facts.publication);
+  : facts.uncommitted === 0 && facts.unpushed === 0 && [undefined, PUBLICATION.published].includes(facts.publication);
 
 export const readyAt = state => state?.settledAt + SETTLED_GRACE_MS;
 
