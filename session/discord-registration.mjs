@@ -49,8 +49,11 @@ export async function registerQuestion(registration, { store, identity, doors = 
     const settled = await settleRegistration(record, store, doors);
     return { dialog: settled.id, registered: settled.registered === true, state: settled.registrationState, postedRequest: settled.postedRequest, failure: settled.failure };
   } catch (error) {
-    const failed = await store.patch(record.id, { registered: false, failure: error.message });
-    return { dialog: failed.id, registered: false, state: failed.registrationState, postedRequest: failed.postedRequest, failure: failed.failure };
+    const failed = await store.locked(({ get, save }) => {
+      const current = get(record.id);
+      return current.registered === true ? current : save({ ...current, registered: false, failure: error.message });
+    }, record.id);
+    return { dialog: failed.id, registered: failed.registered === true, state: failed.registrationState, postedRequest: failed.postedRequest, failure: failed.failure };
   }
 }
 
