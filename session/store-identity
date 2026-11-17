@@ -6,6 +6,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import private_file
+
 LAUNCH = dict(line.split("=", 1) for line in (HERE / "launch.env").read_text().splitlines() if line)
 DIRECTORY = LAUNCH["POTS_SESSION_VAULT_DIRECTORY"]
 CREDENTIAL_NAMES = ("INFISICAL_API_URL", "INFISICAL_UNIVERSAL_AUTH_CLIENT_ID", "INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET")
@@ -31,54 +34,10 @@ def read_payload():
     return credentials, binding
 
 
-def owned_directory(name, parent=None):
-    descriptor = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
-    if os.fstat(descriptor).st_uid != os.getuid():
-        os.close(descriptor)
-        raise SystemExit(PATH_REFUSAL)
-    return descriptor
-
-
-def child_directory(name, parent):
-    try:
-        os.mkdir(name, PRIVATE_DIRECTORY, dir_fd=parent)
-    except FileExistsError:
-        pass
-    return owned_directory(name, parent)
-
-
-def directory_descriptor():
-    descriptor = owned_directory(os.environ["HOME"])
-    try:
-        for component in Path(DIRECTORY).parts:
-            nested = child_directory(component, descriptor)
-            os.close(descriptor)
-            descriptor = nested
-        os.fchmod(descriptor, PRIVATE_DIRECTORY)
-        return descriptor
-    except BaseException:
-        os.close(descriptor)
-        raise
-
-
-def replace_file(name, text, directory_descriptor, unique=0):
-    pending = f".{name}.{os.getpid()}.{unique}.next"
-    try:
-        descriptor = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, PRIVATE_FILE, dir_fd=directory_descriptor)
-        with os.fdopen(descriptor, "w") as file:
-            file.write(text)
-        os.replace(pending, name, src_dir_fd=directory_descriptor, dst_dir_fd=directory_descriptor)
-    finally:
-        try:
-            os.unlink(pending, dir_fd=directory_descriptor)
-        except FileNotFoundError:
-            pass
-
-
 def install_credentials(directory_descriptor, credentials, binding):
     payloads = {LAUNCH["POTS_SESSION_VAULT_FILE"]: "".join(f"{name}={value}\n" for name, value in credentials.items()), "core-vault.json": f"{json.dumps(binding)}\n"}
-    for unique, (name, text) in enumerate(payloads.items()):
-        replace_file(name, text, directory_descriptor, unique)
+    for name, text in payloads.items():
+        private_file.replace_file(name, text, directory_descriptor)
 
 
 def install_shell_hook(name, home):
@@ -95,7 +54,7 @@ def install_shell_hook(name, home):
 
 
 def install_shell_hooks():
-    home = owned_directory(os.environ["HOME"])
+    home = private_file.owned_directory(os.environ["HOME"])
     try:
         for name in (".profile", ".bashrc"):
             install_shell_hook(name, home)
@@ -106,11 +65,10 @@ def install_shell_hooks():
 def main():
     credentials, binding = read_payload()
     try:
-        descriptor = directory_descriptor()
-    except SystemExit:
-        raise
-    except OSError:
+        descriptor = private_file.directory_descriptor(DIRECTORY)
+    except PermissionError:
         raise SystemExit(PATH_REFUSAL) from None
+    os.fchmod(descriptor, PRIVATE_DIRECTORY)
     try:
         install_credentials(descriptor, credentials, binding)
     finally:
