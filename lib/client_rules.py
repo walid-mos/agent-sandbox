@@ -123,9 +123,12 @@ def state_bytes(state):
 
 def rules_text(content):
     try:
-        return content.decode("utf-8")
+        text = content.decode("utf-8")
     except UnicodeError:
-        refuse("rules must be UTF-8. Input text is withheld.")
+        text = ""
+    if not text:
+        refuse("rules must be nonempty UTF-8. Input text is withheld.")
+    return text
 
 
 def approved_state(directory):
