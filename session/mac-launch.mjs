@@ -5,7 +5,7 @@ import { find as findDoorRequest, OPEN as WAITING, RECEIVED } from './door-reque
 import { ownName } from './doors.mjs';
 import { isSnowflake, MASTERMIND_POT, text } from './human-contract.mjs';
 import { launchNotice, noticeOf, noticeText, OPEN } from './launch-contract.mjs';
-import { botWake, launchSettings, launchStore, listedLaunches, openLaunch, recordStatus, retireLaunch, shownLaunch } from './launch-requests.mjs';
+import { launchSettings, launchStore, listedLaunches, openLaunch, recordStatus, retireLaunch, shownLaunch, wakeBot } from './launch-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, commandWithInput } from './run.mjs';
 import { botId, isMastermind, sandbox } from './sandbox.mjs';
@@ -60,7 +60,7 @@ async function announce([id]) {
 
 async function status() {
   const report = await recordStatus(JSON.parse(readFileSync(0, 'utf8')), launchStore());
-  command('pots', botWake(report, botId));
+  wakeBot(report, botId);
   print({ stored: report.status });
 }
 

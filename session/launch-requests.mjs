@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
 import { checkedStatus, launchRequest, launchStatus, OFFERED, OPEN, shownRequest } from './launch-contract.mjs';
+import { command } from './run.mjs';
 
 const LAUNCH_ID_BYTES = 16;
 const EXPIRED = 'expired';
@@ -23,7 +24,7 @@ function known(get, id) {
 
 const statusReport = (status, request) => ({ ...status, title: request.title });
 // The wake carries an ID, so the same status sent twice, by the gate or by expiry, wakes the bot once.
-export const botWake = (report, bot) => ['wake', '--bot', bot, '--from', 'mac-launch', '--id', `mac-launch-${report.launch}-${report.status}`, '--note', JSON.stringify(report)];
+export const wakeBot = (report, bot) => command('pots', ['wake', '--bot', bot, '--from', 'mac-launch', '--id', `mac-launch-${report.launch}-${report.status}`, '--note', JSON.stringify(report)]);
 
 const stateAt = (record, now) => (LIVE.includes(record.state) && now >= record.request.expiresAt ? EXPIRED : record.state);
 
