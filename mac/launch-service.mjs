@@ -81,9 +81,9 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     if (closure) close(offer, closure.state, closure);
   }
 
-  function start(offer) {
+  async function start(offer) {
     let run;
-    try { run = runner.start(offer, settings()); }
+    try { run = await runner.start(offer, settings()); }
     catch { saveState(offer, 'failed', { detail: 'Pi did not start. This approval is used. Inspect Herdr before asking again.' }); return; }
     saveState({ ...offer, run }, STARTED);
   }
@@ -100,7 +100,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     catch { await discord.tell(event, SOURCE_SILENT); return; }
     if (closure) { close(offer, closure.state, closure); return; }
     decide(offer, CLAIMED, verifyPress(event, offer, settings(), clock(), button.action));
-    start(offer);
+    await start(offer);
   }
 
   async function deliver(offer) {
@@ -119,7 +119,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     await refresh(offer);
     const latest = store.get(offer.request.launch);
     if (latest.state === STARTED) {
-      const result = runner.result(latest.run);
+      const result = await runner.result(latest.run);
       if (result) saveState(latest, result.status, result);
     }
     await deliver(store.get(offer.request.launch));

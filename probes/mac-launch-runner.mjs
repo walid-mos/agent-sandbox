@@ -33,17 +33,20 @@ try {
   const fixture = fileURLToPath(new URL('./fixtures/mac-launch-pi.mjs', import.meta.url));
   const runner = herdrRunner(gateStore(folder), [process.execPath, fixture]);
   const closed = { name: `ml-gone-${launch.slice(0, 16)}`, session: join(folder, 'none.jsonl'), createdMs: 1 };
-  assert.equal(runner.result(closed).status, 'failed', 'a launch whose terminal Herdr no longer holds must end');
-  run = runner.start({ request: { launch }, prompt: 'Reply ready.' }, { directory: folder });
+  let isResponsive = false;
+  setImmediate(() => { isResponsive = true; });
+  assert.equal((await runner.result(closed)).status, 'failed', 'a launch whose terminal Herdr no longer holds must end');
+  assert.equal(isResponsive, true, 'terminal lookup must let the gate answer Discord events');
+  run = await runner.start({ request: { launch }, prompt: 'Reply ready.' }, { directory: folder });
   writeFileSync(ownership, JSON.stringify({ launch, folder, ...run }));
   for (let attempt = 0; attempt < 3; attempt++) {
     const waited = JSON.parse(command('hc', ['wait', '--json', '--timeout', '20', run.name], { timeout: 25_000 }));
     if (waited.ended) break;
   }
-  assert.deepEqual(runner.result(run), { status: 'finished', report: 'ready' });
+  assert.deepEqual(await runner.result(run), { status: 'finished', report: 'ready' });
   writeFileSync(run.session, JSON.stringify({ type: 'message', message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: 'Provider refused the request.' } }) + '\n');
-  assert.deepEqual(runner.result(run), { status: 'failed', detail: 'Provider refused the request.' });
+  assert.deepEqual(await runner.result(run), { status: 'failed', detail: 'Provider refused the request.' });
   writeFileSync(run.session, JSON.stringify({ type: 'message', message: { role: 'assistant', content: [], stopReason: 'length' } }) + '\n');
-  assert.deepEqual(runner.result(run), { status: 'failed', detail: 'Pi ended its turn with length.' });
+  assert.deepEqual(await runner.result(run), { status: 'failed', detail: 'Pi ended its turn with length.' });
   console.log('Real Herdr terminal start, final report, provider error and length limit passed. No model or Mac was used.');
 } finally { cleanup(); }
