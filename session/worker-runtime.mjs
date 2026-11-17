@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { rmSync, watch } from 'node:fs';
 import { join } from 'node:path';
 import { allTerminals } from './workers.mjs';
-import { queued } from './queue.mjs';
+import { hasQueued } from './queue.mjs';
 import { canFinish, followUp, hasFinalReply, isPublished, LIFECYCLE, publication, readLifecycle, readyAt, receiptPath, resultId, statePath, writeLifecycle } from './worker-lifecycle.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
@@ -96,7 +96,7 @@ export class WorkerRuntime {
 
   #canClose(context) {
     if (!this.#hasFinishedSession(context)) return false;
-    if (queued().some(request => request.worker === this.#worker.name)) return false;
+    if (hasQueued(this.#worker.name)) return false;
     const terminals = allTerminals();
     const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
     if (!terminal) return false;

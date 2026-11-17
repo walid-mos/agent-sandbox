@@ -1,6 +1,6 @@
 import { chmodSync, copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { queued } from './queue.mjs';
+import { hasQueued } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { allTerminals, WORKERS, workers } from './workers.mjs';
@@ -39,7 +39,7 @@ function verifyCurrentResult(worker, id) {
 export function acknowledgeResult([name, id]) {
   const worker = workerForResult(name, id);
   verifyCurrentResult(worker, id);
-  if (queued().some(request => request.worker === name)) throw new Error('dispatch: a follow-up is queued. Let the worker read it first.');
+  if (hasQueued(name)) throw new Error('dispatch: a follow-up is queued. Let the worker read it first.');
   writeLifecycle(receiptPath(worker), { id, receivedBy: botId, receivedAt: Date.now() });
   process.stdout.write(`Acknowledged ${id}. Pots will close ${name} only while its session stays finished.\n`);
 }

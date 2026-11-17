@@ -23,6 +23,8 @@ export function queued() {
     .map(file => ({ ...JSON.parse(readFileSync(join(QUEUE, file), 'utf8')), file }));
 }
 
+export const hasQueued = name => queued().some(request => request.worker === name);
+
 export function updateRequest(request, changes) {
   const path = join(QUEUE, request.file);
   writeFileSync(`${path}.tmp`, JSON.stringify({ ...request, ...changes }), { mode: 0o600 });
