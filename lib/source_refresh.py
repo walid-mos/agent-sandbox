@@ -29,11 +29,15 @@ def git(directory, *arguments, prefix=()):
     return result.stdout.strip()
 
 
-def require_safe_checkout(directory, branch):
+def require_safe_config(directory):
     configuration = git(directory, "config", "--local", "--name-only", "--list").splitlines()
     forbidden = [key for key in configuration if not SAFE_CONFIG.fullmatch(key)]
     if forbidden:
         raise RuntimeError(f"source-refresh: {directory} has unsupported Git configuration: {', '.join(forbidden)}. Review it before updating.")
+
+
+def require_safe_checkout(directory, branch):
+    require_safe_config(directory)
     current = git(directory, "branch", "--show-current")
     if current != branch:
         raise RuntimeError(f"source-refresh: left {directory} on {current or 'detached HEAD'}. Updates require {branch}.")

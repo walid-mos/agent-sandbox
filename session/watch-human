@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+here=$(dirname "$0")
+. "$here/lib.sh"
+if ! command -v node > /dev/null || ! command -v pots > /dev/null; then
+	idle_until_bootstrap pots-human
+fi
+if [ "$1" = discord-human.mjs ] && ! node --input-type=module -e 'import { isMastermind } from "file:///opt/agent-sandbox/session/sandbox.mjs"; process.exit(isMastermind ? 0 : 1)'; then
+	idle_until_bootstrap pots-discord-human
+fi
+exec node "$here/$1"

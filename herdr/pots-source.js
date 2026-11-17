@@ -65,7 +65,7 @@ export async function answerSecret(sandbox, requestId, values) {
 }
 
 /** Resolves to the id the message has in the conversation. */
-export async function sendMessage(sandbox, { id, text, attachments }) {
+export async function sendMessage(sandbox, { id, text, attachments, questionId }) {
   const files = await Promise.all(attachments.map(async attachment => attachment.reference ??= await upload(sandbox, attachment)));
-  return control(sandbox, "send", JSON.stringify({ id, text, files }));
+  return control(sandbox, "send", JSON.stringify({ id, text, files, questionId }));
 }

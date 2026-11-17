@@ -51,7 +51,7 @@ export class PotsPanel {
       onFailed: cx => this.refreshAfterChange(cx),
     });
     this.dialogs = new WorkerDialogs(sandbox, cx => this.refresh(cx));
-    this.questions = new QuestionCards((text, cx) => this.outbox.post({ text, attachments: [] }, cx));
+    this.questions = new QuestionCards((text, cx, questionId) => this.outbox.post({ text, questionId, attachments: [] }, cx));
     this.show(cx);
     cx.timer.every(WAITING_REFRESH_MS, cx => this.tick(cx));
   }

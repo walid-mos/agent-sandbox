@@ -19,6 +19,8 @@ export const ANSWERED = 'answered';
 export const UNDELIVERED = 'undelivered';
 export const UNKNOWN = 'unknown';
 export const REFUSED = 'refused';
+export const RESENDABLE = [UNKNOWN, UNDELIVERED];
+export const SETTLED = [ANSWERED, REFUSED];
 
 // A request's ID names its record, so nothing but a well-formed ID ever reaches a path.
 function recordPath(id) {

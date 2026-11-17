@@ -2,6 +2,10 @@
   "walid-mos/agent-pi": "NextNodeSolutions/pi-agent",
   "walid-mos/agent-herdr": "NextNodeSolutions/herdr-config",
   "walid-mos/agent-sandbox": "NextNodeSolutions/agent-sandbox",
+  "walid-mos/agent-pi-accor": [
+    { "name": "shellcheck", "run": ["node", "/factory/shellcheck-new.mjs", "{base}"] },
+    { "name": "fallow", "run": ["fallow", "audit", "--base", "{base}"] }
+  ],
   "NextNodeSolutions/agent-sandbox": [
     { "name": "check", "run": ["./bin/check"] },
     { "name": "landing", "run": ["python3", "-I", "probes/landing-policy.py"], "network": true },

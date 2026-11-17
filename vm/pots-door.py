@@ -24,7 +24,7 @@ REFUSALS = "refusals"
 POT = re.compile(r"[a-z][a-z0-9-]{0,30}")
 ACCESS = ("ask", "reply")
 REPLIES_ONLY = "reply"
-HEADER = re.compile(r"(?:(request) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32}) [0-9]|(reply) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32}))")
+HEADER = re.compile(r"(?:(request) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32}) [0-9]|(reply) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32})|(dialog) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32}))")
 MALFORMED = 64
 TOO_LARGE = 65
 NO_SESSION = 69
@@ -119,13 +119,13 @@ def request_id(text, caller, receiver, access):
     header, separator, note = text.partition("\n")
     match = HEADER.fullmatch(header)
     if not separator or not match:
-        raise Refusal(MALFORMED, "the first line must be 'request <origin>.<nonce> <hop>' or 'reply <origin>.<nonce>', ended by LF")
+        raise Refusal(MALFORMED, "the first line must be 'request <origin>.<nonce> <hop>' or 'reply <origin>.<nonce>' or 'dialog <origin>.<nonce>', ended by LF")
     if not note.strip():
         raise Refusal(MALFORMED, "the note is empty")
     kind, origin, nonce = [part for part in match.groups() if part is not None]
-    if kind == "request" and access == REPLIES_ONLY:
+    if kind != "reply" and access == REPLIES_ONLY:
         raise Refusal(NOT_ALLOWED, f"{caller} may only reply to {receiver}, since the doors of {caller} do not name {receiver}")
-    expected = caller if kind == "request" else receiver
+    expected = receiver if kind == "reply" else caller
     if origin != expected:
         raise Refusal(MALFORMED, f"a {kind} from {caller} must carry the origin {expected}, not {origin}")
     return origin + "." + nonce
@@ -170,14 +170,20 @@ def deliver(raw, caller, container):
         refuse(DELIVERY_FAILED, "the session did not take the message")
 
 
-caller, receiver, access = bound_access()
-check_caller_node(caller)
-lock = hold_caller_lock(caller)
-try:
-    raw, identifier = checked_message(caller, receiver, access)
-except Refusal as refusal:
-    spend_token(caller, REFUSALS)
-    refuse(refusal.status, refusal.reason)
-spend_token(caller, DELIVERIES)
-deliver(raw, caller, session_container())
-print("delivered " + identifier)
+def main():
+    caller, receiver, access = bound_access()
+    check_caller_node(caller)
+    lock = hold_caller_lock(caller)
+    try:
+        raw, identifier = checked_message(caller, receiver, access)
+    except Refusal as refusal:
+        spend_token(caller, REFUSALS)
+        refuse(refusal.status, refusal.reason)
+    spend_token(caller, DELIVERIES)
+    deliver(raw, caller, session_container())
+    print("delivered " + identifier)
+    lock.close()
+
+
+if __name__ == "__main__":
+    main()

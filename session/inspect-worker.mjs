@@ -3,6 +3,7 @@ import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { endTerminal, isLive, isStopped, passes, save, terminalOf } from './workers.mjs';
 import { canFinish, isPublished, lifecycleOf, publication, readyAt } from './worker-lifecycle.mjs';
+import { waitsForHuman } from './worker-human.mjs';
 import { keepResult } from './worker-results.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
@@ -63,14 +64,17 @@ function inspectLive(worker, terminal, state, { now, terminals }) {
   return undefined;
 }
 
-function reportCurrent(worker, terminal, state, isSettled) {
-  const { status = 'starting', turn = 0 } = terminal;
+// A worker that waits for the person is blocked however idle Pi looks, and never reaches the settled close.
+function reportCurrent(worker, terminal, state, canSettle) {
+  const isWaiting = terminal.status === 'blocked' || waitsForHuman(worker, terminal);
+  const { turn = 0 } = terminal;
+  const status = isWaiting ? 'blocked' : terminal.status ?? 'starting';
   if (!REPORTABLE.has(status)) return;
   const facts = gitFacts(worker);
-  const result = isSettled && isPublished(facts) ? state.generation : 'open';
+  const result = !isWaiting && canSettle && isPublished(facts) ? state.generation : 'open';
   const wake = `${worker.name}-${worker.launchId}-${turn}-${status}-${result}`;
   if (worker.lastReport === wake) return;
-  report(worker, terminal, status, wake, state, facts, isSettled);
+  report(worker, terminal, status, wake, state, facts, canSettle && !isWaiting);
 }
 
 function inspectLaunch(worker, view) {
