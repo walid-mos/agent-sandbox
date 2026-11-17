@@ -78,6 +78,9 @@ run_trusted() {
 	sandbox_vm sudo env POTS_TRANSPORT=local python3 -I "$POTS_TRUSTED_LAUNCHER" run "$@"
 }
 
+# The image's init renumbers the session user, which usermod refuses while a process runs as it; the bound stays under the tailnet guard's two-minute start timeout.
+SESSION_INIT_SECONDS=60
+
 session_exec() {
 	input=
 	if [ "$1" = --interactive ]; then
@@ -86,7 +89,20 @@ session_exec() {
 	fi
 	container=$1
 	shift
-	sandbox_docker exec $input --user root "$container" s6-setuidgid "$POTS_SESSION_USER" env HOME="$POTS_SESSION_HOME" "$@"
+	sandbox_docker exec $input --user root "$container" sh -c '
+		limit=$1 container=$2 service=$3 user=$4 home=$5
+		shift 5
+		waited=0
+		until s6-rc -a list 2> /dev/null | grep -qx "$service"; do
+			if [ "$waited" -ge "$limit" ]; then
+				echo "session_exec: s6-rc -a list in $container shows no $service after $limit seconds, so the image init has not finished and nothing ran as $user. Read docker logs $container in the VM, then rerun, or relaunch the session with bin/pots-session restart." >&2
+				exit 1
+			fi
+			waited=$((waited + 1))
+			sleep 1
+		done
+		exec s6-setuidgid "$user" env HOME="$home" "$@"
+	' session-exec "$SESSION_INIT_SECONDS" "$container" "$POTS_SESSION_INIT_SERVICE" "$POTS_SESSION_USER" "$POTS_SESSION_HOME" "$@"
 }
 
 restart_services() {
