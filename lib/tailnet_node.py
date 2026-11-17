@@ -206,13 +206,20 @@ def verify(role, pot, *named_targets):
     print(f"tailnet_node: {node_name(role, pot)} matches the pots policy; shields down")
 
 
-# Run every minute from the VM: shields only go up here, and only verify, from bin/tailnet-up, lowers them once every check passes.
-def guard(role):
-    status = daemon_status()
+def guard_problems(role):
+    status = tailscale_json("status", "--json", "--peers=false")
     if status.get("BackendState") in UNJOINED_STATES:
-        return
+        return []
     own = status.get("Self") or {}
-    problems = inbound_problems(role, own) + capability_problems(own)
+    return inbound_problems(role, own) + capability_problems(own)
+
+
+# Run every minute from the VM: shields only go up here, also on any error reading or judging the node's filter, and only verify lowers them.
+def guard(role):
+    try:
+        problems = guard_problems(role)
+    except Exception as error:
+        problems = [f"the guard could not read this node's status or packet filter ({type(error).__name__}: {error})"]
     if problems:
         subprocess.run(["tailscale", "set", "--shields-up=true"], check=True)
         fail("shields raised: " + "; ".join(problems) + ". " + POLICY_GUIDANCE)
