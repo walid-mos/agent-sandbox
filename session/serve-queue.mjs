@@ -1,3 +1,4 @@
+import { AdmissionDeferred } from './admission.mjs';
 import { maxWorkers } from './limits.mjs';
 import { dequeue, queued, updateRequest } from './queue.mjs';
 import { command, failureReason } from './run.mjs';
@@ -36,6 +37,7 @@ function start(request, worker) {
   try {
     launch(worker, conversationOf(worker));
   } catch (error) {
+    if (error instanceof AdmissionDeferred) return undefined;
     reportNotStarted(request, worker, error);
     return false;
   }
@@ -55,7 +57,10 @@ function workerForRequest(request, records) {
 
 function startWaiting(request, worker, running) {
   if (running.has(worker.name)) return;
-  if (running.size < maxWorkers && start(request, worker)) running.add(worker.name);
+  if (running.size >= maxWorkers) return;
+  const started = start(request, worker);
+  if (started) running.add(worker.name);
+  return started === undefined ? 'deferred' : undefined;
 }
 
 function deliverRequest(request, terminal, worker) {
@@ -69,18 +74,20 @@ function serve(request, { records, terminals, running }) {
   const terminal = terminalOf(worker, terminals);
   if (terminal) return deliverRequest(request, terminal, worker);
   if (terminals.some(candidate => candidate.name === worker.name)) throw new Error('dispatch: terminal ownership changed. Inspect it before sending.');
-  startWaiting(request, worker, running);
+  return startWaiting(request, worker, running);
 }
 
 /** Serves the requests in arrival order: a message reaches a worker that runs, and a waiting worker starts while a slot is free. */
 export function serveQueue(terminals, logFailure) {
   const records = new Map(workers().map(worker => [worker.name, worker]));
   const running = new Set(terminals.map(terminal => terminal.name).filter(name => records.has(name)));
+  let isDeferred = false;
   for (const request of queued()) {
     try {
-      serve(request, { records, terminals, running });
+      if (serve(request, { records, terminals, running }) === 'deferred') isDeferred = true;
     } catch (error) {
       logFailure(request.worker, error);
     }
   }
+  return isDeferred;
 }

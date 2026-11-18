@@ -106,7 +106,7 @@ function startBeforeActivation() {
     type: 'message', message: { role: 'user', content: brief },
   })}\n`);
   writeFileSync(record, JSON.stringify({ ...started, sessionFile }));
-  writeFileSync(savedWorker, JSON.stringify({ name: worker.name, sessionFile, brief }));
+  writeFileSync(savedWorker, JSON.stringify({ ...worker, sessionFile, brief }));
   return { phase, oldBriefNamesPushPolicy: false };
 }
 
@@ -116,12 +116,26 @@ function resumeAfterActivation() {
   const arguments_ = serve();
   assert.equal(arguments_[arguments_.indexOf('--session') + 1], saved.sessionFile);
   assert.equal(JSON.parse(readFileSync(saved.sessionFile, 'utf8').split('\n')[1]).message.content, saved.brief);
-  return arguments_.includes('--append-system-prompt') || arguments_.some(argument => argument.startsWith('@'));
+  return { saved, prompt: promptOf(arguments_) };
+}
+
+function promptOf(arguments_) {
+  const index = arguments_.indexOf('--append-system-prompt');
+  return index < 0 ? '' : arguments_[index + 1];
+}
+
+function publishRoutine(worker) {
+  run('git', ['-C', worker.worktree, 'commit', '--quiet', '--allow-empty', '-m', 'Routine worker change']);
+  run('git', ['-C', worker.worktree, 'push', '--quiet', 'origin', 'HEAD']);
+  const head = run('git', ['-C', worker.worktree, 'rev-parse', 'HEAD']);
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', `refs/heads/${worker.branch}`]), head);
+  return head;
 }
 
 function startAfterActivation() {
   assert.ok(readFileSync(policy, 'utf8').includes(routinePolicy));
   const fresh = dispatch(branches.fresh);
+  const freshPrompt = promptOf(readFileSync(launchLog, 'utf8').trimEnd().split('\n'));
   const client = dispatch(branches.client, { PROBE_CLIENT_RULES: clientRules });
   const freshBrief = readFileSync(fresh.brief, 'utf8');
   const clientBrief = readFileSync(client.brief, 'utf8');
@@ -130,9 +144,16 @@ function startAfterActivation() {
   assert.ok(clientBrief.includes(policy) && clientBrief.includes(clientRules));
   assert.ok(!clientBrief.includes(rulesText));
   assert.equal(readFileSync(clientRules, 'utf8'), rulesText);
-  const resumeHasPromptOverride = resumeAfterActivation();
-  return { phase, resumedOriginalSession: true, resumeHasPromptOverride, freshReferencesPolicy: true,
-    clientReferencesRules: true, localBootstrapPushes: [branches.before, branches.fresh, branches.client] };
+  const { saved, prompt } = resumeAfterActivation();
+  if (process.env.FACTORY_RELEASE_REQUIRE_RESUME_POLICY === '1') {
+    for (const instructions of [freshPrompt, prompt]) {
+      assert.ok(instructions.includes(policy));
+      assert.ok(instructions.includes('configured client rules'));
+    }
+  }
+  const routinePushes = prompt ? [publishRoutine(fresh), publishRoutine(saved)] : [];
+  return { phase, resumedOriginalSession: true, resumeHasPromptOverride: Boolean(prompt), freshReferencesPolicy: true,
+    clientReferencesRules: true, localBootstrapPushes: [branches.before, branches.fresh, branches.client], routinePushes };
 }
 
 assert.ok(['before', 'after'].includes(phase));

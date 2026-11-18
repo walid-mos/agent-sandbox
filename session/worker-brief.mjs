@@ -1,10 +1,10 @@
 import { join } from 'node:path';
 import { idleStackMinutes } from './limits.mjs';
 import { sandbox } from './sandbox.mjs';
+import { PUSH_POLICY_GUIDE } from './worker-push-policy.mjs';
 import { PUBLICATION } from './workers.mjs';
 
 const CLEAN_PASS_GUIDE = join(import.meta.dirname, 'clean-pass.md');
-const PUSH_POLICY_GUIDE = join(import.meta.dirname, '../docs/human-dialogs.md');
 
 export function repositoryBrief(worker) {
   const isLocal = worker.publication === PUBLICATION.local;

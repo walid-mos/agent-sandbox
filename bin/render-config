@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -21,12 +22,20 @@ launch = assignments("session/launch.env")
 def session_binds():
     clone, configuration = launch["POTS_SESSION_REPOSITORY"], launch["POTS_SESSION_CONFIGURATION"]
     broker = str(Path(launch["POTS_VAULT_SOCKET"]).parent)
-    shared = (clone, configuration, broker)
+    checkout = os.environ.get('POTS_RELEASE_CHECKOUT', clone)
+    control = os.environ.get('POTS_RELEASE_CONTROL')
+    revision = os.environ.get('POTS_RELEASE_MARKER')
+    if bool(control) != bool(revision):
+        raise SystemExit('render-config: release control and revision marker must be supplied together')
+    managed = [] if not control else [f"{control}:{launch['POTS_ADMISSION']}:ro",
+                                      f"{revision}:{launch['POTS_RELEASE_ID']}:ro"]
+    shared = (checkout, configuration, broker, *(value for value in (control, revision) if value))
     if any(Path(launch["POTS_VAULT_IDENTITY"]).is_relative_to(path) for path in shared):
         raise SystemExit("render-config: POTS_VAULT_IDENTITY must stay outside every path the session mounts. Fix session/launch.env.")
     return [
-        f"{clone}:{clone}:ro",
-        f"{clone}/session/services.d:/custom-services.d:ro",
+        f"{checkout}:{clone}:ro",
+        f"{checkout}/session/services.d:/custom-services.d:ro",
+        *managed,
         f"{configuration}:{configuration}:ro",
         f"{broker}:{broker}:ro",
         f"{launch['POTS_INNER_DOCKER_VOLUME']}:/var/lib/docker:rw",

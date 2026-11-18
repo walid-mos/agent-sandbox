@@ -1,6 +1,6 @@
 # Managed receiver
 
-The receiver stages a Factory-signed candidate, asks a runtime adapter to switch releases, and keeps the previous healthy release for recovery. The VM uses its existing operator-signed updater until the installed integration described below is complete.
+The receiver stages a Factory-signed candidate, asks a runtime adapter to switch releases, and keeps the previous healthy release for recovery. The scheduled service uses the operator-signed updater until the VM has an enrolled receiver.
 
 ```mermaid
 stateDiagram-v2
@@ -22,8 +22,8 @@ stateDiagram-v2
 | `checkout/`, `trusted-signers.asc`, `candidate.git/`, `source` | The preflight inputs described in [managed update preflight](managed-update-preflight.md). |
 | `releases/REVISION/` | One protected checkout per candidate, materialized by `poll` after verification. |
 | `factory-signers.asc` | Public keys the Factory signer may use. The operator key file never authorizes a Factory landing. |
-| `runtime` | Executable owned by the receiver account. It takes `idle`, `restart`, `health` or `dispatch`, then the checkout path, the revision and extra arguments. |
-| `status.json`, `admission.lock` | Receiver state and the admission lock. |
+| `runtime` | Adapter executable for the standalone receiver command. It takes `idle`, `restart`, `health` or `dispatch`, then the checkout path, the revision and extra arguments. The installed VM path uses `VmSession` instead. |
+| `control/` | The admission lock, receiver status and per-release revision markers. The session mounts it read-only. |
 
 ## Candidate rule
 
@@ -69,17 +69,20 @@ FACTORY_RELEASE_EXPORT=DIRECTORY python3 -B probes/factory-producer-receiver.py
 
 The first command uses disposable keys and a simulated runtime. It covers signature and tree refusal, idle retry, health disagreement, rollback and recovery after a killed receiver. Set `FACTORY_RELEASE_REVISION` to exercise the dispatcher from a reviewed source commit. The second command uses the producer export as the fetch source and covers activation, interruption, rollback and signature refusal. Set `FACTORY_RELEASE_DISPATCH=1` only with an export whose signed tree contains the reviewed dispatcher probes.
 
-For the push-policy cutover, run the first command with `FACTORY_RELEASE_DISPATCH_BASE=512e4f16b4c8fa206d67b69331e7ec175b1d5ed9` and `FACTORY_RELEASE_REVISION=67584ad6dbf10ee3149948c92b858afde7df7582`. The probe runs the dispatcher and queue against both exact source trees, uses a local Git remote for bootstrap pushes, and captures the Pi launch arguments. It checks the policy reference for fresh workers and the extra client-rules reference when configured. Resume opens the original session file. The launch arguments show whether resume passes any new prompt text.
+For the push-policy cutover, run the first command with `FACTORY_RELEASE_DISPATCH_BASE=512e4f16b4c8fa206d67b69331e7ec175b1d5ed9` and `FACTORY_RELEASE_REVISION=67584ad6dbf10ee3149948c92b858afde7df7582`. The probe runs the dispatcher and queue against both exact source trees, uses a local Git remote for bootstrap pushes, and captures the Pi launch arguments. It checks the policy reference for fresh workers and the extra client-rules reference when configured. Resume opens the original session file. Set `FACTORY_RELEASE_REQUIRE_RESUME_POLICY=1` with a candidate that includes the launch fix to require the current push-policy reference in both fresh and resumed Pi startup arguments. The case then scripts two ordinary pushes to the local remote. The broker tests exercise two separate exact client receipts.
 
 Before declaring the signed rollout verified, resume a worker whose saved session predates the policy, with a routine topic-branch commit waiting to push. Confirm that it reads the policy from the loaded release, that the expected commit reaches the remote, and that the broker records no push question. Repeat with a fresh worker. In a client-rules pot, check that two successive pushes each get their own scoped question and neither reaches the remote before its approval. The disposable fixture ends at Pi startup and bootstrap publication.
 
 ## Installed integration
 
-| Source owner | Remaining file or interface | Checked restriction |
-| --- | --- | --- |
-| #53 with #30 | `vm/pots-update.service`, `bin/vm-trust`, `lib/trusted_source.py` | The timer invokes the installed operator-only updater. The install bundle lacks the receiver. #30 also changes the installer and launcher. Replace the timer path at cutover and keep Factory trust confined to the receiver. |
-| #53 with the VM runtime owner | `bin/render-config`, `bin/pots-session`, `vm/keeper`, `session/services.d/` | Docker and SealSkin mount the fixed clone and its service definitions. The keeper can start a container or restart the router. The runtime adapter needs a release selection used by both launchers, a guarded restart path, and loaded-revision reports from gateway, watcher, router and sources. |
-| #53 with the worker runtime owner | `session/workers.mjs`, `session/serve-queue.mjs`, `session/clean-pass.mjs` and the terminal supervisor | Fresh workers and resumes share `launch`, and both that path and clean passes call `openTerminal`. They call `hc` directly today. The shared gate must cover these launches and supervisor-initiated restarts. A blocked queued start must remain queued. The exclusive VM check needs a reliable inventory of active work and dialogs before switching. |
-| #30 with #53 | Factory publication and receiver fetch | This version polls one release whose base equals the known-good checkout. Skipped releases fail closed. The supported workflow still needs ordered adoption of missed landings, with verified review objects and no bypass of a failed checkpoint. |
+`bin/vm-trust` installs the files in `vm/trusted-bundle`. The timer runs the installed launcher's `scheduled` operation, and the keeper runs `keep`. The operator-signed clone remains the source of commands that run as host root. Once enrolled, the receiver selects a verified checkout and mounts it and its service definitions read-only at the existing session paths. Docker binds these paths directly. SealSkin receives the same binds in its app template before relaunch.
 
-The installed integration needs an authorized operator-signed anchor and separately scoped Factory enrollment. Mac, Pi, Herdr, overlays and other repositories remain outside the Factory receiver policy.
+Both the update service and keeper take the receiver's exclusive lock before restarting the session. Fresh and resumed workers, including watcher recovery, take a shared lock through terminal creation. Clean passes use the same gate. The gate compares the mounted revision with the ready receiver state. A deferred worker stays in the queue. The installed adapter checks Docker's read-only mount sources and requires the gateway, router, watcher and sources service processes to report the selected revision in their environment.
+
+`FACTORY_RELEASE_EXPORT=DIRECTORY python3 -B probes/factory-installed-receiver.py` installs the manifest in a disposable directory and invokes the update and keeper unit commands. The probe uses the signed export for Git fetch and a process stand-in for Docker and s6. It covers idle deferral, a wrong signer, stale health, rollback, retry and keeper lock contention.
+
+### Production cutover
+
+Enrollment needs an authorized operator-signed anchor containing the integrated code and a separate Factory public key. The protected receiver layout, including the anchor checkout and bare candidate repository, must exist before running the installed launcher's `initialize-receiver` operation. Install and test the initial managed mount before enabling Factory publication. Native Docker or SealSkin startup must verify s6 process revision reports and the worker publication checks above. The gateway's `pots status` gives an idle snapshot. Production activation also needs a gateway drain or equivalent admission for bot turns arriving between that snapshot and container stop.
+
+For missed releases, #30 must provide stable, fetchable evidence for each successive signed landing and reviewed head. #53 must then verify each transition against its known-good parent, in order, and stop at the first failed checkpoint. Until that contract is published, a candidate with a different checked base fails closed. The single-parent fixture from #30 does not settle GitHub's production merge status under squash-only settings. Mac, Pi, Herdr, overlays and other repositories stay outside the Factory signer scope.

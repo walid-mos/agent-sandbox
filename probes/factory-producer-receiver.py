@@ -20,7 +20,7 @@ FIXTURE_ORIGIN = f'https://github.com/{FIXTURE_REPOSITORY}.git'
 
 
 @unittest.skipUnless(EXPORT, 'provide a disposable #30 export')
-class ProducerExport(probe['ActivationFixture']):
+class ProducerExportFixture(probe['ActivationFixture']):
     def setUp(self):
         super().setUp()
         self.export = Path(EXPORT)
@@ -48,6 +48,8 @@ class ProducerExport(probe['ActivationFixture']):
         ])
         return self.run_receiver(operation, *arguments, entry=['-c', script])
 
+
+class ProducerExport(ProducerExportFixture):
     def test_poll_activates_exact_producer_candidate_and_matches_checked_round(self):
         request, review = self.candidate['request'], self.receipt['review']
         self.assertEqual((request['repository'], request['number'], request['generation'], request['head'], request['base']),

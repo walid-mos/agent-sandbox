@@ -9,6 +9,9 @@ from managed_update import Blocked, SHA1, require_protected
 
 PROTOCOL = 1
 PHASES = {'ready', 'switching', 'restoring'}
+CONTROL = 'control'
+STATUS = 'status.json'
+LOCK = 'admission.lock'
 
 
 def sync_directory(path):
@@ -21,11 +24,16 @@ def sync_directory(path):
 
 @contextmanager
 def admission(root, mode):
-    descriptor = os.open(root / 'admission.lock', os.O_CREAT | os.O_NOFOLLOW | os.O_RDWR, 0o600)
+    control = root / CONTROL
+    control.mkdir(mode=0o755, exist_ok=True)
+    require_protected(control, stat.S_ISDIR, (os.geteuid(),))
+    lock = control / LOCK
+    descriptor = os.open(lock, os.O_CREAT | os.O_NOFOLLOW | os.O_RDWR, 0o644)
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise Blocked('invalid-admission-lock')
-        require_protected(root / 'admission.lock', stat.S_ISREG, (os.geteuid(),))
+        require_protected(lock, stat.S_ISREG, (os.geteuid(),))
+        os.fchmod(descriptor, 0o644)
         try:
             fcntl.flock(descriptor, mode | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -36,7 +44,7 @@ def admission(root, mode):
 
 
 def read_state(root):
-    path = root / 'status.json'
+    path = root / CONTROL / STATUS
     require_protected(path, stat.S_ISREG, (os.geteuid(),))
     try:
         state = json.loads(path.read_text())
@@ -50,15 +58,17 @@ def read_state(root):
 
 
 def write_state(root, state):
-    descriptor, filename = tempfile.mkstemp(prefix='.status.', dir=root)
+    control = root / CONTROL
+    descriptor, filename = tempfile.mkstemp(prefix='.status.', dir=control)
     try:
         with os.fdopen(descriptor, 'w') as output:
+            os.fchmod(output.fileno(), 0o644)
             json.dump(state, output)
             output.write('\n')
             output.flush()
             os.fsync(output.fileno())
-        os.replace(filename, root / 'status.json')
-        sync_directory(root)
+        os.replace(filename, control / STATUS)
+        sync_directory(control)
     finally:
         if os.path.exists(filename):
             os.unlink(filename)

@@ -83,5 +83,9 @@ python3 -B "$root/probes/client-rules.py"
 python3 -B "$root/probes/client-rules-activation.py"
 python3 -B "$root/probes/managed-update.py"
 python3 -B "$root/probes/factory-receiver.py"
+if [ -n "${FACTORY_RELEASE_EXPORT:-}" ]; then
+	python3 -B "$root/probes/factory-producer-receiver.py"
+	python3 -B "$root/probes/factory-installed-receiver.py"
+fi
 git -C "$root" diff --check
 printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'

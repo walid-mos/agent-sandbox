@@ -123,7 +123,8 @@ if verb == 'dispatch':
     else:
         sys.exit(1)
     node = {shutil.which('node')!r}
-    environment = {{**os.environ, 'PATH': {str(fake_bin)!r} + ':' + str(Path(node).parent) + ':' + os.defpath}}
+    environment = {{**os.environ, 'PATH': {str(fake_bin)!r} + ':' + str(Path(node).parent) + ':' + os.defpath,
+                    'FACTORY_RELEASE_REQUIRE_RESUME_POLICY': {os.environ.get('FACTORY_RELEASE_REQUIRE_RESUME_POLICY', '')!r}}}
     result = subprocess.run([node, *command], env=environment, capture_output=True)
     (root / 'dispatch-result').write_bytes(result.stdout + result.stderr)
     sys.stdout.buffer.write(result.stdout)

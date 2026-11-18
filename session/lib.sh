@@ -11,6 +11,10 @@ MAGPIE_API_KEY=magpie
 export NPM_CONFIG_PREFIX PATH MAGPIE_API_KEY POTS_UPSTREAM
 
 . "${POTS_REPO:-/opt/agent-sandbox}/session/launch.env"
+if [ -r "$POTS_RELEASE_ID" ]; then
+	read -r POTS_LOADED_REVISION < "$POTS_RELEASE_ID"
+	export POTS_LOADED_REVISION
+fi
 session_identity="$HOME/$POTS_SESSION_VAULT_DIRECTORY/$POTS_SESSION_VAULT_FILE"
 if [ -f "$session_identity" ]; then
 	while IFS='=' read -r name value; do

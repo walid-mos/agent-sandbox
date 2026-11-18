@@ -14,7 +14,7 @@ from factory_candidate import verify_publication
 from managed_update import (Blocked, SANDBOX, SHA1, checkout_revision, read_git, require_protected,
                             require_receiver, restrict_environment, source_origin, verify_signature)
 from receiver_staging import fetch_tip, stage_candidate
-from receiver_state import PROTOCOL, admission, read_state, write_state
+from receiver_state import CONTROL, PROTOCOL, STATUS, admission, read_state, write_state
 
 ORIGIN = source_origin(SANDBOX)
 RUNTIME_TIMEOUT_SECONDS = 60
@@ -64,7 +64,7 @@ class Receiver:
             raise Blocked('runtime-version-mismatch')
 
     def initialize(self, descriptor):
-        if os.path.lexists(self.root / 'status.json'):
+        if os.path.lexists(self.root / CONTROL / STATUS):
             raise Blocked('receiver-already-initialized')
         revision = checkout_revision(self.root / 'checkout', self.origin)
         checkout = self.require_release(revision)
@@ -149,8 +149,9 @@ class Receiver:
         try:
             self.call_runtime('restart', target, revision, descriptor)
             self.require_health(target, revision, descriptor)
-        except Blocked as problem:
-            return self.restore(changing, str(problem), descriptor)
+        except (Blocked, OSError) as problem:
+            reason = str(problem) if isinstance(problem, Blocked) else 'receiver-io-failed'
+            return self.restore(changing, reason, descriptor)
         return write_state(self.root, {**changing, 'phase': 'ready', 'known_good': revision,
                                        'filesystem': revision, 'loaded': revision})
 

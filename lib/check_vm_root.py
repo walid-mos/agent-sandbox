@@ -10,7 +10,7 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 LAUNCH = dict(line.split("=", 1) for line in (REPOSITORY / "session/launch.env").read_text().splitlines() if line)
 CLONE = LAUNCH["POTS_SESSION_REPOSITORY"]
 UNIT_LAUNCHER = f"/usr/bin/python3 -I {LAUNCH['POTS_TRUSTED_SOURCE']}/lib/trusted_source.py"
-UNIT_COMMAND = re.compile(rf"(?:{re.escape(UNIT_LAUNCHER)} (?:update|run [\w-]+(?:/[\w.-]+)*)|/usr/local/sbin/[\w-]+)(?: [\w=:,/.-]+)*")
+UNIT_COMMAND = re.compile(rf"(?:{re.escape(UNIT_LAUNCHER)} (?:scheduled|keep|update|run [\w-]+(?:/[\w.-]+)*)|/usr/local/sbin/[\w-]+)(?: [\w=:,/.-]+)*")
 UNIT_PREFIXES = "@-:+!"
 UNIT_SUFFIXES = (".service", ".socket", ".timer", ".path", ".mount")
 EXEC_KEY = re.compile(r"\s*(Exec\w*)\s*=\s*(.*?)\s*")
