@@ -5,6 +5,7 @@ import os
 import pwd
 import signal
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -14,10 +15,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
 from repository_git import BUNDLE_LIMIT, environment
 from repository_process import CleanupUnconfirmed, READ_SECONDS, terminate_and_reap, wait_for_exit, worker_input
-from vault_policy import GITHUB_PATH, Refused, read_grant
+from vault_policy import GITHUB_PATH, Refused, WRITABLE_BY_OTHERS, read_grant
 
 FETCH_ACCOUNT = 'pots-repository-read'
 READ_LOCK = threading.Lock()
+STATE_DIRECTORY_FORBIDDEN = WRITABLE_BY_OTHERS | stat.S_IRGRP | stat.S_IROTH
 CLEANUP_REFUSAL = 'Repository reads are blocked because worker cleanup could not be confirmed. Ask the VM operator to recover the broker.'
 WORKER = Path(__file__).resolve().parents[1] / 'lib/repository_bundle.py'
 
@@ -25,6 +27,9 @@ WORKER = Path(__file__).resolve().parents[1] / 'lib/repository_bundle.py'
 @contextmanager
 def pending_read(marker):
     try:
+        state = marker.parent.lstat()
+        if not stat.S_ISDIR(state.st_mode) or state.st_uid != os.geteuid() or state.st_mode & STATE_DIRECTORY_FORBIDDEN:
+            raise OSError('Repository read state directory is not private to the broker.')
         with marker.open('xb'):
             pass
     except OSError:
@@ -53,37 +58,37 @@ def bundle_for(request, sandbox, read_secret, marker):
         raise Refused('Another repository read is running. Retry after it finishes.')
     try:
         with pending_read(marker):
-            bundle = fetch_grant(request, name, read_secret)
+            bundle = fetch_grant(request, name, read_secret, marker.parent)
         return {'ok': True, 'bundle': base64.b64encode(bundle).decode('ascii')}
     finally:
         READ_LOCK.release()
 
 
-def fetch_grant(request, name, read_secret):
+def fetch_grant(request, name, read_secret, state_directory):
     token = read_secret(GITHUB_PATH, name)
     if not token or any(character in token for character in '\r\n\0'):
         raise Refused('The configured repository credential is empty or multiline. Ask the operator to replace it.')
     try:
-        return fetch(request, token)
+        return fetch(request, token, state_directory)
     except Refused as error:
         raise Refused(f"{error} Repository {request['repository']}, credential {name}.") from None
 
 
-def fetch(request, token):
+def fetch(request, token, state_directory):
     try:
         account = pwd.getpwnam(FETCH_ACCOUNT)
     except KeyError:
         raise Refused('The VM fetch account is missing. Ask the operator to run bin/vm-up.') from None
     if account.pw_uid == 0:
         raise Refused('The VM fetch account must not be root.')
-    with fetch_workspace() as directory:
+    with fetch_workspace(state_directory) as directory:
         os.chown(directory, account.pw_uid, account.pw_gid)
         return run_worker(directory, account, request, token)
 
 
 @contextmanager
-def fetch_workspace():
-    directory = tempfile.mkdtemp(prefix='repository-read-', dir='/tmp')
+def fetch_workspace(state_directory):
+    directory = tempfile.mkdtemp(prefix='repository-read-', dir=state_directory)
     is_cleanup_confirmed = True
     try:
         yield directory

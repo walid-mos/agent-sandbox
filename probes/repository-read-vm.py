@@ -123,7 +123,6 @@ def poisoned_environment(root):
 
 def configured_broker(root):
     broker = load_broker()
-    broker.SOCKET = root / 'broker.sock'
     broker.CONFIG_DIRECTORY = root
     (root / 'sandbox.json').write_text(json.dumps(POLICY))
     (root / 'vault.json').write_text(json.dumps({'project': 'fixture', 'environment': 'fixture'}))
@@ -143,11 +142,13 @@ class VMReadTests(unittest.TestCase):
             git(remote, 'config', 'uploadpack.allowAnySHA1InWant', 'true')
             broker = configured_broker(root)
             request = {'kind': 'read', 'repository': REPOSITORY, 'commits': commits}
-            directories_before = set(Path('/tmp').glob('repository-read-*'))
+            root.chmod(0o711)
+            read_state = root / 'read-state'
+            read_state.mkdir(mode=0o711)
             with github_fixture(root) as server:
                 try:
                     with poisoned_environment(root):
-                        reply = broker.answer(request)
+                        reply = broker.answer(request, read_state)
                 except Refused as error:
                     self.fail(f'{error} Fixture requests: {server.requests}, responses: {server.responses}')
                 self.assert_read_boundary(root, server, reply)
@@ -156,13 +157,13 @@ class VMReadTests(unittest.TestCase):
                     self.assertEqual(import_repository(request, imported, endpoint), [(commit, 'commit') for commit in commits])
                 server.is_refusing = True
                 with self.assertRaisesRegex(Refused, 'GitHub refused this token'):
-                    broker.answer(request)
+                    broker.answer(request, read_state)
                 server.is_redirecting = True
                 before = len(server.requests)
                 with self.assertRaisesRegex(Refused, 'Git read failed'):
-                    broker.answer(request)
+                    broker.answer(request, read_state)
                 self.assertEqual(server.requests[before:], [(f'/{REPOSITORY}.git/info/refs?service=git-upload-pack', False)])
-                self.assertEqual(set(Path('/tmp').glob('repository-read-*')), directories_before)
+                self.assertEqual(list(read_state.iterdir()), [])
 
     def assert_read_boundary(self, root, server, reply):
         self.assertEqual(set(reply), {'ok', 'bundle'})

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -23,9 +24,10 @@ class RepositoryReadTests(unittest.TestCase):
             work.mkdir()
             bundle = build_bundle(work, REPOSITORY, commits, TOKEN, run=remote)
             broker = load_broker()
-            broker.SOCKET = root / 'broker.sock'
+            read_state = root / 'read-state'
+            read_state.mkdir(mode=0o711)
             with patch.object(broker, 'read_root_json', return_value=POLICY), patch.object(broker, 'secret_values', return_value=[['GITHUB_TOKEN_REFERENCE', TOKEN]]), patch('repository_read.fetch', return_value=bundle):
-                reply = broker.answer({'kind': 'read', 'repository': REPOSITORY, 'commits': commits})
+                reply = broker.answer({'kind': 'read', 'repository': REPOSITORY, 'commits': commits}, read_state)
             self.assertEqual(set(reply), {'ok', 'bundle'})
             self.assertNotIn(TOKEN, json.dumps(reply))
             with broker_socket(root, lambda request: reply) as endpoint:
@@ -51,10 +53,10 @@ class RepositoryReadTests(unittest.TestCase):
         request = {'kind': 'read', 'repository': REPOSITORY, 'commits': []}
         attacks = [{**request, 'repository': key} for key in ['ExampleOrg/other', 'Other/reference', 'https://github.com.evil/x/y', 'file:///x', 'git@github.com:x/y', 'exampleorg/reference']]
         attacks += [{**request, 'commits': ['bad']}, {**request, 'public': True}, {**request, 'args': ['push']}, {**request, 'url': 'https://evil.invalid'}]
-        with patch.object(broker, 'read_root_json', return_value=POLICY), patch.object(broker, 'secret_values') as vault, patch('repository_read.fetch') as network:
+        with tempfile.TemporaryDirectory(prefix='repository-refusal-') as directory, patch.object(broker, 'read_root_json', return_value=POLICY), patch.object(broker, 'secret_values') as vault, patch('repository_read.fetch') as network:
             for attack in attacks:
                 with self.subTest(attack=attack), self.assertRaises(Refused):
-                    broker.answer(attack)
+                    broker.answer(attack, Path(directory))
             vault.assert_not_called()
             network.assert_not_called()
 

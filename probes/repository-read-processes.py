@@ -127,7 +127,8 @@ def read_boundary(root, mode):
     account = fetch_account()
     os.chown(records, account.pw_uid, account.pw_gid)
     os.chmod(root, 0o755)
-    directories_before = set(Path('/tmp').glob('repository-read-*'))
+    read_state = root / 'read-state'
+    read_state.mkdir(mode=0o711)
     worker = root / f'worker-{mode}.py'
     worker.write_text(WORKER_TEMPLATE.format(records=str(records), ready=str(ready), mode=mode))
     worker.chmod(0o644)
@@ -135,7 +136,7 @@ def read_boundary(root, mode):
     slot_free = False
     try:
         with patch.object(repository_read, 'WORKER', worker), patch.object(repository_read, 'READ_SECONDS', 1):
-            answer = bundle_for(request, POLICY, lambda *_: 'invented-credential', root / 'pending')
+            answer = bundle_for(request, POLICY, lambda *_: 'invented-credential', read_state / 'pending')
     except Refused as error:
         answer = error
     finally:
@@ -144,7 +145,7 @@ def read_boundary(root, mode):
             repository_read.READ_LOCK.release()
     await_ready(ready)
     identities = [json.loads((records / f'{role}.json').read_text()) for role in ('worker', 'child', 'grandchild')]
-    leftovers = set(Path('/tmp').glob('repository-read-*')) - directories_before
+    leftovers = set(read_state.iterdir())
     return {'answer': answer, 'identities': identities, 'uid': fetch_account().pw_uid, 'leftovers': leftovers, 'slot_free': slot_free}
 
 

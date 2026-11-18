@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+from configparser import ConfigParser
 from contextlib import ExitStack
 import os
 from pathlib import Path
+import stat
 import subprocess
 import tempfile
 import threading
@@ -9,7 +11,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from repository_read_fixture import POLICY, REPOSITORY
+from repository_read_fixture import POLICY, REPOSITORY, ROOT
+import repository_process
 import repository_read
 from vault_policy import Refused
 
@@ -103,6 +106,36 @@ class SupervisionTests(unittest.TestCase):
     def test_unreadable_group_state_retains_workspace_and_blocks_reads(self):
         self.assert_blocked_after(patch('repository_process.has_live_members', side_effect=PermissionError('private detail')))
 
+    def test_workspace_and_marker_outlive_private_temp(self):
+        private_tmp = self.root / 'private-tmp'
+        private_tmp.mkdir()
+        make_workspace = tempfile.mkdtemp
+
+        def make_in_fixture(*arguments, dir=None, **options):
+            parent = private_tmp if Path(dir) == Path('/tmp') else Path(dir)
+            self.assertTrue(parent.is_relative_to(self.root))
+            return make_workspace(*arguments, dir=parent, **options)
+
+        with patch.object(tempfile, 'mkdtemp', side_effect=make_in_fixture), patch('repository_process.has_live_members', side_effect=PermissionError):
+            with self.assertRaisesRegex(Refused, BLOCKED):
+                repository_read.bundle_for(REQUEST, POLICY, lambda *_: 'fixture', self.marker)
+        REMOVE_WORKSPACE(private_tmp)
+        retained, = self.marker.parent.glob('repository-read-*')
+        self.assertEqual(stat.S_IMODE(retained.stat().st_mode), 0o700)
+        self.assertTrue(self.marker.is_file())
+        read_secret = Mock()
+        with patch.object(repository_read, 'READ_LOCK', threading.Lock()), self.assertRaisesRegex(Refused, BLOCKED):
+            repository_read.bundle_for(REQUEST, POLICY, read_secret, self.marker)
+        read_secret.assert_not_called()
+
+    def test_unprotected_state_directory_refuses_before_vault_access(self):
+        self.marker.parent.chmod(0o777)
+        read_secret = Mock(return_value='fixture')
+        with self.capture_workspaces(), self.assertRaises(Refused):
+            repository_read.bundle_for(REQUEST, POLICY, read_secret, self.marker)
+        read_secret.assert_not_called()
+        self.assertEqual(self.processes, [])
+
     def test_live_group_past_deadline_retains_workspace_and_blocks_reads(self):
         with patch('repository_process.TERMINATION_SECONDS', 0):
             self.assert_blocked_after(patch('repository_process.has_live_members', return_value=True))
@@ -124,7 +157,8 @@ class SupervisionTests(unittest.TestCase):
         make_workspace = tempfile.mkdtemp
 
         def workspace_in_fixture(suffix=None, prefix=None, dir=None):
-            directory = Path(make_workspace(suffix=suffix, prefix=prefix, dir=self.root))
+            self.assertEqual(dir, self.marker.parent)
+            directory = Path(make_workspace(suffix=suffix, prefix=prefix, dir=dir))
             self.workspaces.append(directory)
             return str(directory)
 
@@ -143,6 +177,63 @@ class SupervisionTests(unittest.TestCase):
             repository_read.bundle_for(REQUEST, POLICY, read_secret, self.marker)
         self.assertEqual(str(refusal.exception), BLOCKED)
         read_secret.assert_not_called()
+
+
+class TaskInspectionTests(unittest.TestCase):
+    def setUp(self):
+        self.proc = Path(self.enterContext(tempfile.TemporaryDirectory(prefix='repository-tasks-')))
+        self.enterContext(patch.object(repository_process, 'PROC', self.proc))
+        self.process = self.proc / '40'
+        self.tasks = self.process / 'task'
+        self.write_stat(self.process, 'Z')
+        self.write_stat(self.tasks / '40', 'Z')
+
+    def write_stat(self, entry, state):
+        entry.mkdir(parents=True, exist_ok=True)
+        (entry / 'stat').write_text(f'{entry.name} (fixture ) name) {state} 1 40 40\n')
+
+    def test_exited_leader_does_not_hide_live_thread(self):
+        self.write_stat(self.tasks / '41', 'D')
+        self.assertTrue(repository_process.has_live_members(40))
+        self.assertFalse(repository_process.has_live_members(42))
+
+    def test_all_visible_tasks_exited(self):
+        self.write_stat(self.tasks / '41', 'X')
+        self.assertFalse(repository_process.has_live_members(40))
+
+    def test_missing_or_empty_task_list_is_unconfirmed(self):
+        REMOVE_WORKSPACE(self.tasks)
+        with self.assertRaises(OSError):
+            repository_process.has_live_members(40)
+        self.tasks.mkdir()
+        with self.assertRaises(OSError):
+            repository_process.has_live_members(40)
+
+    def test_visible_task_with_missing_state_is_unconfirmed(self):
+        (self.tasks / '41').mkdir()
+        with self.assertRaises(OSError):
+            repository_process.has_live_members(40)
+
+    def test_visible_process_with_missing_state_is_unconfirmed(self):
+        (self.process / 'stat').unlink()
+        with self.assertRaises(OSError):
+            repository_process.has_live_members(40)
+
+
+class WorkspaceConfigTests(unittest.TestCase):
+    def test_systemd_keeps_state_outside_private_tmp_and_session_binds(self):
+        unit = ConfigParser(interpolation=None)
+        unit.read(ROOT / 'vm/pots-vault.service')
+        service = unit['Service']
+        self.assertEqual(service['PrivateTmp'], 'yes')
+        self.assertEqual(service.get('RuntimeDirectoryPreserve'), 'yes')
+        self.assertEqual(int(service['RuntimeDirectoryMode'], 8), 0o711)
+        self.assertTrue(service['ExecStart'].endswith('vm/vault-broker'))
+        runtime = Path('/run') / service['RuntimeDirectory']
+        self.assertEqual(runtime.parent, Path('/run'))
+        binds = subprocess.check_output([ROOT / 'bin/render-config', 'binds'], text=True).splitlines()
+        for bind in binds:
+            self.assertFalse(runtime.is_relative_to(Path(bind.split(':', 1)[0])), bind)
 
 
 if __name__ == '__main__':

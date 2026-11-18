@@ -105,14 +105,14 @@ def secret_values(entries):
     return [[name, secret_value(identity, token, location, path, name)] for path, name in entries]
 
 
-def answer(request):
+def answer(request, read_state):
     if request == {"kind": "ready"}:
         return {"ok": True, "ready": IDENTITY.is_file()}
     try:
         if isinstance(request, dict) and request.get('kind') == 'read':
             return bundle_for(request, read_root_json(CONFIG_DIRECTORY / 'sandbox.json'),
                               lambda path, name: secret_values([(path, name)])[0][1],
-                              SOCKET.with_name('repository-read.pending'))
+                              read_state / 'repository-read.pending')
         return {"ok": True, "secrets": secrets_for(request)}
     except (urllib.error.URLError, OSError, ValueError):
         raise VaultFailure("the vault could not be reached or sent an unreadable answer. Check the VM's network and vault.json.") from None
@@ -125,7 +125,7 @@ class Broker(socketserver.StreamRequestHandler):
         request = None
         try:
             request = json.loads(self.rfile.readline(REQUEST_LIMIT_BYTES))
-            reply = answer(request)
+            reply = answer(request, self.server.read_state)
         except (Refused, VaultFailure) as error:
             reply = {"ok": False, "error": str(error)}
         except (ValueError, OSError):
@@ -140,7 +140,7 @@ class Server(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
 
 
-def serve():
+def serve(read_state):
     if os.geteuid() != ROOT:
         raise SystemExit("vault-broker runs as root, the only user that reads the VM's identity.")
     read_repositories(read_root_json(CONFIG_DIRECTORY / 'sandbox.json'))
@@ -148,9 +148,13 @@ def serve():
     SOCKET.parent.chmod(SOCKET_DIRECTORY_MODE)
     SOCKET.unlink(missing_ok=True)
     with Server(str(SOCKET), Broker) as server:
+        server.read_state = read_state
         SOCKET.chmod(SOCKET_MODE)
         server.serve_forever()
 
 
 if __name__ == "__main__":
-    serve()
+    read_state = Path(os.environ.get("RUNTIME_DIRECTORY", ""))
+    if not read_state.is_absolute():
+        raise SystemExit("vault-broker requires the absolute repository read runtime directory.")
+    serve(read_state)

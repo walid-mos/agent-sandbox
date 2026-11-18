@@ -9,6 +9,8 @@ import time
 READ_SECONDS = 100
 TERMINATION_SECONDS = 5
 POLL_SECONDS = 0.02
+PROC = Path('/proc')
+EXITED_STATES = (b'Z', b'X')
 
 
 class CleanupUnconfirmed(Exception):
@@ -45,17 +47,35 @@ def wait_for_exit(pid, timeout):
         os.close(descriptor)
 
 
-def has_live_members(group):
-    for entry in Path('/proc').iterdir():
-        if not entry.name.isdigit():
-            continue
+def task_stat(entry):
+    _, separator, fields = (entry / 'stat').read_bytes().rpartition(b')')
+    state, _, group, session, *_ = fields.split()
+    if not separator or len(state) != 1:
+        raise ValueError('Unreadable procfs task state.')
+    return state, int(group), int(session)
+
+
+def process_has_live_tasks(entry, group):
+    try:
+        state, process_group, session = task_stat(entry)
+    except (FileNotFoundError, ProcessLookupError) as error:
         try:
-            fields = (entry / 'stat').read_bytes().rsplit(b')', 1)[1].split()
+            entry.stat()
         except (FileNotFoundError, ProcessLookupError):
-            continue
-        if int(fields[2]) == group and int(fields[3]) == group and fields[0] not in (b'Z', b'X'):
-            return True
-    return False
+            return False
+        raise error
+    if (process_group, session) != (group, group):
+        return False
+    if state not in EXITED_STATES:
+        return True
+    tasks = {task.name: task for task in (entry / 'task').iterdir() if task.name.isdecimal()}
+    if entry.name not in tasks:
+        raise OSError('Incomplete task list for an in-scope process.')
+    return any(task_stat(task)[0] not in EXITED_STATES for task in tasks.values())
+
+
+def has_live_members(group):
+    return any(process_has_live_tasks(entry, group) for entry in PROC.iterdir() if entry.name.isdecimal())
 
 
 def leader_exited(pid):
