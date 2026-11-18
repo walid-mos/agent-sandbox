@@ -4,7 +4,15 @@ Protocol v2 fixes the parent's exact-conversation review finding. At `ad1c8f58a6
 
 This records local synthetic source validation for draft PR [#47](https://github.com/walid-mos/agent-sandbox/pull/47). It grants no rollout approval. The control and snapshot contract is in [task-handover.md](task-handover.md).
 
-## Protocol v2 verification
+## Shared reporting follow-up
+
+`probes/task-reporting.mjs` first ran against executable source at `40cdc96b14df80091f418b47cfb04f9e872b8d74`. All three cases failed at the public snapshot: an idle terminal with an open broker dialog showed `idle`, an ended standalone conversation had no observation row, and a dispatcher follow-up still showed `queued` after a successful transport recorded `sentTo`.
+
+The follow-up uses the existing task intake, dispatch queue, broker and worker lifecycle through fresh processes. The broker relay retries a lost notice under the same request ID. Repeated acceptance preserves the original decision, and a lost task-report reply retries under the same wake ID. The standalone case retains the observed session and parent while refusing selection of an ended session. The managed case observes `sent`, then `received` only after the runtime input hook records the request ID, then removes it on queue cleanup. External commands and notices are simulated. The original integrated task fixture still runs unchanged. The runner measures setup, execution and cleanup per case. Fixture authoring was not timed.
+
+[#54](https://github.com/walid-mos/agent-sandbox/pull/54) owns the stable internal `waitingSince` writer. This follow-up reads that field when available and uses the broker's `createdAt` for a human wait. [#43](https://github.com/walid-mos/agent-sandbox/pull/43) owns push capability and posted-button gating. The reporting fields preserve broker delivery without interpreting it as approval.
+
+## Protocol v2 verification at the original pinned pair
 
 `probes/task-selection.mjs` exercises the actual public control through fresh child processes and a synthetic reconnecting transport. It stores the complete v2 adoption envelope in an owned file before losing the first request before backend execution. Both refusal variants leave that retained file, task, selection and transcript unchanged, with no worker association and no terminal launch/send/kill/remove. A separate registered-worker test first failed with an unsafe pin, then passed after selection refused that conflict before changing the task. Existing `task-associate` remains usable in that case.
 

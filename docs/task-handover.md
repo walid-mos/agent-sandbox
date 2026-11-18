@@ -59,9 +59,12 @@ Each task row exposes `version`, `id`, `target`, `owner`, `text`, `provenance`, 
 
 - `worker`, the registered worker identity, and its recorded `terminal`, `sessionFile`, and `sessionId` when available.
 - `mode`, either `managed` or `adopted`, and the preserved native `parent` for adoption.
-- `status`, the current observed status, `starting`, `not started`, `stopped`, `attention-needed`, or `result-saved` when only a saved outcome remains. A launch failure also exposes its saved `failure` reason.
-- `deliveries`, derived queue IDs with `queued` or `unknown` state.
+- `observedStatus` is the raw live terminal status. `status` also accounts for broker waits, runtime waits and follow-up delivery. An idle or done terminal with pending deliveries is `waiting`. An absent execution without a saved outcome can require `attention-needed`. A launch failure also exposes its saved `failure` reason.
+- `wait.kind: "human"` identifies an open broker dialog bound to this worker and its current session. Its `owner`, `dialog`, `startedAt`, `action` and optional `delivery` come from the broker record. Delivery and posted context carry no approval capability. The broker remains the only path for the human action notice and receipt. A runtime wait uses `wait.kind: "internal"` and the current launch's `waitingSince` when published by the runtime. The work owner handles internal waits and failures.
+- `deliveries` lists pending queue IDs and recent receipts before queue cleanup. `queued` means waiting to send. `sent` includes `sentTo`, the launch ID recorded by the dispatcher. `received` requires that request ID in the verified lifecycle record for the current launch. `unknown` is an adopted follow-up with an uncertain send. A transport success, unchanged turn count, or settled-looking terminal does not establish receipt. The queue removes a managed request after Pi records its receipt.
 - Worker `branch`, `commit`, `uncommitted`, `unpushed`, `cleanPass`, `pullRequest` and `result` facts when available.
+
+`snapshot.standaloneExecutions` lists local Pi sessions that hc still exposes without a registered worker. Each record preserves the observed terminal, native parent, canonical session file and session ID. An ended terminal may still report raw `done` while its observation status is `ended`. It has no task association, result claim or authority to launch or resume. If hc no longer exposes a terminal, Herdr retains its own history. The sandbox does not reconstruct it from a parent label or write a new history store.
 
 A result is the existing worker result object with `id`, `state`, `screen`, and `transcript`. A direct execution's result additionally exposes `kind: "coordinator-attestation"`, `sessionDigest`, and `summary`. It records what the coordinator explicitly attested. It does not assert the presence of runtime pending-work checks in that direct process.
 

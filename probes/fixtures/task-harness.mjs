@@ -20,10 +20,10 @@ async function controlAsync(folder, operation, input) {
   return JSON.parse(reply.stdout);
 }
 
-function invoke(folder, module, args) {
+function invoke(folder, module, args, input) {
   return spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--experimental-test-module-mocks',
     '--import', preload, join(repository, module), ...args],
-  { encoding: 'utf8', env: { ...process.env, POTS_TASK_FIXTURE: folder } });
+  { input, encoding: 'utf8', env: { ...process.env, POTS_TASK_FIXTURE: folder } });
 }
 
 function commands(folder) {
@@ -37,7 +37,7 @@ function commands(folder) {
     const reply = invoke(folder, 'probes/fixtures/task-worker.mjs', [operation]);
     assert.equal(reply.status, 0, reply.stderr);
   };
-  return { run, control, workerStep, controlAsync: (operation, input) => controlAsync(folder, operation, input), invoke: (module, args) => invoke(folder, module, args) };
+  return { run, control, workerStep, controlAsync: (operation, input) => controlAsync(folder, operation, input), invoke: (module, args, input) => invoke(folder, module, args, input) };
 }
 
 export function fixture(t) {

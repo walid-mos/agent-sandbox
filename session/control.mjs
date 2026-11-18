@@ -11,10 +11,11 @@ import { answerBotQuestion, storeBotSecret, syncBotDialogs } from './human-bot.m
 import { main } from './main.mjs';
 import { questionIn } from './pots-questions.mjs';
 import { conversation, isFromBot, say, secretRequests, TERMINAL } from './terminal-conversation.mjs';
-import { queued } from './queue.mjs';
+import { observeWorker } from './worker-observation.mjs';
+import { standaloneExecutions } from './standalone-executions.mjs';
 import { commandOutput } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { endTerminal, isStopped, liveTerminals, markStopped, terminalOf, workerTitle, workers } from './workers.mjs';
+import { allTerminals, endTerminal, isLive, liveTerminals, markStopped, terminalOf, workerTitle, workers } from './workers.mjs';
 import { answerDialog, waitingDialog } from './worker-dialogs.mjs';
 
 const MESSAGE_LIMIT = 80;
@@ -71,20 +72,24 @@ async function snapshot() {
     section(['routine', 'list', '--bot', botId]),
     section(['trace', '--bot', botId, '--last', TRACE_LIMIT]),
   ]);
-  const terminals = liveTerminals();
-  const waiting = new Set(queued().map(request => request.worker));
-  const rows = workers().map(worker => {
-    const terminal = terminalOf(worker, terminals);
-    const isQueued = !terminal && waiting.has(worker.name);
-    const status = isStopped(worker) ? 'offline' : terminal?.status ?? (isQueued ? 'starting' : worker.status ?? 'starting');
-    const dialog = status === 'blocked' && terminal ? waitingDialog(terminal) : null;
-    return { ...worker, title: workerTitle(worker, terminal), terminal: terminal?.address ?? null, status, dialog, isQueued };
+  const terminals = allTerminals();
+  const live = terminals.filter(isLive);
+  const records = workers();
+  const observations = new Map();
+  const rows = records.map(worker => {
+    const terminal = terminalOf(worker, live);
+    const observation = observeWorker(worker, terminal);
+    observations.set(worker.name, observation);
+    const dialog = observation.status === 'blocked' && terminal ? waitingDialog(terminal) : null;
+    const isQueued = !terminal && observation.deliveries.length > 0;
+    return { ...worker, ...observation, title: workerTitle(worker, terminal), terminal: terminal?.address ?? null, dialog, isQueued };
   });
   const [status, children, routines, trace] = await sections;
   return {
     bot: { model: botModel(), activity: activityIn(status) },
     taskContract: { version: TASK_CONTRACT_VERSION, target: botId, operations: Object.keys(OPERATIONS).filter(name => name.startsWith('task-')) },
-    status, messages: recentMessages(), workers: rows, tasks: taskViews(workers(), terminals), children, routines, trace,
+    status, messages: recentMessages(), workers: rows, tasks: taskViews(records, live, observations),
+    standaloneExecutions: standaloneExecutions(records, terminals), children, routines, trace,
   };
 }
 

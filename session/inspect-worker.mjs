@@ -3,7 +3,7 @@ import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { endTerminal, isLive, isStopped, passes, save, terminalOf, workerTitle } from './workers.mjs';
 import { canFinish, isPublished, lifecycleOf, readyAt, reportFacts } from './worker-lifecycle.mjs';
-import { waitsForHuman } from './worker-human.mjs';
+import { observeWorker } from './worker-observation.mjs';
 import { keepResult } from './worker-results.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
@@ -56,9 +56,9 @@ function inspectLive(worker, terminal, state, { now, terminals }) {
 
 // A worker that waits for the person is blocked however idle Pi looks, and never reaches the settled close.
 function reportCurrent(worker, terminal, state, canSettle) {
-  const isWaiting = terminal.status === 'blocked' || waitsForHuman(worker, terminal);
+  const { status } = observeWorker(worker, terminal, state);
+  const isWaiting = status === 'blocked';
   const { turn = 0 } = terminal;
-  const status = isWaiting ? 'blocked' : terminal.status ?? 'starting';
   if (!REPORTABLE.has(status)) return;
   const facts = reportFacts(worker);
   const result = !isWaiting && canSettle && isPublished(facts) ? state.generation : 'open';
@@ -84,10 +84,10 @@ function inspectLaunch(worker, view) {
 
 function inspectAdopted(worker, view) {
   const terminal = terminalOf(worker, view.terminals);
-  const status = terminal?.status ?? 'attention-needed';
+  const { status } = observeWorker(worker, terminal);
   const wake = `${worker.name}-${terminal?.turn ?? 0}-${status}-${worker.result?.id ?? 'open'}`;
   if (worker.lastReport === wake) return;
-  const facts = terminal ? gitFacts(worker) : {};
+  const facts = terminal ? reportFacts(worker) : {};
   const note = { worker: worker.name, taskId: worker.taskId, terminal: worker.terminal, status, ...facts, result: worker.result };
   save({ ...worker, status, ...facts });
   if (!worker.taskId) command('pots', ['wake', '--bot', botId, '--id', wake, '--note', JSON.stringify(note)]);

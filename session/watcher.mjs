@@ -3,6 +3,8 @@ import { mkdirSync, watch } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { stopIdleStacks } from './idle-stacks.mjs';
 import { inspectWorker } from './inspect-worker.mjs';
+import { DIALOG_ID } from './human-contract.mjs';
+import { HUMAN_HOME } from './human-store.mjs';
 import { reportTasks } from './task-view.mjs';
 import { TASKS } from './task-store.mjs';
 import { main } from './main.mjs';
@@ -120,6 +122,10 @@ main(import.meta, () => {
   watch(LIFECYCLE, passSoon);
   watch(WORKERS, (_event, file) => {
     if (isPublicationRecord(file)) passSoon();
+  });
+  mkdirSync(HUMAN_HOME, { recursive: true, mode: 0o700 });
+  watch(HUMAN_HOME, (_event, file) => {
+    if (!file || (file.endsWith('.json') && DIALOG_ID.test(file.slice(0, -5)))) passSoon();
   });
   followTerminals();
   passSoon();
