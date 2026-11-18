@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodexJournal, durablePrivateFile, requirePrivateDirectory } from './codex-journal.mjs';
 import { captureCredentialBaseline, compareCredentialBaseline } from './codex-credential-baseline.mjs';
+import { CODEX_RECOVERY_TRANSFER_ACTIONS } from './codex-recovery-transfer-actions.mjs';
 import { codexAnswers } from './router-codex-answers.mjs';
 import { refuseCodex, requireSameSnapshot } from './router-codex-contract.mjs';
 import { readPrivateJson, readRouterConfiguration } from './router-configuration.mjs';
@@ -105,8 +106,8 @@ main(import.meta, () => runOperation({
   },
   restore: receiveRestore,
   verify: ([expectedPath, routerApi, journalPath]) => validate(expectedPath, routerApi, journalPath),
-  captureRecoveryCredentials,
+  [CODEX_RECOVERY_TRANSFER_ACTIONS.CAPTURE_CREDENTIALS]: captureRecoveryCredentials,
   compare: compareConfiguration,
-  'compare-recovery-credentials': compareRecoveryCredentials,
-  'inspect-recovery': inspectRecovery,
-}, 'usage: router-codex-transfer.mjs capture|restore API|verify EXPECTED API JOURNAL|capture-recovery-credentials EXPECTED|compare-recovery-credentials EXPECTED|compare EXPECTED|inspect-recovery EXPECTED'));
+  [CODEX_RECOVERY_TRANSFER_ACTIONS.COMPARE_CREDENTIALS]: compareRecoveryCredentials,
+  [CODEX_RECOVERY_TRANSFER_ACTIONS.INSPECT_RECOVERY]: inspectRecovery,
+}, `usage: router-codex-transfer.mjs capture|restore API|verify EXPECTED API JOURNAL|${CODEX_RECOVERY_TRANSFER_ACTIONS.CAPTURE_CREDENTIALS} EXPECTED|${CODEX_RECOVERY_TRANSFER_ACTIONS.COMPARE_CREDENTIALS} EXPECTED|compare EXPECTED|${CODEX_RECOVERY_TRANSFER_ACTIONS.INSPECT_RECOVERY} EXPECTED`));

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { CodexJournal, durablePrivateFile } from './codex-journal.mjs';
 import { main, runOperation } from './main.mjs';
 import { runCodexRecovery } from './codex-recovery.mjs';
+import { CODEX_RECOVERY_TRANSFER_ACTIONS } from './codex-recovery-transfer-actions.mjs';
 import { codexPreflight } from './codex-preflight.mjs';
 import { checkReviewedSource, CODEX_POTS, reviewAdmission, sha256, verifyResources } from './codex-review.mjs';
 import { codexAnswers } from './router-codex-answers.mjs';
@@ -80,12 +81,12 @@ function recoveryCommands(expected, runId, routerApi) {
   const transfer = action => host('sandbox-exec', ['node', '/opt/agent-sandbox/session/router-codex-transfer.mjs', action, expected]);
   const compare = transfer('compare');
   return {
-    captureCredentials: transfer('capture-recovery-credentials'),
-    compareCredentials: transfer('compare-recovery-credentials'),
+    captureCredentials: transfer(CODEX_RECOVERY_TRANSFER_ACTIONS.CAPTURE_CREDENTIALS),
+    compareCredentials: transfer(CODEX_RECOVERY_TRANSFER_ACTIONS.COMPARE_CREDENTIALS),
     restart: host('pots-session', ['restart']), restartMeasure: host('pots-session', ['name']),
     bootstrap: host('session-bootstrap', ['--codex-targeted', expected]), bootstrapMeasure: compare,
     verify: host('sandbox-exec', ['node', '/opt/agent-sandbox/session/router-codex-transfer.mjs', 'verify', expected, routerApi,
-      join(dirname(dirname(expected)), `recovery-${runId}`)]), verifyMeasure: compare, inspect: transfer('inspect-recovery'),
+      join(dirname(dirname(expected)), `recovery-${runId}`)]), verifyMeasure: compare, inspect: transfer(CODEX_RECOVERY_TRANSFER_ACTIONS.INSPECT_RECOVERY),
   };
 }
 

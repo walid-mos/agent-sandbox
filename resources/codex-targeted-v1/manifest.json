@@ -556,8 +556,8 @@
       "bytes": 1871
     },
     "session/codex-credential-baseline.test.mjs": {
-      "sha256": "98a688a8e8bc58590cbcb5fee036ed26c09412623049a97a64bfd07016cb5e2b",
-      "bytes": 1687
+      "sha256": "c953ec013fe11e70990fbf26dc5d927a7dc55426d96fbbb0bc3ae71f9cd20836",
+      "bytes": 4583
     },
     "session/codex-journal.mjs": {
       "sha256": "ae2e9311911d7133221b9982d8542beed62a473eb82a2426ef540271de9994b6",
@@ -574,6 +574,10 @@
     "session/codex-preflight.mjs": {
       "sha256": "809c3993c3353524b0ac06930d3cf9b090989f37ba447925eda624d213e8a62d",
       "bytes": 5307
+    },
+    "session/codex-recovery-transfer-actions.mjs": {
+      "sha256": "29ed2aa4b586a7e00e6b749bcfb324e242fd3183ba249dc1286f5fc7359d05cc",
+      "bytes": 217
     },
     "session/codex-recovery.mjs": {
       "sha256": "432f838917701bf3e75b0b84e4b2313aa70807d21aac9d986f83d8bf0d49957d",
@@ -592,8 +596,8 @@
       "bytes": 3752
     },
     "session/codex-rollout.mjs": {
-      "sha256": "c7f1d34896ed366ebab40eb95882c2e5563aeac54c2e517e91e03147ac097c2f",
-      "bytes": 8317
+      "sha256": "ab059a237c776aa7cb8b8c74df780153758e0f97177e586d3ef16b45ad64a1a4",
+      "bytes": 8478
     },
     "session/codex-validation.mjs": {
       "sha256": "8c66f650bf3ea358fd52760ee2eee1ba435788e8a571060c3da9401754db3bd2",
@@ -960,8 +964,8 @@
       "bytes": 2935
     },
     "session/router-codex-transfer.mjs": {
-      "sha256": "6e94720c44cee4fdfb71da817a9780344bb98aa60f62664c9e7249015f2f681f",
-      "bytes": 5583
+      "sha256": "18a4b058d698e8108837ef4aea8fcc07e296868180cf8210c3d148ff539daf55",
+      "bytes": 5869
     },
     "session/router-codex.mjs": {
       "sha256": "b6368b670480254ca6ebf1319caa311987654a72e2b4a5144b97effb4ed0671c",
