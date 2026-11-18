@@ -5,7 +5,7 @@ import { test } from 'node:test';
 
 import { sandboxFixture } from './fixtures/sandbox.mjs';
 
-const { home } = sandboxFixture('approval-proof-');
+const { home, sandbox } = sandboxFixture('approval-proof-');
 const { humanStore } = await import('../session/human-store.mjs');
 const { syncBotDialogs, botDialogId } = await import('../session/human-bot.mjs');
 const { answerQuestion, cancelDialog, completionNeed, acceptDoorAnswer, questionPacket, questionDigest } = await import('../session/human-dialogs.mjs');
@@ -21,6 +21,7 @@ const CHANNEL = '10000000000000004';
 const MESSAGE = '10000000000000005';
 const URL = `https://discord.com/channels/${GUILD}/${CHANNEL}/${MESSAGE}`;
 const IDENTITY = { pushApprovalsEnabled: true, userId: OPERATOR };
+sandbox.humanDiscord = IDENTITY;
 const SCOPE = `One startup push for accor-hotels/product-data-apps: ${'a'.repeat(40)} to origin refs/heads/feat/DA-250-freeze-campaign-establishments`;
 const choices = ['Approve this startup push', 'Keep local'];
 const folder = () => mkdtempSync(join(home, 'store-'));
