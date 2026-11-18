@@ -110,6 +110,8 @@ def answer(request, read_state):
         return {"ok": True, "ready": IDENTITY.is_file()}
     try:
         if isinstance(request, dict) and request.get('kind') == 'read':
+            if not read_state.is_absolute():
+                raise Refused('Repository read state directory is not configured. Ask the VM operator to check the broker unit.')
             return bundle_for(request, read_root_json(CONFIG_DIRECTORY / 'sandbox.json'),
                               lambda path, name: secret_values([(path, name)])[0][1],
                               read_state / 'repository-read.pending')
@@ -154,7 +156,4 @@ def serve(read_state):
 
 
 if __name__ == "__main__":
-    read_state = Path(os.environ.get("RUNTIME_DIRECTORY", ""))
-    if not read_state.is_absolute():
-        raise SystemExit("vault-broker requires the absolute repository read runtime directory.")
-    serve(read_state)
+    serve(Path(os.environ.get("RUNTIME_DIRECTORY", "")))

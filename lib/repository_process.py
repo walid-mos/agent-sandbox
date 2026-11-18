@@ -55,23 +55,27 @@ def task_stat(entry):
     return state, int(group), int(session)
 
 
-def process_has_live_tasks(entry, group):
-    try:
-        state, process_group, session = task_stat(entry)
-    except (FileNotFoundError, ProcessLookupError) as error:
-        try:
-            entry.stat()
-        except (FileNotFoundError, ProcessLookupError):
-            return False
-        raise error
+def inspect_process_tasks(entry, group):
+    state, process_group, session = task_stat(entry)
     if (process_group, session) != (group, group):
         return False
     if state not in EXITED_STATES:
         return True
     tasks = {task.name: task for task in (entry / 'task').iterdir() if task.name.isdecimal()}
     if entry.name not in tasks:
-        raise OSError('Incomplete task list for an in-scope process.')
+        raise ProcessLookupError('Incomplete task list for an in-scope process.')
     return any(task_stat(task)[0] not in EXITED_STATES for task in tasks.values())
+
+
+def process_has_live_tasks(entry, group):
+    try:
+        return inspect_process_tasks(entry, group)
+    except (FileNotFoundError, ProcessLookupError) as error:
+        try:
+            entry.stat()
+        except (FileNotFoundError, ProcessLookupError):
+            return False
+        raise error
 
 
 def has_live_members(group):

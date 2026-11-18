@@ -214,6 +214,17 @@ class TaskInspectionTests(unittest.TestCase):
         with self.assertRaises(OSError):
             repository_process.has_live_members(40)
 
+    def test_process_reaped_during_task_inspection_is_confirmed_gone(self):
+        enumerate_directory = Path.iterdir
+
+        def reap_before_task_listing(path):
+            if path == self.tasks:
+                REMOVE_WORKSPACE(self.process)
+            return enumerate_directory(path)
+
+        with patch.object(Path, 'iterdir', reap_before_task_listing):
+            self.assertFalse(repository_process.has_live_members(40))
+
     def test_visible_process_with_missing_state_is_unconfirmed(self):
         (self.process / 'stat').unlink()
         with self.assertRaises(OSError):
