@@ -60,13 +60,18 @@ export class WorkerRuntime {
     this.#state = { ...this.#worker, terminal: process.env.HC_TERMINAL_ID,
       sessionFile: context.sessionManager.getSessionFile(), sessionId: context.sessionManager.getSessionId(),
       leaf: context.sessionManager.getLeafId(), generation: randomUUID(), phase, received: [...this.#received],
-      ...(phase === 'settled' && { settledAt: Date.now() }), ...(phase === 'waiting' && { waitingSince: Date.now() }) };
+      ...(phase === 'settled' && { settledAt: Date.now() }),
+      ...(phase === 'waiting' && { waitingSince: this.#state?.phase === 'waiting' ? this.#state.waitingSince : Date.now() }) };
     writePrivateJson(statePath(this.#worker), this.#state);
   }
 
-  invalidate(context) {
+  #clearReceipt() {
     this.#cancelClose();
     rmSync(receiptPath(this.#worker), { force: true });
+  }
+
+  invalidate(context) {
+    this.#clearReceipt();
     this.#publish(context, 'active');
   }
 
@@ -90,9 +95,9 @@ export class WorkerRuntime {
   }
 
   settle(context) {
-    this.invalidate(context);
-    if (hasRunningWork(this.#pi)) this.#publish(context, 'waiting');
-    else if (this.#isDone(context)) this.#publish(context, 'settled');
+    this.#clearReceipt();
+    if (hasRunningWork(this.#pi)) return this.#publish(context, 'waiting');
+    this.#publish(context, this.#isDone(context) ? 'settled' : 'active');
   }
 
   finish(context) {
