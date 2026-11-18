@@ -1,10 +1,36 @@
 # Task handover source validation
 
-Protocol v2 fixes the parent's exact-conversation review finding. At `ad1c8f58a630ef44d3a04955e62caf986d2539c6`, a synthetic request lost before the first backend adoption followed by a session change reproduced an unsafe successful retry: expected exit 1, actual exit 0. The replacement flow persists a backend-issued selection before adoption, retains the versioned token on disk, and refuses both a changed session path and a changed session header without associations or terminal mutation. The v1 milestones below remain historical evidence. Final v2 factory results are recorded after its contract checkpoint is published.
+Protocol v2 fixes the parent's exact-conversation review finding. At `ad1c8f58a630ef44d3a04955e62caf986d2539c6`, a synthetic request lost before the first backend adoption followed by a session change reproduced an unsafe successful retry: expected exit 1, actual exit 0. The replacement flow persists a backend-issued selection before adoption, retains the versioned token on disk, and refuses both a changed session path and a changed session header without associations or terminal mutation. The v1 milestones below remain historical evidence. The v2 implementation and contract checkpoint is `b90eb4eb38a7f042b200da7daa7cb2e95fa25c28`, published and sent to the parent before its final factory gates. The parent must revalidate paired Herdr source against v2 rather than the superseded v1 checkpoint.
 
 This records local synthetic source validation for draft PR [#47](https://github.com/walid-mos/agent-sandbox/pull/47). It grants no rollout approval. The control and snapshot contract is in [task-handover.md](task-handover.md).
 
-## Before and after
+## Protocol v2 verification
+
+`probes/task-selection.mjs` exercises the actual public control through fresh child processes and a synthetic reconnecting transport. It stores the complete v2 adoption envelope in an owned file before losing the first request before backend execution. Both refusal variants leave that retained file, task, selection and transcript unchanged, with no worker association and no terminal launch/send/kill/remove. A separate registered-worker test first failed with an unsafe pin, then passed after selection refused that conflict before changing the task. Existing `task-associate` remains usable in that case.
+
+| V2 test | Requirement |
+| --- | --- |
+| versioned control refuses missing or unsafe v1 envelopes before intake | Version 2 capabilities and replies agree, while old clients create no intake |
+| adoption retry lost before commit refuses a changed session path at the same address | Durable selection survives transport loss without adopting conversation B |
+| adoption retry lost before commit refuses a changed session header at the same address | Replacing conversation identity at the same file path is also refused |
+| selection refuses an existing registered worker before pinning the task | Conflicting registration cannot leave an unusable pin or block normal association |
+| selection is bound to its task and refuses changed native parent metadata | Cross-task token reuse and changed native execution metadata cannot associate a worker |
+| selection survives restart and lost replies without recapturing or authorizing another execution | Repeated selection/adoption retain one worker, reject forged metadata and dispatch/association bypass, allow same-session progress, and detect a changed header after adoption |
+
+The final source checkpoint passed all required gates in the actual `agent-sandbox-factory:e359043d8f19` image, ID `sha256:5c3f42c3b6351363774408dd972af58d7a2b6a134f938b43f1bee0a9f6388184`, against base `6d71925e5467b58e7a935498c5a271cf5a9c059b`. The exact Dockerfile digest and image tools matched the earlier image record below. A credential-free Git bundle and factory scripts from this exact checkpoint were exported into owned disposable storage. Every container ran as the image's `node` user with disabled network, all capabilities dropped, no privilege escalation, the factory's process/memory limits, disposable HOME and read-only `/factory`, without a live checkout, credentials, session home or Docker socket.
+
+| Actual v2 container gate | Exit | Result | Retained log |
+| --- | ---: | --- | --- |
+| `sh /factory/attacks.sh` | 0 | All eight attacks closed | `probe.log` |
+| `./bin/check` | 0 | 171 JavaScript and 22 Python tests passed, including 19 task-related checks, plus dispatch/syntax/configuration/whitespace | `check.log` |
+| `node /factory/shellcheck-new.mjs 6d71925e5467b58e7a935498c5a271cf5a9c059b` | 0 | One changed shell file, zero new findings | `shellcheck.log` |
+| `fallow audit --base 6d71925e5467b58e7a935498c5a271cf5a9c059b` | 0 | Passed over 29 changed files | `fallow.log` |
+
+The final logs and ownership/exit evidence are under `/config/reports/herdr-factory-b90eb4e-c193d2/`. `ownership.json` records exact container IDs and verified removal of all five owned containers and the disposable workspace. The v1 run directory remains separate historical evidence.
+
+Fallow reported zero dead code, 37 complexity warnings, maximum cyclomatic complexity 14, and two test clone groups totaling 29 duplicated lines. It excluded 12 inherited findings. Compared with the previous source run, the selection-validation callback and `selectedExecution` add two static complexity-risk warnings, with cyclomatic complexity 8 and 5. Test clone groups decreased from three to two. Missing coverage and `node_modules` remain the same documented limitations. No warning was suppressed. All actual gates passed after the reproduced regressions were fixed.
+
+## Historical v1 before and after
 
 The before production source was `46bdc83c2978e7a045ecc47c2f6bea9f1651c25d`. The representative child-process flow called the actual `session/control.mjs task-submit` entry point and failed with its usage output because no intake operation existed. Fixture import failures were corrected before recording that meaningful red result.
 
