@@ -123,6 +123,7 @@ def poisoned_environment(root):
 
 def configured_broker(root):
     broker = load_broker()
+    broker.SOCKET = root / 'broker.sock'
     broker.CONFIG_DIRECTORY = root
     (root / 'sandbox.json').write_text(json.dumps(POLICY))
     (root / 'vault.json').write_text(json.dumps({'project': 'fixture', 'environment': 'fixture'}))

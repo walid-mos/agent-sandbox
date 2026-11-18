@@ -23,6 +23,7 @@ class RepositoryReadTests(unittest.TestCase):
             work.mkdir()
             bundle = build_bundle(work, REPOSITORY, commits, TOKEN, run=remote)
             broker = load_broker()
+            broker.SOCKET = root / 'broker.sock'
             with patch.object(broker, 'read_root_json', return_value=POLICY), patch.object(broker, 'secret_values', return_value=[['GITHUB_TOKEN_REFERENCE', TOKEN]]), patch('repository_read.fetch', return_value=bundle):
                 reply = broker.answer({'kind': 'read', 'repository': REPOSITORY, 'commits': commits})
             self.assertEqual(set(reply), {'ok', 'bundle'})

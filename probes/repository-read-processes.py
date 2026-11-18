@@ -135,7 +135,7 @@ def read_boundary(root, mode):
     slot_free = False
     try:
         with patch.object(repository_read, 'WORKER', worker), patch.object(repository_read, 'READ_SECONDS', 1):
-            answer = bundle_for(request, POLICY, lambda path, name: 'invented-credential' if path == '/tools/github' else None)
+            answer = bundle_for(request, POLICY, lambda *_: 'invented-credential', root / 'pending')
     except Refused as error:
         answer = error
     finally:

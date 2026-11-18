@@ -111,7 +111,8 @@ def answer(request):
     try:
         if isinstance(request, dict) and request.get('kind') == 'read':
             return bundle_for(request, read_root_json(CONFIG_DIRECTORY / 'sandbox.json'),
-                              lambda path, name: secret_values([(path, name)])[0][1])
+                              lambda path, name: secret_values([(path, name)])[0][1],
+                              SOCKET.with_name('repository-read.pending'))
         return {"ok": True, "secrets": secrets_for(request)}
     except (urllib.error.URLError, OSError, ValueError):
         raise VaultFailure("the vault could not be reached or sent an unreadable answer. Check the VM's network and vault.json.") from None
