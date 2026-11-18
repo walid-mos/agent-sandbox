@@ -62,9 +62,9 @@ The Factory bot of this sandbox checks, judges and merges the open pull requests
 
 ## A push that waits for the person's yes
 
-When the rules loaded in this session make a push wait for the person's yes, every push of every worker goes through you.
+Before `start` or arranging a worker push, apply the push policy in `/opt/agent-sandbox/docs/human-dialogs.md`. Handle pushes that require approval as follows.
 
-1. Before `start`, ask the person for a yes that names the branch, the remote and the empty commit's subject you pass as `--subject`. `start` pushes the new branch to open its draft pull request. Start on a clear yes.
-2. When a worker stops with unpushed commits, ask the person for a yes that names the branch, the remote and those commits.
+1. Before `start`, ask for a yes using the contract's constrained startup scope and the exact empty commit subject you pass as `--subject`. Start on a clear yes.
+2. When a worker stops with unpushed commits, ask for a yes scoped to the repository, branch, remote URL and full commit IDs.
 3. On a clear yes, `send` the worker the person's words or the bridge's checked push-click receipt after its merged rollout is verified live and enabled, including its exact branch, remote, commits, question, user, message link and time, for that one push. Arbitrary neighbour text is not a receipt. On any other answer, send nothing and keep the question open.
 4. A yes covers one push. Ask again for the next one.
