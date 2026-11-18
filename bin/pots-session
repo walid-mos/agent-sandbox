@@ -8,6 +8,8 @@ LOCK_BUSY_STATUS=75
 DOCKER_STOP_SECONDS=30
 DOCKER_REMOVE_SECONDS=30
 DOCKER_REMOVE_POLL_SECONDS=1
+ROUTER_REQUEST_SECONDS=5
+ROUTER_RESTART_MILLISECONDS=10000
 NEWLINE='
 '
 
@@ -106,12 +108,26 @@ ensure() {
 	echo "$running"
 }
 
-maintain_router() {
-	container=$1
-	if ! session_exec "$container" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-current; then
-		session_exec "$container" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-only
-		restart_services "$container" pots-router
-	fi
+router_current() {
+	session_exec "$1" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-current
+}
+
+restart_router() {
+	session_exec "$1" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-only
+	sandbox_docker exec --user root "$1" s6-svc -wr -T "$ROUTER_RESTART_MILLISECONDS" -r /run/service/custom-svc-pots-router
+}
+
+router_ready() {
+	address=${POTS_ROUTER_ADDRESS:-$POTS_ROUTER_DEFAULT_ADDRESS}
+	case "$address" in
+		127.0.0.1:*) port=${address#127.0.0.1:} ;;
+		\[::1\]:*) port=${address#\[::1\]:} ;;
+		*) return 1 ;;
+	esac
+	case "$port" in '' | *[!0-9]*) return 1 ;; esac
+	code=$(sandbox_docker exec --user root "$1" curl -q --noproxy '*' --silent --show-error \
+		--max-time "$ROUTER_REQUEST_SECONDS" --output /dev/null --write-out '%{http_code}' \
+		"http://$address/api/hello") && [ "$code" = 200 ]
 }
 
 health() {
@@ -145,8 +161,9 @@ case "${1:-}" in
 	name-all) sandbox_docker ps --filter "label=$POTS_SESSION_LABEL" --filter status=running --format '{{.Names}}' ;;
 	inventory) session_exec "$2" hc ls --all --json ;;
 	bot-status) session_exec "$2" pots status ;;
-	maintain-router) maintain_router "$2" ;;
-	health) shift; health "$@" ;;
+	router-current) router_current "$2" ;;
+	restart-router) restart_router "$2" ;;
+	health) shift; health "$@" && router_ready "$1" ;;
 	stop) stop ;;
 	restart) hold_lock "$@"; stop && ensure ;;
 	select-release)

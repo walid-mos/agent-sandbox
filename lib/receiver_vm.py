@@ -7,7 +7,7 @@ import time
 
 from managed_receiver import Receiver
 from managed_update import Blocked, checkout_revision
-from receiver_state import CONTROL, PROTOCOL, STATUS, admission, read_state
+from receiver_state import CONTROL, PROTOCOL, STATUS, admission, read_state, write_state
 
 SERVICES = ('pots-gateway', 'pots-router', 'pots-watcher', 'pots-sources')
 HEALTH_SECONDS = 60
@@ -28,6 +28,7 @@ class VmReceiver(Receiver):
     def call_runtime(self, operation, checkout, revision, descriptor, arguments=()):
         if operation == 'idle':
             self.vm.require_idle()
+            self.require_gateway_drain()
             return b''
         if operation == 'restart':
             self.vm.restart(checkout, revision, descriptor)
@@ -36,6 +37,9 @@ class VmReceiver(Receiver):
             self.vm.require_health(checkout, revision)
             return json.dumps({'protocol': PROTOCOL, 'loaded': revision}).encode()
         raise Blocked('vm-dispatch-requires-session-admission')
+
+    def require_gateway_drain(self):
+        raise Blocked('gateway-drain-unavailable')
 
     def initialize(self, descriptor):
         if os.path.lexists(self.root / CONTROL / STATUS):
@@ -57,10 +61,21 @@ class VmReceiver(Receiver):
                 self.vm.require_health(checkout, revision)
             except Blocked:
                 self.vm.require_idle()
-                self.vm.restart(checkout, revision, descriptor)
+                self.repair_runtime(state, 'session-restart-pending', lambda: self.vm.restart(checkout, revision, descriptor))
             container = self.vm.name()
-            self.vm.command(self.vm.launcher, 'maintain-router', container)
+            if not self.vm.router_current(container):
+                self.repair_runtime(state, 'router-restart-pending',
+                                    lambda: self.vm.restart_router(container, checkout, revision, descriptor))
             return container
+
+    def repair_runtime(self, state, reason, restart):
+        pending = write_state(self.root, {**state, 'phase': 'restoring', 'blocked': reason, 'loaded': None})
+        try:
+            restart()
+        except Blocked as failure:
+            write_state(self.root, {**pending, 'recovery_failure': str(failure)})
+            raise
+        write_state(self.root, state)
 
 
 class VmSession:
@@ -76,6 +91,13 @@ class VmSession:
                                            text=True, timeout=COMMAND_SECONDS, pass_fds=pass_fds).strip()
         except (OSError, subprocess.SubprocessError) as error:
             raise Blocked(f'vm-command-failed:{Path(command[0]).name}:{command[1]}') from error
+
+    def router_current(self, container):
+        try:
+            self.command(self.launcher, 'router-current', container)
+        except Blocked:
+            return False
+        return True
 
     def name(self):
         containers = self.command(self.launcher, 'name-all').splitlines()
@@ -122,6 +144,13 @@ class VmSession:
         selection = {'POTS_RELEASE_CHECKOUT': str(checkout), 'POTS_RELEASE_CONTROL': str(self.root / CONTROL),
                      'POTS_RELEASE_MARKER': str(marker)}
         self.command(self.launcher, 'select-release', selection=selection, pass_fds=(descriptor,))
+        self.await_health(checkout, revision)
+
+    def restart_router(self, container, checkout, revision, descriptor):
+        self.command(self.launcher, 'restart-router', container, pass_fds=(descriptor,))
+        self.await_health(checkout, revision)
+
+    def await_health(self, checkout, revision):
         deadline = time.monotonic() + HEALTH_SECONDS
         while True:
             try:

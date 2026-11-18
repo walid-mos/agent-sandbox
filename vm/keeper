@@ -4,4 +4,7 @@ export POTS_TRANSPORT=local
 . "$(dirname "$0")/../lib/sandbox.sh"
 
 "$POTS_REPO/bin/pots-session" ensure > /dev/null
-"$POTS_REPO/bin/pots-session" maintain-router "$(running_session)"
+session=$(running_session)
+if ! "$POTS_REPO/bin/pots-session" router-current "$session"; then
+	"$POTS_REPO/bin/pots-session" restart-router "$session"
+fi
