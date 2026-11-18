@@ -77,12 +77,15 @@ async function seedPots(journal, scope, admission) {
 function recoveryCommands(expected, runId, routerApi) {
   const environment = { ...basicEnvironment(process.env, [...RUNTIME_SETTINGS, 'POTS_RUNTIME']), SANDBOX: 'nextnode' };
   const host = (file, arguments_) => ({ file: join(REPOSITORY, 'bin', file), arguments: arguments_, environment });
-  const compare = host('sandbox-exec', ['node', '/opt/agent-sandbox/session/router-codex-transfer.mjs', 'compare', expected]);
+  const transfer = action => host('sandbox-exec', ['node', '/opt/agent-sandbox/session/router-codex-transfer.mjs', action, expected]);
+  const compare = transfer('compare');
   return {
+    captureCredentials: transfer('capture-recovery-credentials'),
+    compareCredentials: transfer('compare-recovery-credentials'),
     restart: host('pots-session', ['restart']), restartMeasure: host('pots-session', ['name']),
     bootstrap: host('session-bootstrap', ['--codex-targeted', expected]), bootstrapMeasure: compare,
     verify: host('sandbox-exec', ['node', '/opt/agent-sandbox/session/router-codex-transfer.mjs', 'verify', expected, routerApi,
-      join(dirname(dirname(expected)), `recovery-${runId}`)]), verifyMeasure: compare, inspect: compare,
+      join(dirname(dirname(expected)), `recovery-${runId}`)]), verifyMeasure: compare, inspect: transfer('inspect-recovery'),
   };
 }
 

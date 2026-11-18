@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodexJournal, durablePrivateFile, requirePrivateDirectory } from './codex-journal.mjs';
+import { captureCredentialBaseline, compareCredentialBaseline } from './codex-credential-baseline.mjs';
 import { codexAnswers } from './router-codex-answers.mjs';
 import { refuseCodex, requireSameSnapshot } from './router-codex-contract.mjs';
 import { readPrivateJson, readRouterConfiguration } from './router-configuration.mjs';
@@ -48,6 +49,34 @@ async function validate(expectedPath, routerApi, journalPath) {
   });
 }
 
+function requireCurrentConfiguration(expectedPath) {
+  requireSameSnapshot(readPrivateJson(expectedPath), readRouterConfiguration());
+}
+
+const recoveryBaselineDirectory = expectedPath => join(dirname(dirname(expectedPath)), 'recovery-credential-baseline');
+
+function captureRecoveryCredentials([expectedPath]) {
+  requireCurrentConfiguration(expectedPath);
+  captureCredentialBaseline(recoveryBaselineDirectory(expectedPath));
+  process.stdout.write('CODEX_TARGETED_V1: private recovery credential baseline retained locally\n');
+}
+
+function compareRecoveryCredentials([expectedPath]) {
+  readPrivateJson(expectedPath);
+  compareCredentialBaseline(recoveryBaselineDirectory(expectedPath));
+  process.stdout.write('CODEX_TARGETED_V1: local credential bytes equal, Claude DEFERRED\n');
+}
+
+function compareConfiguration([expectedPath]) {
+  requireCurrentConfiguration(expectedPath);
+  process.stdout.write('CODEX_TARGETED_V1: configuration equal, Claude DEFERRED\n');
+}
+
+function inspectRecovery([expectedPath]) {
+  compareRecoveryCredentials([expectedPath]);
+  compareConfiguration([expectedPath]);
+}
+
 async function receiveRestore([routerApi]) {
   const packet = receivePacket();
   const payload = openSnapshot(packet.envelope, packet.key);
@@ -76,8 +105,8 @@ main(import.meta, () => runOperation({
   },
   restore: receiveRestore,
   verify: ([expectedPath, routerApi, journalPath]) => validate(expectedPath, routerApi, journalPath),
-  compare: ([expectedPath]) => {
-    requireSameSnapshot(readPrivateJson(expectedPath), readRouterConfiguration());
-    process.stdout.write('CODEX_TARGETED_V1: configuration equal, Claude DEFERRED\n');
-  },
-}, 'usage: router-codex-transfer.mjs capture|restore API|verify EXPECTED API JOURNAL|compare EXPECTED'));
+  captureRecoveryCredentials,
+  compare: compareConfiguration,
+  'compare-recovery-credentials': compareRecoveryCredentials,
+  'inspect-recovery': inspectRecovery,
+}, 'usage: router-codex-transfer.mjs capture|restore API|verify EXPECTED API JOURNAL|capture-recovery-credentials EXPECTED|compare-recovery-credentials EXPECTED|compare EXPECTED|inspect-recovery EXPECTED'));

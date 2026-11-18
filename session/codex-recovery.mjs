@@ -23,10 +23,12 @@ export function recoveryCommand({ file, arguments: arguments_, environment }, ti
   });
 }
 
-async function measuredStep(journal, name, command, measurement, timeout) {
+async function measuredStep(journal, name, command, measurements, timeout = RECOVERY_COMMAND_MS) {
   await journal.step(name, () => recoveryCommand(command, timeout), async () => {
-    const report = await recoveryCommand(measurement, READ_COMMAND_MS);
-    if (!report.trim()) throw refuseCodex('empty recovery measurement');
+    for (const measurement of measurements) {
+      const report = await recoveryCommand(measurement, READ_COMMAND_MS);
+      if (!report.trim()) throw refuseCodex('empty recovery measurement');
+    }
     return { isCommandSuccessful: true, isMeasured: true };
   });
 }
@@ -46,9 +48,10 @@ export async function runCodexRecovery({ journalPath, gate, commands }) {
   process.on('SIGINT', deferCancellation);
   process.on('SIGTERM', deferCancellation);
   try {
-    await measuredStep(journal, 'restart', commands.restart, commands.restartMeasure);
-    await measuredStep(journal, 'bootstrap', commands.bootstrap, commands.bootstrapMeasure);
-    await measuredStep(journal, 'verification', commands.verify, commands.verifyMeasure, RECOVERY_VALIDATION_MS);
+    await measuredStep(journal, 'credential-baseline', commands.captureCredentials, [commands.compareCredentials], READ_COMMAND_MS);
+    await measuredStep(journal, 'restart', commands.restart, [commands.restartMeasure]);
+    await measuredStep(journal, 'bootstrap', commands.bootstrap, [commands.compareCredentials, commands.bootstrapMeasure]);
+    await measuredStep(journal, 'verification', commands.verify, [commands.compareCredentials, commands.verifyMeasure], RECOVERY_VALIDATION_MS);
     journal.record('recovery-unit', 'CONFIRMED', { claude: 'DEFERRED', workerResume: 'OWNER_RECONCILIATION_REQUIRED' });
   } catch (error) {
     await inspectFailure(journal, commands.inspect);

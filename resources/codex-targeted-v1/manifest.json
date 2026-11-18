@@ -551,6 +551,14 @@
       "sha256": "98c58a38684a3cd4509e39057b3f39317bd62e0d1c7619d5fb780a2132711d2e",
       "bytes": 277
     },
+    "session/codex-credential-baseline.mjs": {
+      "sha256": "6d1b56b29f8bb844855521a459ba1879d69699eed818e018de356b2017f8e9a3",
+      "bytes": 1871
+    },
+    "session/codex-credential-baseline.test.mjs": {
+      "sha256": "98a688a8e8bc58590cbcb5fee036ed26c09412623049a97a64bfd07016cb5e2b",
+      "bytes": 1687
+    },
     "session/codex-journal.mjs": {
       "sha256": "ae2e9311911d7133221b9982d8542beed62a473eb82a2426ef540271de9994b6",
       "bytes": 2014
@@ -568,12 +576,12 @@
       "bytes": 5307
     },
     "session/codex-recovery.mjs": {
-      "sha256": "294508ff66bb00eb73f537893e3688c72d474b4587d4665607251894f3dba57a",
-      "bytes": 2795
+      "sha256": "432f838917701bf3e75b0b84e4b2313aa70807d21aac9d986f83d8bf0d49957d",
+      "bytes": 3071
     },
     "session/codex-recovery.test.mjs": {
-      "sha256": "55bef6b98cbb74a6bd45f94c7eed3762edc547fb6d1da23f86a5cf4e474afa35",
-      "bytes": 3320
+      "sha256": "8f69e20cf38ad1a953396c59457a4fb47e16e6bc7a4b5ab15440ccc4199d9e8a",
+      "bytes": 4976
     },
     "session/codex-review.mjs": {
       "sha256": "24eb31b13697fb49d0aada16043cf69c4eafb1d354c9cca3a8bb4f3e57e3dc33",
@@ -584,8 +592,8 @@
       "bytes": 3752
     },
     "session/codex-rollout.mjs": {
-      "sha256": "5749f4de567cc2d9f80119b1fa3f8743763938f82d0ce173ed7cca8084040b5e",
-      "bytes": 8117
+      "sha256": "c7f1d34896ed366ebab40eb95882c2e5563aeac54c2e517e91e03147ac097c2f",
+      "bytes": 8317
     },
     "session/codex-validation.mjs": {
       "sha256": "8c66f650bf3ea358fd52760ee2eee1ba435788e8a571060c3da9401754db3bd2",
@@ -952,8 +960,8 @@
       "bytes": 2935
     },
     "session/router-codex-transfer.mjs": {
-      "sha256": "770d11518eb6fd030d820075f25bafa7e473743f6ad275b505f9a8b60d7f4395",
-      "bytes": 4322
+      "sha256": "6e94720c44cee4fdfb71da817a9780344bb98aa60f62664c9e7249015f2f681f",
+      "bytes": 5583
     },
     "session/router-codex.mjs": {
       "sha256": "b6368b670480254ca6ebf1319caa311987654a72e2b4a5144b97effb4ed0671c",
