@@ -29,7 +29,7 @@ sequenceDiagram
 
 Before `dispatch start` or a worker push, apply the repository, release and branch controls. If `/etc/agent-sandbox/sandbox.json` sets `rules`, read and apply that client instruction file. Routine feature-branch pushes need no human approval unless an applicable rule requires it. If a rule requires approval, use the route it permits and scope the yes to one push.
 
-`dispatch start` pushes the new branch to open the draft pull request. The work center and the worker apply the approval rules before their respective pushes. Git credentials let the launcher and the worker push independently of this instruction.
+`dispatch start` pushes the new branch to open the draft pull request. `dispatch start --local` defers that first push to the [publication procedure](worker-delegation.md#publish-a-local-repository-worker). The work center and the worker apply the approval rules before their respective pushes. Git credentials let the launcher and the worker push independently of this instruction.
 
 ## Private configuration
 
@@ -227,7 +227,7 @@ Run `node /opt/agent-sandbox/session/discord-human.mjs register` with this regis
 {"request":"QUESTION_DOOR_ID","pot":"OWNER_POT","channelAccount":"discord","guildId":"GUILD_ID_FROM_POSTED_MESSAGE","question":{"type":"human.question","version":1,"dialog":"DIALOG_ID","digest":"QUESTION_DIGEST","policy":"ordinary","context":"Choose","questions":[{"id":"target","prompt":"Choose","multiple":false,"options":[{"label":"Preview"},{"label":"Production"}]}]},"messages":[{"channelId":"CHANNEL_ID","messageId":"MESSAGE_ID","components":[{"type":1,"components":[{"type":2,"style":1,"label":"Preview","custom_id":"human:DIALOG_ID:0:0"},{"type":2,"style":2,"label":"Production","custom_id":"human:DIALOG_ID:0:1"}]}]}]}
 ```
 
-Use the exact received packet, not a reconstruction. The helper checks it against the stored incoming dialog request and sends `human.posted` under a durable request ID. It publishes `registration` only after the owner replies with the exact `human.posted-ack` packet. Enable messages only when the helper exits 0 and returns `registered: true` and `state: "acknowledged"`. A transport delivery receipt alone never permits enabling controls.
+Use the exact received packet, not a reconstruction. The helper checks it against the stored incoming dialog request and sends `human.posted` under a durable request ID. For a push question, the owner acknowledges the posted context only while its configured push capability is available. It publishes `registration` only after the owner replies with the exact `human.posted-ack` packet. Enable messages only when the helper exits 0 and returns `registered: true` and `state: "acknowledged"`. A transport delivery receipt alone never permits enabling controls. The owner checks the capability again when accepting the click, so an acknowledged button cannot bypass a later switch-off.
 
 | Registration state | Helper exit | Stored record and output |
 | --- | --- | --- |

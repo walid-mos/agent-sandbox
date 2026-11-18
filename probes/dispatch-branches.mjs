@@ -62,13 +62,14 @@ const binary = basename(process.argv[1]);
 const args = process.argv.slice(2);
 appendFileSync(process.env.HOME + '/commands.jsonl', JSON.stringify({ directory: process.cwd(), argv: [binary, ...args] }) + '\\n');
 if (binary === 'git' && args[0] === 'clone') mkdirSync(join(args.at(-1), '.git'), { recursive: true });
+if (binary === 'git' && args[0] === 'remote') console.log(process.env.PROBE_ORIGIN);
 if (binary === 'git' && args[0] === 'worktree') mkdirSync(args.at(-2), { recursive: true });
 if (binary === 'bash') console.log(${JSON.stringify(pullRequest)});
 `, { mode: 0o700 });
   for (const binary of ['git', 'gh', 'bash', 'hc']) symlinkSync(executable, join(binaries, binary));
 }
 
-function invoke(branch, target, { title, subject, rules }) {
+function invoke(branch, target, { title, subject, rules }, mode = 'start', origin = `https://github.com/${target}.git`) {
   const home = mkdtempSync(join(fixture, 'home-'));
   const configuration = join(home, '.pi/agent/extensions/subagent');
   mkdirSync(configuration, { recursive: true });
@@ -76,8 +77,11 @@ function invoke(branch, target, { title, subject, rules }) {
   const brief = join(home, 'request.md');
   writeFileSync(brief, 'Synthetic dispatch probe.');
   const options = [...(title === undefined ? [] : ['--title', title]), ...(subject === undefined ? [] : ['--subject', subject])];
-  const result = spawnSync(process.execPath, ['--import', join(fixture, 'copy-imports.mjs'), join(session, 'dispatch.mjs'), 'start', ...options, '--', target, branch, brief, 'develop'], {
-    cwd: fixture, encoding: 'utf8', timeout: 10_000, env: { HOME: home, PATH: binaries, PROBE_CLIENT_RULES: rules },
+  const args = mode === 'task'
+    ? ['task', '--title', title, '--scope', 'Read the supplied brief and write one report.', 'report', home, brief, join(home, 'result.md')]
+    : ['start', ...(mode === 'local' ? ['--local'] : []), ...options, '--', target, branch, brief, 'develop'];
+  const result = spawnSync(process.execPath, ['--import', join(fixture, 'copy-imports.mjs'), join(session, 'dispatch.mjs'), ...args], {
+    cwd: fixture, encoding: 'utf8', timeout: 10_000, env: { HOME: home, PATH: binaries, PROBE_ORIGIN: origin, PROBE_CLIENT_RULES: rules },
   });
   assert.ifError(result.error);
   const log = join(home, 'commands.jsonl');
@@ -124,6 +128,26 @@ function refused(reason, branch, target = allowedRepository, values = launch) {
 
 try {
   prepare();
+  const fork = invoke(jiraBranch, allowedRepository, launch, 'local', 'https://github.com/proof/fork.git');
+  assert.equal(fork.status, 1, fork.stderr);
+  assert.match(fork.stderr, /origin does not match/);
+  assert.equal(fork.calls.some(args => args.includes('fetch') || args.includes('worktree') || args.includes('commit')), false);
+  const local = invoke(jiraBranch, allowedRepository, { ...launch, rules: clientRules }, 'local');
+  assert.equal(local.status, 0, local.stderr);
+  const localWorker = JSON.parse(local.stdout);
+  const localBrief = readFileSync(localWorker.brief, 'utf8');
+  assert.ok(localBrief.includes(policyGuide) && localBrief.includes(clientRules), 'the local brief points to the push policy and configured client rules');
+  assert.ok(!localBrief.includes(clientRuleText), 'the local brief leaves client policy text in its source file');
+  assert.equal(localWorker.publication, 'local');
+  assert.equal(localWorker.pullRequest, undefined);
+  assert.equal(local.calls.some(args => ['bash', 'hc'].includes(args[0]) || args.includes('push')), false);
+  const task = invoke('', '', launch, 'task');
+  assert.equal(task.status, 0, task.stderr);
+  const taskWorker = JSON.parse(task.stdout);
+  assert.equal(taskWorker.kind, 'task');
+  assert.equal(taskWorker.repository, undefined);
+  assert.deepEqual(task.calls, [], 'non-repository launch has no Git, GitHub, PR or immediate terminal side effect');
+  assert.equal(readdirSync(join(task.home, '.config/agent-sandbox/workers/queue')).length, 1);
   accepted(jiraBranch);
   accepted(jiraBranch, { ...launch, rules: clientRules });
   accepted(jiraBranch, { title: '[DA-250] Freeze campaign establishments', subject: 'Start DA-250' });
