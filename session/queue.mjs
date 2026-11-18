@@ -8,6 +8,8 @@ import { WORKERS } from './workers.mjs';
 export const QUEUE = join(WORKERS, 'queue');
 const REQUEST = '.json';
 
+export const queuedAt = request => Number.parseInt(request.file, 10);
+
 export const isRequestName = file => /^[a-zA-Z0-9.-]+\.json$/.test(`${file}`);
 
 export const isRequest = file => isRequestName(file) && existsSync(join(QUEUE, file));

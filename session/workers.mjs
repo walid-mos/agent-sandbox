@@ -139,7 +139,7 @@ export function launch(worker, conversation) {
   const { sessionId = randomUUID(), sessionDir = join(WORKERS, 'sessions', worker.name), model = ROUTER_MODEL } = worker;
   mkdirSync(sessionDir, { recursive: true });
   const session = sessionArguments(worker, sessionDir, sessionId);
-  const launched = { ...worker, launchId, sessionId, sessionDir, terminal: undefined, startedAt: Date.now(), isClosed: false, lastReport: undefined, result: undefined };
+  const launched = { ...worker, launchId, sessionId, sessionDir, terminal: undefined, startedAt: Date.now(), isBriefed: conversation.length > 0, isClosed: false, lastReport: undefined, result: undefined };
   save(launched);
   const terminal = openTerminal({
     name: worker.name, cwd: worker.worktree, tab: worker.name, label: 'pots.worker=true',
