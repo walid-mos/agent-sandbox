@@ -1,8 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { comment, pullFacts, requireActionable, squashMerge } from './factory-github.mjs';
-import { logDirectory, pullArguments, pullUrl, requireRecord, writeRecord } from './factory-records.mjs';
+import { logDirectory, pullUrl, writeRecord } from './factory-records.mjs';
 import { reportToPrincipal } from './factory-reports.mjs';
+import { requireReview } from './factory-review.mjs';
 
 const VERDICTS = ['PASS', 'PASS+NOTES', 'FAIL'];
 const MERGED = 'MERGED';
@@ -38,15 +39,18 @@ function reportFailure(record) {
   return reportToPrincipal({ ...record, stage: 'failed' }, `PR factory judged ${pullUrl(record)} FAIL at head ${record.head}, so it stays unmerged. The verdict says: ${record.notes}`);
 }
 
-export function verdict(arguments_) {
-  const pull = pullArguments(arguments_);
-  const [decision, notesFile] = arguments_.slice(3);
-  if (!VERDICTS.includes(decision)) throw new Error(`factory: the verdict is one of ${VERDICTS.join(', ')}, got ${decision}`);
+function readNotes(decision, notesFile) {
   const notes = notesFile ? readFileSync(notesFile, 'utf8').trim() : '';
   if (decision !== 'PASS' && !notes) throw new Error(`factory: ${decision} needs a notes file that says why.`);
-  const record = requireRecord(pull, 'checked');
-  requireActionable(pull);
-  const judged = postVerdict(record, decision, notes);
+  return notes;
+}
+
+export function verdict(review, [decision, notesFile, ...extra]) {
+  if (extra.length > 0) throw new Error('factory: the bound verdict command takes only a decision and optional notes file.');
+  if (!VERDICTS.includes(decision)) throw new Error(`factory: the verdict is one of ${VERDICTS.join(', ')}, got ${decision}`);
+  const notes = readNotes(decision, notesFile);
+  requireActionable(requireReview(review));
+  const judged = postVerdict(requireReview(review), decision, notes);
   const outcome = decision === 'FAIL' ? reportFailure(judged) : land(judged);
-  process.stdout.write(`factory: ${pullUrl(pull)} at ${pull.head}: ${outcome.stage}\n`);
+  process.stdout.write(`factory: ${pullUrl(outcome)} at ${outcome.head}: ${outcome.stage}\n`);
 }
