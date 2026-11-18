@@ -29,14 +29,15 @@ def install_boundary(root, commands):
 def validate_launch(root, arguments, executable):
     is_git = executable == 'git' and not FORBIDDEN_GIT.intersection(arguments)
     is_store = (executable == sys.executable and arguments[1:] ==
-                ['-I', str(AREA / 'fixture_store.py'), str(root)])
-    is_supervisor = executable == sys.executable and arguments[1:3] == ['-I', str(AREA / 'mutation_worker.py')]
+                ['-I', str(AREA / 'run.py'), '_fixture-store', str(root)])
+    is_supervisor = (executable == sys.executable and arguments[1:4] ==
+                     ['-I', str(AREA / 'run.py'), '_mutation-worker'])
     require(is_git or is_store or is_supervisor, 'fixture attempted an unapproved executable')
     if is_git:
         prove_fixture_git(arguments, root)
     if is_supervisor:
-        require(len(arguments) == 4, 'fixture supervisor arguments differ')
-        directory = Path(arguments[3])
+        require(len(arguments) == 5, 'fixture supervisor arguments differ')
+        directory = Path(arguments[4])
         require(directory.is_relative_to(root) and directory.parent.name == 'mutations',
                 'fixture supervisor escaped ownership root')
         private_directory(directory)

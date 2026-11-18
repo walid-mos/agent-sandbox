@@ -37,5 +37,25 @@
   "privateOrigin": "https://github.com/walid-mos/agent-pi-accor.git",
   "privateBranch": "chore/canonical-client-rules",
   "privateSubject": "feat(rules): add canonical Accor client rules",
-  "sourceMerge": "1b28366ff81d44fcb3999f093e7b582eee18ab15"
+  "sourceMerge": "1b28366ff81d44fcb3999f093e7b582eee18ab15",
+  "runnerFiles": {
+    "execute.py": "5eb7691cf79920c02d321f61c689e6269a905cd7cd033985db2b89b7e91c6ec7",
+    "fixture_boundary.py": "6949b412320763664055f84f581e3d675c75c5895b8cb75494e9559412d04fde",
+    "fixture_store.py": "d0179761c52e369ef94a420adfd9fdb9b4eb3c83f0961a3d32071f05ccbd0f38",
+    "git_boundary.py": "74b848f8888ac13b8498ff03cb858cd4faa822e2acd2559fa326252cd9fce1b8",
+    "guards.py": "5c81ee86477506387f70598249f80863ca7ea5430af5fb5f0f1a9ec4be086d5c",
+    "inspection.py": "bd3c697d4d206a9e84c8389cfc52e1949eed0e5bdc745fae8a62c461b1970c0f",
+    "journal.py": "9a49e95e131ccf1d8db01c529fbb2d105bd65839cd2fe89ed3e084f33c687afa",
+    "local_steps.py": "ad52bb3747c0dacc40f530e328a728456762c7450b7fc8ec2e099dfcfb9ba001",
+    "mutation_process.py": "4e2aa15b8e749121d5971a2d98044adea0e1ba757f003d0f61c44f9f53dbbecf",
+    "mutation_records.py": "dafb7a76b9139f1cc8ad3124383ad995a2b7fcc16595e97cca45b95e0eb5eb1a",
+    "mutation_worker.py": "1294172288c83a33efaa6b5d4d02320a1d21dde950922b6a69d62dd18c7f1101",
+    "observe_vm.py": "c0d627ee12979c9247be552fac6df4af2a56bc8cdde471478c451320307d4924",
+    "preflight.py": "931775c1b8a6c40497a6fd82a4326e11a4128077c9809c1643f39ec64f941776",
+    "process_state.py": "7cd94c5e2a8962b4045a3299561fd56e437b29ab41e85ce748601a50bafad90f",
+    "run.py": "021c22b6e0f60a0cad69b3573c8a0853b9be57db2f9c59ce62ebeeade75ba9e3",
+    "sources.py": "def47bc554f5c633fc0335a6a6acbcec0dc877418f2de14bda1384d24f44e450",
+    "termination.py": "7f8b7b3f638c167a346ecdae9cc57f5f9b12073f8689d3d1d6d8e3dffa688323",
+    "transport.py": "a0dfc3c1526ee9eb7558a7d905e99da663e58cfbb4af85174eee4ae89140d648"
+  }
 }

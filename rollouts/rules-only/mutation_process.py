@@ -14,7 +14,7 @@ class MutationLauncher:
 
     def run(self, arguments, input_bytes, environment):
         directory = new_operation(self.journal)
-        worker = [sys.executable, '-I', str(AREA / 'mutation_worker.py'), str(directory)]
+        worker = [sys.executable, '-I', str(AREA / 'run.py'), '_mutation-worker', str(directory)]
         process = subprocess.Popen(worker, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, env=environment, start_new_session=True)
         supervisor = identity(process.pid)

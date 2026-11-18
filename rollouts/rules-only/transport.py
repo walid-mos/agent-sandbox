@@ -71,7 +71,7 @@ class FixtureTransport:
         path.write_bytes(path.read_bytes() + b' ')
 
     def transfer(self, payload):
-        self.commands.run([sys.executable, '-I', AREA / 'fixture_store.py', self.root],
+        self.commands.run([sys.executable, '-I', AREA / 'run.py', '_fixture-store', self.root],
                           input_bytes=json.dumps(payload).encode(), mutation=True)
 
 

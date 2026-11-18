@@ -3,6 +3,9 @@ from pathlib import Path
 import runpy
 import sys
 
+if __name__ == '__main__' and '_rules_only_verified_runner' not in sys.modules:
+    raise SystemExit('REFUSED: invoke fixture store through run.py.')
+
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from guards import AREA, encode, private_directory, read_json, require

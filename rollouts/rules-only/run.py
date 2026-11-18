@@ -1,19 +1,52 @@
 #!/usr/bin/env python3
+import argparse
+import hashlib
+import importlib.abc
+import importlib.util
+import json
+import os
+from pathlib import Path
+import runpy
 import sys
+
+AREA = Path(__file__).resolve().parent
 
 if not sys.flags.isolated:
     print('REFUSED: invoke with python3 -I to isolate module lookup.', file=sys.stderr)
     sys.exit(1)
 
-import argparse
-import json
-import os
-from pathlib import Path
-
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+RUNNER_FILES = json.loads((AREA / 'resources.json').read_bytes())['runnerFiles']
 
-from guards import AREA, Refused, artifact, read_json, validate_contract
+
+class SourceLoader(importlib.abc.Loader):
+    def exec_module(self, module):
+        path = Path(module.__spec__.origin)
+        content = path.read_bytes()
+        expected = RUNNER_FILES.get(path.name)
+        if expected is None or hashlib.sha256(content).hexdigest() != expected:
+            raise ImportError('pinned runner source differs')
+        exec(compile(content, str(path), 'exec'), module.__dict__)
+
+
+class SourceFinder(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if '.' in fullname:
+            return None
+        source = AREA / f'{fullname}.py'
+        if not source.is_file():
+            if fullname in {Path(name).stem for name in RUNNER_FILES}:
+                raise ImportError('pinned runner source is missing')
+            return None
+        return importlib.util.spec_from_file_location(fullname, source, loader=SourceLoader())
+
+
+if hashlib.sha256(Path(__file__).read_bytes()).hexdigest() != RUNNER_FILES.get('run.py'):
+    raise SystemExit('REFUSED: pinned runner entrypoint differs.')
+sys.meta_path.insert(0, SourceFinder())
+sys.path.insert(0, str(AREA))
+
+from guards import Refused, artifact, read_json, validate_contract
 
 
 def arguments():
@@ -53,7 +86,22 @@ def execute_command(options):
     return execute(options, contract, read_json(AREA / 'resources.json'))
 
 
+def run_internal_command():
+    scripts = {'_fixture-store': 'fixture_store.py', '_mutation-worker': 'mutation_worker.py'}
+    script = scripts.get(sys.argv[1]) if len(sys.argv) > 1 else None
+    if script is None:
+        return None
+    path = AREA / script
+    sys.modules['_rules_only_verified_runner'] = sys.modules[__name__]
+    sys.argv = [str(path), *sys.argv[2:]]
+    runpy.run_path(str(path), run_name='__main__')
+    return 0
+
+
 def main():
+    internal_result = run_internal_command()
+    if internal_result is not None:
+        return internal_result
     os.umask(0o077)
     options = arguments()
     commands = {'manifest': manifest_command, 'inspect': inspect_command,
