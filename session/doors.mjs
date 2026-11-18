@@ -1,8 +1,8 @@
 import { parseArgs } from 'node:util';
 import { DOOR_COMMAND } from './door-command.mjs';
 import { knock, knockAsync } from './door-knock.mjs';
-import { DIALOG, dialogMessage, HOP_LIMIT, isPotName, MESSAGE_BYTES, newRequestId, Refusal, replyMessage, requestMessage } from './door-messages.mjs';
-import { all, ANSWERED, ASKED, find, OPEN, RECEIVED, REFUSED, RESENDABLE, save, SETTLED, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
+import { DIALOG, dialogMessage, HOP_LIMIT, isPotName, MESSAGE_BYTES, newReportId, newRequestId, Refusal, replyMessage, REPORT, reportMessage, requestMessage } from './door-messages.mjs';
+import { all, ANSWERED, ASKED, DELIVERED, find, OPEN, RECEIVED, REFUSED, RESENDABLE, save, SETTLED, UNDELIVERED, underLock, UNKNOWN } from './door-requests.mjs';
 import { receiveMessage } from './door-deliveries.mjs';
 import { checkDialogDirection, checkHumanReply, humanPacket } from './human-door-packets.mjs';
 import { main, runOperation } from './main.mjs';
@@ -12,7 +12,8 @@ import { MASTERMIND_POT } from './human-contract.mjs';
 
 const CONNECTED = 'Running';
 const DELIVERED_STATE = { [ASKED]: OPEN, [RECEIVED]: ANSWERED };
-const USAGE = `usage: ${DOOR_COMMAND} ask POT --need TEXT [--for REQUEST_ID] | ${DOOR_COMMAND} reply REQUEST_ID --text TEXT | ${DOOR_COMMAND} resend REQUEST_ID | ${DOOR_COMMAND} requests [--all]`;
+const deliveredState = request => request.kind === REPORT ? DELIVERED : DELIVERED_STATE[request.direction];
+const USAGE = `usage: ${DOOR_COMMAND} ask POT --need TEXT [--for REQUEST_ID] | ${DOOR_COMMAND} tell POT --text TEXT | ${DOOR_COMMAND} reply REQUEST_ID --text TEXT | ${DOOR_COMMAND} resend REQUEST_ID | ${DOOR_COMMAND} requests [--all]`;
 
 const doors = () => sandbox.doors ?? {};
 
@@ -53,7 +54,7 @@ function servedRequest(servedId) {
 function settle(id, outcome) {
   const current = find(id);
   if (!RESENDABLE.includes(current.state)) return current;
-  const settled = outcome ? { ...current, ...outcome } : { ...current, state: DELIVERED_STATE[current.direction], failure: undefined };
+  const settled = outcome ? { ...current, ...outcome } : { ...current, state: deliveredState(current), failure: undefined };
   save(settled);
   return settled;
 }
@@ -87,17 +88,23 @@ export function prepareHumanAsk(options) {
   return prepare(options, DIALOG);
 }
 
-const askWire = request => request.kind === DIALOG ? dialogMessage(request.id, request.need) : requestMessage(request.id, request.hop, request.need);
+function askWire({ kind, id, hop, need }) {
+  if (kind === DIALOG) return dialogMessage(id, need);
+  if (kind === REPORT) return reportMessage(id, need);
+  return requestMessage(id, hop, need);
+}
+
 const wireOf = request => request.direction === RECEIVED ? replyMessage(request.id, request.reply) : askWire(request);
 
 function prepare({ pot, need, served, key }, kind) {
   return underLock(() => {
     const existing = key && all().find(request => request.direction === ASKED && request.key === key && request.kind === kind);
     if (existing) return existing;
-    const hop = kind === DIALOG ? undefined : chainHop();
+    // A dialog and a report start no work at the neighbour, so neither goes down a chain of requests.
+    const hop = kind ? undefined : chainHop();
     const target = neighbour(pot);
     const parent = served === undefined ? undefined : servedRequest(served);
-    const id = newRequestId(ownName());
+    const id = (kind === REPORT ? newReportId : newRequestId)(ownName());
     const request = { id, direction: ASKED, pot: target, need, hop, for: parent, key, kind, state: UNKNOWN, at: Date.now() };
     askWire(request);
     save(request);
@@ -121,10 +128,17 @@ function ask(arguments_) {
   send(request, 'asked');
 }
 
+function tell(arguments_) {
+  const { values, positionals: [pot] } = parseArgs({ args: arguments_, options: { text: { type: 'string' } }, allowPositionals: true });
+  if (!pot || values.text === undefined) throw new Error(USAGE);
+  send(prepare({ pot, need: values.text }, REPORT), 'told');
+}
+
 function recordReply(id, text) {
   replyMessage(id, text);
   const received = find(id);
   if (received?.direction !== RECEIVED) throw new Error(`pots: no request ${id} came through this pot's door. ${DOOR_COMMAND} requests lists the ones that did.`);
+  if (received.kind === REPORT) throw new Error(`pots: ${id} is a report from ${received.pot}, and a report takes no reply. ${DOOR_COMMAND} ask ${received.pot} when this pot needs something from it.`);
   const pending = RESENDABLE.includes(received.state) ? ` It has not reached ${received.pot} yet: ${DOOR_COMMAND} resend ${id} sends it again.` : '';
   if (received.state !== OPEN) throw new Error(`pots: ${id} already has its reply, and a request takes one.${pending}`);
   if (received.kind === DIALOG) checkHumanReply(received, text);
@@ -181,4 +195,4 @@ async function deliver([caller]) {
   receiveMessage(caller, await standardInput(MESSAGE_BYTES));
 }
 
-main(import.meta, () => runOperation({ ask, reply, resend, requests, deliver }, USAGE));
+main(import.meta, () => runOperation({ ask, tell, reply, resend, requests, deliver }, USAGE));
