@@ -46,5 +46,6 @@ export function publishReviewedRelease(record, save, authority) {
     git.publish(commit, request);
     if (git.tip(request.ref) !== commit) throw new Error('factory: publication could not confirm the signed commit as the remote tip.');
   }
+  git.requireReviewedHead(commit, request.head);
   return save({ ...signed, stage: 'published' });
 }

@@ -36,6 +36,8 @@ if (scenario === 'moved') {
   } };
   assert.throws(() => publish({ git: raced }), /stale info/);
   assert.equal(git.tip(proof.ref), head);
+  const { commit } = readRecord(checked).release;
+  assert.equal(execFileSync('git', ['--git-dir', remote, 'tag', '--list', `factory-reviewed/${commit}`], { encoding: 'utf8' }), '');
   assert.equal(readRecord(checked).stage, 'signed');
   assert.throws(() => publish(), /expected checked base/);
 } else if (scenario === 'retargeted') {
@@ -48,11 +50,14 @@ if (scenario === 'moved') {
   git.publish(candidate.commit, proof);
   assert.throws(() => publish({ sign: () => assert.fail('unrecorded publication reached the signer') }), /expected checked base/);
   assert.equal(readRecord(checked).stage, 'judged');
-} else if (scenario === 'recovered') {
+} else if (scenario === 'recovered' || scenario === 'series') {
   const published = publish();
   assert.equal(published.stage, 'published');
   assert.equal(git.tip(proof.ref), published.release.commit);
   assert.deepEqual(published.release.request, proof);
+  const evidence = `refs/tags/factory-reviewed/${published.release.commit}`;
+  assert.equal(git.tip(evidence), proof.head);
+  process.stdout.write(JSON.stringify({ reviewId, published, evidence }));
 } else {
   let original;
   assert.throws(() => publish({ sign(request) {
@@ -60,6 +65,13 @@ if (scenario === 'moved') {
     throw new Error('fixture stopped after signing');
   } }), /fixture stopped after signing/);
   assert.equal(readRecord(checked).stage, 'judged');
+  const evidence = `refs/tags/factory-reviewed/${original.commit}`;
+  const updateEvidence = (...args) => execFileSync('git', ['--git-dir', remote, 'update-ref', ...args]);
+  updateEvidence(evidence, base);
+  assert.throws(() => publish(), /stale info|already exists/);
+  assert.equal(git.tip(proof.ref), base);
+  assert.equal(git.tip(evidence), base);
+  updateEvidence('-d', evidence, base);
   const interrupted = { ...git, publish(commit, request) {
     git.publish(commit, request);
     throw new Error('fixture stopped after push');
@@ -67,9 +79,16 @@ if (scenario === 'moved') {
   assert.throws(() => publish({ git: interrupted }), /fixture stopped after push/);
   assert.equal(readRecord(checked).release.commit, original.commit);
   live = { ...live, state: 'CLOSED' };
+  assert.equal(git.tip(evidence), head);
+  updateEvidence('-d', evidence, head);
+  assert.throws(() => publish(), /must retain reviewed head/);
+  updateEvidence(evidence, base);
+  assert.throws(() => publish(), /must retain reviewed head/);
+  assert.equal(readRecord(checked).stage, 'signed');
+  updateEvidence(evidence, head, base);
   const published = publish({ sign: () => assert.fail('published candidate reached the signer again') });
   assert.equal(published.stage, 'published');
   assert.equal(git.tip(proof.ref), original.commit);
   assert.deepEqual(published.release.request, proof);
-  process.stdout.write(JSON.stringify({ reviewId, published }));
+  process.stdout.write(JSON.stringify({ reviewId, published, evidence }));
 }

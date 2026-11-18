@@ -1,5 +1,7 @@
 import { command } from './run.mjs';
 
+const reviewedHeadRef = commit => `refs/tags/factory-reviewed/${commit}`;
+
 export function releaseGit(directory, origin) {
   const git = (arguments_, options) => command('git', ['--no-replace-objects', '-c', 'core.hooksPath=/dev/null', '-C', directory, ...arguments_], options);
   return {
@@ -18,8 +20,14 @@ export function releaseGit(directory, origin) {
       const shape = git(['show', '--no-patch', '--format=%P%n%T', commit]).split('\n');
       if (shape[0] !== base || shape[1] !== tree) throw new Error('factory: the candidate must have only the checked base as its parent and the checked tree.');
     },
-    publish(commit, { ref, base }) {
-      git(['push', '--quiet', `--force-with-lease=${ref}:${base}`, origin, `${commit}:${ref}`]);
+    publish(commit, { ref, base, head }) {
+      const evidence = reviewedHeadRef(commit);
+      git(['push', '--atomic', '--quiet', `--force-with-lease=${ref}:${base}`, `--force-with-lease=${evidence}:`, origin, `${commit}:${ref}`, `${head}:${evidence}`]);
+    },
+    requireReviewedHead(commit, head) {
+      const evidence = reviewedHeadRef(commit);
+      const [observed] = git(['ls-remote', '--refs', origin, evidence]).split('\t');
+      if (observed !== head) throw new Error(`factory: ${evidence} must retain reviewed head ${head}.`);
     },
   };
 }

@@ -47,6 +47,22 @@ test "$(python3 -I lib/signed_commit.py verify "$store" "$candidate" "$fixture/f
 
 For #53, seed the disposable installed checkout at `base`, stage the bundle's `main` as the candidate, and pass `candidate` by full ID. Use the fixture's enrolled repo `probe/factory` and target `refs/heads/main` in the test policy. Read `.review` and `reviewId` for the shared review. The `Factory landing v1` commit message contains signed JSON with repository, PR number, generation, ref, base, head and tree. Cross-check that payload against the checked record and Git objects. The export is a projection of the saved review and signer receipt. It grants no authority on its own.
 
+## Catch up across several releases
+
+The publisher creates a lightweight tag at `refs/tags/factory-reviewed/<full-candidate-SHA>` pointing directly at the exact reviewed head. It sends that tag and the target ref in one atomic Git push. The target lease compares the checked base and the tag lease expects absence. An existing tag at the identical head is reusable. A conflicting tag or stale target rejects the whole push. The publisher confirms the target and tag before recording `published`. Recovery at the exact candidate also checks the tag. Keep these tags for as long as any receiver may need the corresponding releases.
+
+Start with the receiver's known-good commit and the desired tip fetched from the configured repository and ref. Walk the tip's first-parent chain back to the known-good commit and require that it reaches that exact commit. In forward order, verify every Factory commit's signature and signed request under the enrolled repository and ref. Require the signed base and sole parent to equal the previous verified commit. Fetch each candidate's exact tag with automatic tag fetching disabled. Require the tag to point directly at the head in the signed request. Verify the checked base is an ancestor of that head and that both the head and candidate have the signed tree. Refuse a missing link, missing tag, conflicting tag or invalid checkpoint before installing anything from the series. A tag only locates an object. PR numbers and generations bind reviews and do not give release order.
+
+```sh
+work=$(mktemp -d)
+python3 -B probes/landing-series.py --release 5947f43fe411c78510b58121df27dc96eaedf2c5 --export "$work/series"
+python3 -B probes/landing-series.py --verify "$work/series"
+```
+
+The bundle contains `refs/heads/main` and the three candidate-keyed tags. `series.json` names the disposable operator anchor, target and tip, and includes the three checked records and receipts in oldest-first order for assertions. Use the two exported public keys and the fixture repository `probe/factory`. A receiver derives the order from Git and does not need `series.json` or the original PR refs in production. The earlier single-release export still uses its original `receipt.json` and `refs/pull/30/head` interface.
+
+If the owner selects two-parent releases, the first parent still gives the previous release. The second parent would have to equal the reviewed head, which Git would then retain through ancestry. That format may replace the tag lookup after the producer and #53 agree on the new signed parent rule. GitHub PR readback and the Principal report remain separate requirements for that choice.
+
 ## Publication and adoption limits
 
 The producer builds a signed commit with the checked base as its only parent and the checked head's tree. The remote compares that exact base on the explicitly named target ref in the push. The producer checks live PR readiness, target and source head before signing and pushing. Git cannot compare live GitHub PR metadata inside that ref update. A later retarget or head edit cannot substitute another target or tree into the push. A direct squash push also does not establish that GitHub marked the PR merged.
