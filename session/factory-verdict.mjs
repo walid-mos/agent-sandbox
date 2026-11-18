@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { comment, pullFacts, requireActionable, squashMerge } from './factory-github.mjs';
-import { logDirectory, pullUrl, writeRecord } from './factory-records.mjs';
-import { reportToPrincipal } from './factory-reports.mjs';
+import { logDirectory, pullUrl, withRecord } from './factory-records.mjs';
+import { deliverWakes, queueReport } from './factory-reports.mjs';
 import { requireReview } from './factory-review.mjs';
 
 const VERDICTS = ['PASS', 'PASS+NOTES', 'FAIL'];
@@ -20,23 +20,23 @@ function postVerdict(record, decision, notes) {
   const bodyFile = join(directory, 'verdict.md');
   writeFileSync(bodyFile, `${verdictBody(record, decision, notes)}\n`);
   comment(record, bodyFile);
-  return writeRecord({ ...record, stage: 'judged', verdict: decision, notes });
+  return { ...record, stage: 'judged', verdict: decision, notes };
 }
 
 function land(record) {
   const merge = squashMerge(record);
   const after = pullFacts(record);
   if (after.state !== MERGED) {
-    return reportToPrincipal({ ...record, stage: 'refused', mergeOutput: merge.output },
+    return queueReport({ ...record, stage: 'refused', mergeOutput: merge.output },
       `PR factory could not merge ${pullUrl(record)} at head ${record.head} after its ${record.verdict} verdict. GitHub answered: ${merge.output || after.state}. The factory does not retry this head.`);
   }
   const mergeCommit = after.mergeCommit?.oid;
-  return reportToPrincipal({ ...record, stage: 'merged', mergeCommit },
+  return queueReport({ ...record, stage: 'merged', mergeCommit },
     `PR factory merged ${pullUrl(record)} into ${after.baseRefName} as ${mergeCommit}, after a ${record.verdict} verdict on head ${record.head}.`);
 }
 
 function reportFailure(record) {
-  return reportToPrincipal({ ...record, stage: 'failed' }, `PR factory judged ${pullUrl(record)} FAIL at head ${record.head}, so it stays unmerged. The verdict says: ${record.notes}`);
+  return queueReport({ ...record, stage: 'failed' }, `PR factory judged ${pullUrl(record)} FAIL at head ${record.head}, so it stays unmerged. The verdict says: ${record.notes}`);
 }
 
 function readNotes(decision, notesFile) {
@@ -49,8 +49,13 @@ export function verdict(review, [decision, notesFile, ...extra]) {
   if (extra.length > 0) throw new Error('factory: the bound verdict command takes only a decision and optional notes file.');
   if (!VERDICTS.includes(decision)) throw new Error(`factory: the verdict is one of ${VERDICTS.join(', ')}, got ${decision}`);
   const notes = readNotes(decision, notesFile);
-  requireActionable(requireReview(review));
-  const judged = postVerdict(requireReview(review), decision, notes);
-  const outcome = decision === 'FAIL' ? reportFailure(judged) : land(judged);
+  const record = requireReview(review);
+  const outcome = withRecord(record, (_, save) => {
+    const current = requireReview(review);
+    requireActionable(current);
+    const judged = save(postVerdict(current, decision, notes));
+    return save(decision === 'FAIL' ? reportFailure(judged) : land(judged));
+  });
+  deliverWakes(outcome);
   process.stdout.write(`factory: ${pullUrl(outcome)} at ${outcome.head}: ${outcome.stage}\n`);
 }

@@ -1,9 +1,9 @@
 import { probe, runChecks } from './factory-checks.mjs';
 import { draftPulls, FACTORY_TOPIC, readyPulls, watchedRepositories } from './factory-github.mjs';
 import { mergeBase, refreshMirror } from './factory-mirror.mjs';
-import { logDirectory, pullUrl, readRecord, recordedHeads, writeRecord } from './factory-records.mjs';
+import { logDirectory, pullUrl, readRecord, recordedHeads, withRecord } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
-import { handToFactory, reportToPrincipal } from './factory-reports.mjs';
+import { deliverWakes, queueFactoryWake, queueReport } from './factory-reports.mjs';
 
 // GitHub computes mergeability in the background, so a pull request it has not computed yet waits for the next scan.
 const isDecidable = pull => pull.mergeable === 'MERGEABLE' || pull.mergeable === 'CONFLICTING';
@@ -11,35 +11,39 @@ const CHECKS_MISSING = 'checks-missing';
 const HELD = 'held';
 
 // A head reported for missing checks is taken again once its repository's checks are defined, and a head that went back to draft once it is ready again.
-function isNew(pull, isChecked) {
-  const record = readRecord(pull);
+function isNew(record, isChecked) {
   return !record || record.stage === HELD || (isChecked && record.stage === CHECKS_MISSING);
 }
 
-// A wake ID is one per generation, so a head taken again after a hold wakes its judge again.
-function nextGeneration(pull) {
-  const record = readRecord(pull);
-  return (record?.generation ?? 0) + (record?.stage === HELD ? 1 : 0);
+function isSameStage({ stage, generation } = {}, { stage: expectedStage, generation: expectedGeneration } = {}) {
+  return stage === expectedStage && generation === expectedGeneration;
 }
 
 function newHeads(repository, isChecked) {
   return readyPulls(repository)
     .map(pull => ({ repository, number: pull.number, head: pull.headRefOid, base: pull.baseRefName, branch: pull.headRefName, mergeable: pull.mergeable }))
-    .filter(pull => isDecidable(pull) && isNew(pull, isChecked))
-    .map(pull => ({ ...pull, generation: nextGeneration(pull) }));
+    .filter(isDecidable)
+    .map(pull => ({ pull, previous: readRecord(pull) }))
+    .filter(({ previous }) => isNew(previous, isChecked));
+}
+
+function holdRecord(previous) {
+  if (!previous || previous.stage === HELD) return;
+  withRecord(previous, (record, save) => {
+    if (isSameStage(record, previous)) save({ ...record, stage: HELD });
+  });
 }
 
 function holdDrafts(repository) {
   for (const pull of draftPulls(repository)) {
-    const record = readRecord({ repository, number: pull.number, head: pull.headRefOid });
-    if (record && record.stage !== HELD) writeRecord({ ...record, stage: HELD });
+    holdRecord(readRecord({ repository, number: pull.number, head: pull.headRefOid }));
   }
 }
 
 function holdUnwatched(repositories) {
   const watched = new Set(repositories);
   for (const record of recordedHeads()) {
-    if (!watched.has(record.repository) && record.stage !== HELD) writeRecord({ ...record, stage: HELD });
+    if (!watched.has(record.repository)) holdRecord(record);
   }
 }
 
@@ -55,22 +59,32 @@ function check(subject) {
   const base = mergeBase(subject.repository, subject.base, subject.head);
   const checks = runChecks(subject, base, logDirectory(subject));
   const failed = checks.find(result => !result.isPassed);
-  if (failed) return reportToPrincipal({ ...subject, stage: 'checks-failed', mergeBase: base, checks }, failedCheckText(subject, failed));
-  return handToFactory({ ...subject, stage: 'checked', mergeBase: base, checks });
+  if (failed) return queueReport({ ...subject, stage: 'checks-failed', mergeBase: base, checks }, failedCheckText(subject, failed));
+  return queueFactoryWake({ ...subject, stage: 'checked', mergeBase: base, checks });
 }
 
 function reportMissingChecks({ mergeable, ...subject }) {
-  return reportToPrincipal({ ...subject, stage: CHECKS_MISSING }, missingChecksText(subject));
+  return queueReport({ ...subject, stage: CHECKS_MISSING }, missingChecksText(subject));
 }
 
 function handle({ mergeable, ...subject }) {
-  if (mergeable === 'CONFLICTING') return handToFactory({ ...subject, stage: 'conflict' });
+  if (mergeable === 'CONFLICTING') return queueFactoryWake({ ...subject, stage: 'conflict' });
   return check(subject);
+}
+
+function recordCandidate({ pull, previous }, step) {
+  return withRecord(pull, (record, save) => {
+    if (!isSameStage(record, previous)) return undefined;
+    const { generation = 0, stage, pendingWakes } = record ?? {};
+    return save(step({ ...pull, generation: stage === HELD ? generation + 1 : generation, pendingWakes }));
+  });
 }
 
 function handleLogged(pull, step) {
   try {
-    const record = step(pull);
+    const record = step();
+    if (!record) return;
+    deliverWakes(record);
     process.stdout.write(`factory: ${pullUrl(pull)} at ${pull.head}: ${record.stage}\n`);
   } catch (error) {
     process.stderr.write(`factory: ${pullUrl(pull)} at ${pull.head}: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -78,15 +92,22 @@ function handleLogged(pull, step) {
   }
 }
 
+function flushWakes() {
+  for (const record of recordedHeads().filter(head => head.pendingWakes?.length)) handleLogged(record, () => record);
+}
+
 export function scan() {
   const repositories = watchedRepositories();
   holdUnwatched(repositories);
   const { checked = [], unchecked = [] } = Object.groupBy(repositories, repository => (hasChecks(repository) ? 'checked' : 'unchecked'));
-  for (const pull of unchecked.flatMap(repository => newHeads(repository, false))) handleLogged(pull, reportMissingChecks);
   for (const repository of checked) holdDrafts(repository);
+  flushWakes();
+  for (const candidate of unchecked.flatMap(repository => newHeads(repository, false))) {
+    handleLogged(candidate.pull, () => recordCandidate(candidate, reportMissingChecks));
+  }
   const pending = checked.flatMap(repository => newHeads(repository, true));
   if (pending.length === 0) return;
   process.stdout.write(`${probe()}\n`);
-  for (const repository of new Set(pending.map(pull => pull.repository))) refreshMirror(repository);
-  for (const pull of pending) handleLogged(pull, handle);
+  for (const repository of new Set(pending.map(({ pull }) => pull.repository))) refreshMirror(repository);
+  for (const candidate of pending) handleLogged(candidate.pull, () => recordCandidate(candidate, handle));
 }

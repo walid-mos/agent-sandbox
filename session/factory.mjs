@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { probe } from './factory-checks.mjs';
 import { requireActionable } from './factory-github.mjs';
 import { changeText } from './factory-mirror.mjs';
-import { pullArguments, pullUrl, requireRecord } from './factory-records.mjs';
-import { reportToPrincipal } from './factory-reports.mjs';
+import { pullArguments, pullUrl, requireRecord, withRecord } from './factory-records.mjs';
+import { deliverWakes, queueReport } from './factory-reports.mjs';
 import { push, resolve } from './factory-resolve.mjs';
 import { requireReview } from './factory-review.mjs';
 import { scan } from './factory-scan.mjs';
@@ -33,19 +33,23 @@ function escalationNote(path) {
 }
 
 function reportEscalation(record, note) {
-  reportToPrincipal({ ...record, stage: 'escalated', note }, `PR factory needs a decision on ${pullUrl(record)} at head ${record.head}: ${note}`);
+  return queueReport({ ...record, stage: 'escalated', note }, `PR factory needs a decision on ${pullUrl(record)} at head ${record.head}: ${note}`);
 }
 
 function escalateReview(review, arguments_) {
   if (arguments_.length !== 1) throw new Error(USAGE);
   const note = escalationNote(arguments_[0]);
-  reportEscalation(requireReview(review), note);
+  const record = requireReview(review);
+  requireActionable(record);
+  const escalated = withRecord(record, (_, save) => save(reportEscalation(requireReview(review), note)));
+  deliverWakes(escalated);
 }
 
 function escalate(arguments_) {
   const pull = pullArguments(arguments_);
-  const record = requireRecord(pull, 'conflict');
-  reportEscalation(record, escalationNote(arguments_[3]));
+  const note = escalationNote(arguments_[3]);
+  const escalated = withRecord(pull, (_, save) => save(reportEscalation(requireRecord(pull, 'conflict'), note)));
+  deliverWakes(escalated);
 }
 
 const REVIEW_ACTIONS = { show, verdict, escalate: escalateReview };
