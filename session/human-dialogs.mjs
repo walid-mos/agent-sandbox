@@ -60,16 +60,20 @@ function newDialog(input, id) {
   return { ...common, purpose: input.purpose, target, expiresAt: Date.now() + SECRET_TTL_MS };
 }
 
-export async function answerQuestion(id, answer, { store = humanStore(), identity, origin = 'terminal', messageId } = {}) {
+export function checkedDiscordAnswer(dialog, reply, identity) {
+  if (dialog.policy === LOCAL_POLICY) throw new Error('human: this question requires the pot terminal.');
+  checkedReply(dialog, reply);
+  return { clicks: reply.clicks.map(click => ({ question: click.question, ...discordEvidence(click, identity, dialog.policy) })) };
+}
+
+export async function answerQuestion(id, answer, { store = humanStore(), identity, origin = 'terminal', messageId, replyDoor } = {}) {
   return store.locked(({ get, save }) => {
     const dialog = get(id);
     if (dialog?.kind !== 'question') throw new Error('human: no such question.');
     if (dialog.result) return dialog;
     let evidence;
     if (origin === 'discord') {
-      if (dialog.policy === LOCAL_POLICY) throw new Error('human: this question requires the pot terminal.');
-      checkedReply(dialog, answer);
-      evidence = { clicks: answer.clicks.map(click => ({ question: click.question, ...discordEvidence(click, identity, dialog.policy) })) };
+      evidence = { ...checkedDiscordAnswer(dialog, answer, identity), ...(replyDoor && { door: replyDoor }) };
     }
     const answers = answersOf(dialog.questions, answer.answers);
     return save({ ...dialog, result: { status: 'answered', origin, answers, evidence, messageId, dialog: id, request: dialog.delivery?.id, digest: questionDigest(dialog), scope: dialog.scope, at: Date.now() } });
@@ -85,11 +89,16 @@ export async function cancelDialog(id, status = 'cancelled', store = humanStore(
   }, id);
 }
 
+export function checkAnswerDoor(dialog, request) {
+  if (request?.pot !== MASTERMIND_POT || request.direction !== ASKED || request.id !== dialog.delivery?.id || request.state !== ANSWERED) throw new Error('human: answer is not a reply to this dialog from Mastermind.');
+}
+
 export async function acceptDoorAnswer(dialog, request, options) {
-  if (request.pot !== MASTERMIND_POT || request.direction !== ASKED || request.id !== dialog.delivery?.id || request.state !== ANSWERED) throw new Error('human: answer is not a reply to this dialog from Mastermind.');
+  checkAnswerDoor(dialog, request);
   let reply;
   try { reply = JSON.parse(request.reply); } catch { throw new Error('human: Mastermind reply is not an answer packet.'); }
-  return answerQuestion(dialog.id, reply, { ...options, origin: 'discord' });
+  const { pot, direction, id, state } = request;
+  return answerQuestion(dialog.id, reply, { ...options, origin: 'discord', replyDoor: { pot, direction, id, state } });
 }
 
 export function questionNeed(dialog) {

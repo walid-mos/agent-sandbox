@@ -6,10 +6,10 @@ import { sandboxFixture } from './sandbox.mjs';
 
 const gitHome = process.env.HOME;
 export const { home } = sandboxFixture('worker-publication-');
-const { command: realCommand } = await import('../../session/run.mjs');
+const { command: realCommand, ...realRun } = await import('../../session/run.mjs');
 export const github = [];
 export const githubState = { canCreatePR: true, pullRequests: [] };
-mock.module('../../session/run.mjs', { exports: { WITH_VAULT: '/unused', command(binary, args, options) {
+mock.module('../../session/run.mjs', { exports: { ...realRun, WITH_VAULT: '/unused', command(binary, args, options) {
   if (binary !== 'gh') {
     if (binary === 'git' && args.includes('push')) githubState.beforePush?.();
     return realCommand(binary, args, { ...options, env: { ...process.env, ...options?.env, HOME: gitHome } });
@@ -20,7 +20,7 @@ mock.module('../../session/run.mjs', { exports: { WITH_VAULT: '/unused', command
   return 'https://github.invalid/proof/repository/pull/1';
 } } });
 export const { save, workers } = await import('../../session/workers.mjs');
-const { openDialog, answerQuestion } = await import('../../session/human-dialogs.mjs');
+const { openDialog, questionDigest } = await import('../../session/human-dialogs.mjs');
 export const { humanStore } = await import('../../session/human-store.mjs');
 export const { workerScope, publishWorker, openWorkerPR } = await import('../../session/worker-publication.mjs');
 export const git = (cwd, ...args) => execFileSync('git', args, { cwd, env: { ...process.env, HOME: gitHome }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -46,10 +46,27 @@ export function fixture() {
   return { worker, remote, checkout };
 }
 
+// The proof path stays in the Discord probe suite with checked registration. This helper fills one synthetic
+// registered receipt so the Git-focused tests never route through a terminal answer, which publication forbids.
+export const SYNTHETIC = { operator: '10000000000000001', guild: '10000000000000003', channel: '10000000000000004', message: '10000000000000005' };
+const SYNTHETIC_URL = `https://discord.com/channels/${SYNTHETIC.guild}/${SYNTHETIC.channel}/${SYNTHETIC.message}`;
+const SYNTHETIC_DOOR = 'mastermind.1234567890abcdef';
+
 export async function approval(scope, label = 'Push once', shouldAnswer = true) {
   const dialog = await openDialog({ kind: 'question', source: { type: 'bot', message: `approval-${++sequence}` }, policy: 'push', scope,
     questions: [{ id: 'push', prompt: 'Publish these exact commits?', options: [{ label: 'Push once' }, { label: 'Keep local' }] }] });
-  if (shouldAnswer) await answerQuestion(dialog.id, { answers: [{ id: 'push', labels: [label], text: '' }] });
+  if (shouldAnswer) {
+    const digest = questionDigest(dialog);
+    const result = { status: 'answered', origin: 'discord', at: Date.now(), messageId: SYNTHETIC_URL, dialog: dialog.id, request: SYNTHETIC_DOOR,
+      digest, scope, answers: [{ id: 'push', labels: [label], text: '' }],
+      evidence: { door: SYNTHETIC_DOOR, clicks: [{ question: 'push', userId: SYNTHETIC.operator, guildId: SYNTHETIC.guild, messageUrl: SYNTHETIC_URL, at: '2026-01-01T00:00:00Z' }] } };
+    const staged = { identity: { pushApprovalsEnabled: true, userId: SYNTHETIC.operator },
+      door: { pot: 'mastermind', direction: 'asked', id: SYNTHETIC_DOOR, state: 'answered' },
+      reply: { type: 'human.answer', version: 1, dialog: dialog.id, request: SYNTHETIC_DOOR, digest, answers: result.answers,
+        clicks: [{ question: 'push', userId: SYNTHETIC.operator, guildId: SYNTHETIC.guild, messageUrl: SYNTHETIC_URL, at: '2026-01-01T00:00:00Z' }] } };
+    await humanStore().patch(dialog.id, { delivery: { id: SYNTHETIC_DOOR }, result, staged,
+      posted: { request: SYNTHETIC_DOOR, digest, guildId: SYNTHETIC.guild, messages: [{ question: 'push', messageUrl: SYNTHETIC_URL }] } });
+  }
   return dialog.id;
 }
 
