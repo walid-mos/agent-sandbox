@@ -1,10 +1,8 @@
 import hashlib
-import io
 import json
 from pathlib import Path
 import subprocess
 import sys
-import tarfile
 import time
 
 from ownership import OwnedFixture
@@ -57,8 +55,7 @@ class Fixture:
         archive = subprocess.run(['git', '-C', str(ROOT), 'archive', BASE], check=True,
                                  stdout=subprocess.PIPE).stdout
         for directory in (self.checkout, self.vm):
-            with tarfile.open(fileobj=io.BytesIO(archive)) as source:
-                source.extractall(directory, filter='data')
+            subprocess.run(['tar', '-xf', '-', '-C', str(directory)], input=archive, check=True)
         git(self.checkout, 'init', '-q', '-b', 'main')
         git(self.checkout, 'config', 'user.name', 'Synthetic operator')
         git(self.checkout, 'config', 'user.email', 'fixture@example.invalid')

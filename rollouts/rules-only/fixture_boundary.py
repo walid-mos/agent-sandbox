@@ -5,6 +5,7 @@ import sys
 import tempfile
 
 from guards import AREA, private_directory, require
+from git_boundary import prove_fixture_git
 
 FORBIDDEN_GIT = {'push', 'fetch', 'pull', 'ls-remote', 'send-email', 'clone', '-S', '--gpg-sign'}
 
@@ -25,6 +26,8 @@ def install_boundary(root, commands):
         is_store = (executable == sys.executable and argv[1:] ==
                     ['-I', str(AREA / 'fixture_store.py'), str(root)])
         require(is_git or is_store, 'fixture attempted an unapproved executable')
+        if is_git:
+            prove_fixture_git(list(argv), root)
         with audit_path.open('a') as output:
             output.write(json.dumps({'executable': 'git' if is_git else 'pinned-store-config',
                                      'networkAllowed': False}) + '\n')

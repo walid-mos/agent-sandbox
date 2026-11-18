@@ -113,6 +113,8 @@ class Commands:
         return output
 
     def git(self, checkout, *arguments, mutation=False):
+        from git_boundary import prove_git_directory
+        prove_git_directory(checkout)
         return self.run(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
                          '-c', 'submodule.recurse=false', '-c', 'maintenance.auto=false',
                          '-c', 'gc.auto=0', '-c', 'core.attributesFile=/dev/null',
