@@ -27,7 +27,7 @@ def exec_container(arguments):
     if arguments[-1] == '--router-current':
         sys.exit(int(outdated.exists()))
     if arguments[-1] == '--router-only':
-        outdated.unlink()
+        outdated.unlink(missing_ok=True)
         return
     if 's6-svc' in arguments and arguments[-1] == '/run/service/custom-svc-pots-router':
         with (root / 'router-restarts').open('a') as restarts:

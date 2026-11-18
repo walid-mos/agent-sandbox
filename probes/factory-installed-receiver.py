@@ -32,8 +32,7 @@ class InstalledFixture(probe['ProducerExportFixture']):
         self.install_bundle()
 
     def start_router_probe(self):
-        fixture_root = self.root
-        receiver = self.receiver
+        fixture_root, receiver = self.root, self.receiver
 
         class RouterProbe(BaseHTTPRequestHandler):
             def log_message(self, *_arguments):
@@ -133,8 +132,12 @@ sys.exit(commands['main'](argv))
 
 @unittest.skipUnless(probe['EXPORT'], 'provide a disposable #30 export')
 class InstalledReceiver(InstalledFixture):
+    def setUp(self):
+        super().setUp()
+        code, status = self.outcome(self.installed_command('initialize-receiver'))
+        self.assertEqual((code, status['loaded']), (0, self.installed))
+
     def test_timer_preserves_active_work_then_rolls_back_and_retries(self):
-        self.assertEqual(self.outcome(self.installed_command('initialize-receiver'))[1]['loaded'], self.installed)
         (self.root / 'active-worker').touch()
         self.assertEqual(self.outcome(self.unit('update'))[1]['blocked'], 'runtime-busy')
         self.assertEqual(self.starts(), [self.installed])
@@ -153,7 +156,6 @@ class InstalledReceiver(InstalledFixture):
         self.assertEqual(self.starts()[-1], self.revision)
 
     def test_live_gateway_blocks_activation_after_verification_without_advancing_admission(self):
-        self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
         (self.root / 'require-gateway-drain').touch()
         for _attempt in range(2):
             code, state = self.outcome(self.unit('update'))
@@ -163,13 +165,11 @@ class InstalledReceiver(InstalledFixture):
             self.assertEqual(self.starts(), [self.installed])
 
     def test_timer_rejects_an_untrusted_candidate_before_restarting(self):
-        self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
         shutil.copyfile(self.export / 'operator-public.asc', self.receiver / 'factory-signers.asc')
         self.assertEqual(self.outcome(self.unit('update'))[1]['blocked'], 'factory-signature-unverified')
         self.assertEqual(self.starts(), [self.installed])
 
     def test_timer_restores_after_interruption_and_keeper_does_not_start_pending_release(self):
-        self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
         interrupt = self.root / f'interrupt-{self.revision}'
         interrupt.touch()
         self.assertEqual(self.unit('update').returncode, -signal.SIGKILL)
@@ -183,7 +183,6 @@ class InstalledReceiver(InstalledFixture):
         self.assertEqual(self.starts(), [self.installed, self.revision, self.installed, self.revision])
 
     def test_timer_restores_if_candidate_listener_is_unavailable(self):
-        self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
         unavailable = self.root / f'no-router-{self.revision}'
         unavailable.touch()
         status = self.outcome(self.unit('update'))[1]
@@ -193,7 +192,6 @@ class InstalledReceiver(InstalledFixture):
         self.assertEqual(self.outcome(self.unit('update'))[1]['loaded'], self.revision)
 
     def test_router_only_restart_waits_under_admission_for_a_late_listener(self):
-        self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
         (self.root / 'wait-for-router').touch()
         (self.root / 'router-outdated').touch()
         (self.root / 'router-after-restart').write_text('late')
@@ -203,18 +201,22 @@ class InstalledReceiver(InstalledFixture):
         self.assertFalse((self.root / 'admitted-early').exists())
         self.assertEqual(self.starts(), [self.installed])
 
-    def test_router_only_restart_keeps_admission_closed_if_listener_never_returns(self):
-        self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
-        (self.root / 'router-outdated').touch()
+    def test_timer_recovers_the_router_without_interrupting_active_work(self):
+        for marker in ('router-outdated', 'active-worker', 'active-bot'):
+            (self.root / marker).touch()
         (self.root / 'router-after-restart').write_text('no')
         self.assertNotEqual(self.unit('keeper').returncode, 0)
-        status = self.outcome(self.installed_command('status-receiver'))[1]
-        self.assertEqual((status['phase'], status['loaded']), ('restoring', None))
+        code, status = self.outcome(self.unit('update'))
+        self.assertEqual((code, status['phase'], status['loaded']), (1, 'restoring', None))
+        self.assertEqual(status['blocked'], 'router-restart-pending')
+        self.assertEqual(self.starts(), [self.installed])
         (self.root / f'no-router-{self.installed}').unlink()
-        self.assertEqual(self.outcome(self.unit('update'))[1]['loaded'], self.installed)
+        code, status = self.outcome(self.unit('update'))
+        self.assertEqual((code, status['phase'], status['loaded']), (0, 'ready', self.installed))
+        self.assertEqual((self.root / 'router-restarts').read_text().splitlines(), [self.installed] * 2)
+        self.assertEqual(self.starts(), [self.installed])
 
     def test_keeper_preserves_router_pin_maintenance_on_the_loaded_release(self):
-        self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
         (self.root / 'router-outdated').touch()
         result = self.unit('keeper')
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -223,7 +225,6 @@ class InstalledReceiver(InstalledFixture):
         self.assertEqual(self.starts(), [self.installed])
 
     def test_keeper_does_not_reopen_admission_after_an_unready_session_restart(self):
-        self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
         (self.root / 'container.json').unlink()
         unavailable = self.root / f'no-router-{self.installed}'
         unavailable.touch()
@@ -234,7 +235,6 @@ class InstalledReceiver(InstalledFixture):
         self.assertEqual(self.outcome(self.unit('update'))[1]['loaded'], self.installed)
 
     def test_keeper_shares_the_lock_and_restarts_only_the_known_good_release(self):
-        self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
         self.assertEqual(self.outcome(self.unit('update'))[1]['loaded'], self.revision)
         (self.root / 'container.json').unlink()
         with probe['admission'](self.receiver, fcntl.LOCK_EX):

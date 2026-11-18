@@ -12,6 +12,7 @@ from receiver_state import CONTROL, PROTOCOL, STATUS, admission, read_state, wri
 SERVICES = ('pots-gateway', 'pots-router', 'pots-watcher', 'pots-sources')
 HEALTH_SECONDS = 60
 COMMAND_SECONDS = 120
+ROUTER_RESTART_PENDING = 'router-restart-pending'
 
 
 class VmReceiver(Receiver):
@@ -64,9 +65,23 @@ class VmReceiver(Receiver):
                 self.repair_runtime(state, 'session-restart-pending', lambda: self.vm.restart(checkout, revision, descriptor))
             container = self.vm.name()
             if not self.vm.router_current(container):
-                self.repair_runtime(state, 'router-restart-pending',
+                self.repair_runtime(state, ROUTER_RESTART_PENDING,
                                     lambda: self.vm.restart_router(container, checkout, revision, descriptor))
             return container
+
+    def restore(self, state, reason, descriptor):
+        if state['phase'] != 'restoring' or reason != ROUTER_RESTART_PENDING:
+            return super().restore(state, reason, descriptor)
+        revision = state['known_good']
+        try:
+            checkout = self.require_release(revision)
+            self.vm.recover_router(checkout, revision, descriptor)
+        except (Blocked, OSError) as problem:
+            failure = str(problem) if isinstance(problem, Blocked) else 'receiver-io-failed'
+            return write_state(self.root, {**state, 'recovery_failure': failure})
+        recovered = {**state, 'phase': 'ready', 'blocked': None, 'filesystem': revision, 'loaded': revision}
+        recovered.pop('recovery_failure', None)
+        return write_state(self.root, recovered)
 
     def repair_runtime(self, state, reason, restart):
         pending = write_state(self.root, {**state, 'phase': 'restoring', 'blocked': reason, 'loaded': None})
@@ -146,6 +161,13 @@ class VmSession:
         self.command(self.launcher, 'select-release', selection=selection, pass_fds=(descriptor,))
         self.await_health(checkout, revision)
 
+    def recover_router(self, checkout, revision, descriptor):
+        try:
+            self.require_health(checkout, revision)
+        except Blocked:
+            container = self.require_selection(checkout, revision)
+            self.restart_router(container, checkout, revision, descriptor)
+
     def restart_router(self, container, checkout, revision, descriptor):
         self.command(self.launcher, 'restart-router', container, pass_fds=(descriptor,))
         self.await_health(checkout, revision)
@@ -162,15 +184,19 @@ class VmSession:
                 time.sleep(1)
 
     def require_health(self, checkout, revision):
+        container = self.require_selection(checkout, revision)
+        self.command(self.launcher, 'health', container, revision, *SERVICES)
+
+    def require_selection(self, checkout, revision):
         container = self.name()
         if not container:
             raise Blocked('runtime-no-container')
         try:
             mounts = json.loads(self.command('docker', 'inspect', '--format', '{{json .Mounts}}', container))
             self.require_mounts(mounts, checkout, revision)
-            self.command(self.launcher, 'health', container, revision, *SERVICES)
         except (ValueError, TypeError, KeyError) as error:
             raise Blocked('runtime-health-invalid') from error
+        return container
 
     def require_mounts(self, mounts, checkout, revision):
         expected = {self.launch['POTS_SESSION_REPOSITORY']: checkout,
