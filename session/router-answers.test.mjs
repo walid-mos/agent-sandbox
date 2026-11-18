@@ -3,6 +3,8 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { after, beforeEach, test } from 'node:test';
 import { routerAnswers } from './router-answers.mjs';
+import { codexAnswers } from './router-codex-answers.mjs';
+import { codexConfiguration } from '../probes/fixtures/codex-configuration.mjs';
 
 const asked = [];
 let replies = {};
@@ -95,6 +97,45 @@ test('reports a disconnected router with the group and expected member', async (
   await assert.rejects(answers(seeded()), {
     message: 'router-restore: group/router through group/expert expected codex/sol:high and got no served model: request failed or response was unreadable. Check the router.',
   });
+});
+
+test('full health still rejects the exact Claude failure and Claude fallback after Codex succeeds', async () => {
+  for (const reply of [
+    { status: 429, served: 'claude/fable', body: { error: 'quota' } },
+    servedBy('claude/opus'),
+  ]) {
+    asked.length = 0;
+    replies = { 'group/expert': servedBy('codex/sol'), 'group/max': reply };
+    await assert.rejects(answers(seeded()), /group\/max expected claude\/fable:xhigh/u);
+    assert.deepEqual(asked, ['group/expert', 'group/max']);
+  }
+});
+
+async function directAnswers() {
+  const snapshot = codexConfiguration();
+  snapshot.providers.groups[1].members[0] = 'codex/gpt-6.2-sol:medium#original';
+  snapshot.providers.groups[2].members[0] = 'codex/gpt-6.2-sol:high#original';
+  const lines = [];
+  for await (const line of codexAnswers(snapshot, routerApi)) lines.push(line);
+  return lines;
+}
+
+test('Codex contract sends one direct original-account high-effort request and reports Claude DEFERRED', async () => {
+  replies = { 'codex/gpt-6.2-sol:high#original': servedBy('codex/gpt-6.2-sol') };
+  assert.deepEqual(await directAnswers(), [
+    'CODEX_TARGETED_V1: direct Codex served codex/gpt-6.2-sol',
+    'CODEX_TARGETED_V1: Claude DEFERRED, group runtime and fallbacks untested',
+  ]);
+  assert.deepEqual(asked, ['codex/gpt-6.2-sol:high#original']);
+});
+
+test('Codex contract rejects a fallback or quota response without retrying or printing full-health success', async () => {
+  for (const reply of [servedBy('claude/opus'), { status: 429, served: 'codex/gpt-6.2-sol', body: {} }, { status: 200, served: 'codex/gpt-6.2-sol', body: { choices: [] } }]) {
+    asked.length = 0;
+    replies = { 'codex/gpt-6.2-sol:high#original': reply };
+    await assert.rejects(directAnswers(), /CODEX_TARGETED_V1: direct Codex validation failed/u);
+    assert.deepEqual(asked, ['codex/gpt-6.2-sol:high#original']);
+  }
 });
 
 test('strips account, fast and effort selectors while keeping a model colon suffix', async () => {

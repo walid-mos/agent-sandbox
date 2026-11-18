@@ -42,7 +42,7 @@ function answerPlan(groups, groupId) {
 const throughGroup = ({ group, target }) => target === group ? '' : ` through ${target}`;
 const expected = (plan, got) => `${SCRIPT}: ${plan.group}${throughGroup(plan)} expected ${plan.member} and got ${got}`;
 
-async function ask(routerApi, plan) {
+export async function requestRouterAnswer(routerApi, plan) {
   let served = 'no served model';
   try {
     const response = await fetch(`${routerApi}/chat/completions`, {
@@ -69,9 +69,13 @@ function verdict(plan, { status, served, answer }) {
   return `${SCRIPT}: ${plan.group} answers${throughGroup(plan)} with ${served}`;
 }
 
-export async function* routerAnswers({ groups }, routerApi) {
-  const plans = DEFAULT_GROUPS.map(group => answerPlan(groups, group));
-  for (const plan of plans) yield verdict(plan, await ask(routerApi, plan));
+export function routerAnswerPlans({ groups }) {
+  return DEFAULT_GROUPS.map(group => answerPlan(groups, group));
+}
+
+export async function* routerAnswers(configuration, routerApi) {
+  const plans = routerAnswerPlans(configuration);
+  for (const plan of plans) yield verdict(plan, await requestRouterAnswer(routerApi, plan));
 }
 
 function restoredConfiguration() {
