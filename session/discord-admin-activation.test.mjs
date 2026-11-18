@@ -40,6 +40,14 @@ for (const input of ['null', '[]', '"inspect"']) {
   });
 }
 
+test('actions does not advertise approval to revoke a role from the guild owner', testContext => {
+  const run = runCommand(testContext, 'discord-admin.mjs', 'actions', { discordAdmin: { enabled: true } });
+  assert.equal(run.status, 0, run.stderr);
+  const actions = JSON.parse(run.stdout);
+  assert.ok(!actions.approvalRules.includes('Removing a role from the guild owner requires approval.'));
+  assert.equal(actions.operations['role.revoke'].permission, 'ManageRoles');
+});
+
 test('disabled Mastermind bootstrap skips bot creation', t => {
   const run = disabledCommand(t, 'discord-admin-bot.mjs', '');
   assert.equal(run.status, 0);

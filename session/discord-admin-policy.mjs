@@ -93,9 +93,11 @@ function requireRolePosition(role, guild, botPosition) {
 }
 
 function guardMemberHierarchy(request, snapshot, botPosition) {
+  const targetsOwner = request.userId === snapshot.guild.owner_id;
+  if (targetsOwner && (snapshot.targetMember || request.action === 'role.revoke')) throw new Error('discord-admin: guild owner or member hierarchy prevents this operation.');
   if (!snapshot.targetMember) return;
   const targetPosition = Math.max(0, ...snapshot.roles.filter(item => snapshot.targetMember.roles.includes(item.id)).map(item => item.position));
-  if ([request.userId === snapshot.guild.owner_id, targetPosition >= botPosition].some(Boolean)) throw new Error('discord-admin: guild owner or member hierarchy prevents this operation.');
+  if (targetPosition >= botPosition) throw new Error('discord-admin: guild owner or member hierarchy prevents this operation.');
   guardTimeout(request, snapshot);
 }
 
@@ -133,12 +135,9 @@ function changesEveryone(request, snapshot) {
   return overwrites.some(item => item.type === OVERWRITE.role && item.id === request.guildId);
 }
 
-const removesOwnerRole = (request, snapshot) => request.action === 'role.revoke' && request.userId === snapshot.guild.owner_id;
-
 export const ADMIN_APPROVAL_RULES = [
   { description: 'A supplied approval ID must always be validated and consumed once.', applies: request => Object.hasOwn(request, 'approval') },
   { description: 'Operations marked irreversible always require approval.', applies: (_request, operation) => operation.approval },
-  { description: 'Removing a role from the guild owner requires approval.', applies: (request, _operation, snapshot) => removesOwnerRole(request, snapshot) },
   { description: 'Changing everyone permissions or existing/proposed everyone overwrites requires approval.', applies: (request, _operation, snapshot) => changesEveryone(request, snapshot) },
 ];
 

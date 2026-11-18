@@ -60,7 +60,7 @@ for (const action of ['thread.edit', 'thread.delete']) {
 
 const irreversible = [
   ['channel.delete', { channelId }], ['role.delete', { roleId }], ['member.kick', { userId }], ['member.ban', { userId }],
-  ['role.revoke', { roleId, userId: ownerId }], ['role.edit', { roleId: guildId, payload: { permissions: '1024' } }],
+  ['role.edit', { roleId: guildId, payload: { permissions: '1024' } }],
 ];
 for (const [action, fields] of irreversible) {
   test(`${action} refuses mutation until approval and supplies the current guild owner`, async () => {
@@ -74,6 +74,13 @@ for (const [action, fields] of irreversible) {
     assert.equal(dependencies.mutations.length, 0);
   });
 }
+
+test('role revocation from the guild owner is refused before approval or mutation', async () => {
+  const dependencies = fixture();
+  dependencies.approvals.authorize = () => { assert.fail('A forbidden operation must not ask for approval'); };
+  await assert.rejects(administerDiscord(request('role.revoke', { roleId, userId: ownerId }), dependencies), /guild owner or member hierarchy/);
+  assert.deepEqual(dependencies.mutations, []);
+});
 
 test('invite deletion resolves the invite channel before protection checks', async () => {
   const dependencies = fixture();
