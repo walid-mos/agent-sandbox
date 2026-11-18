@@ -16,6 +16,8 @@ export function fixture(t) {
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const callsFile = join(home, 'calls.jsonl');
   const failWakeFile = join(home, 'fail-wake');
+  const lockFactsFile = join(home, 'lock-facts.json');
+  const realFlock = execFileSync('which', ['flock'], { encoding: 'utf8' }).trim();
   const sandbox = encodeURIComponent('export const botId = "principal", owners = ["walid-mos"];');
   const loader = `import { registerHooks } from 'node:module'; registerHooks({ resolve(specifier, context, next) {
     if (specifier === './sandbox.mjs') return { url: 'data:text/javascript,${sandbox}', shortCircuit: true };
@@ -26,7 +28,7 @@ export function fixture(t) {
   const reentryFile = join(home, 'reentry.json');
   const run = (args, facts = ready, topics = ['factory']) => spawnSync(process.execPath,
     [loaderFlag, ...args], {
-      encoding: 'utf8', env: { HOME: home, PATH: home, CALLS: callsFile, FACTS: JSON.stringify(facts), TOPICS: JSON.stringify(topics), REENTRY: reentryFile, FAIL_WAKE: failWakeFile, SCAN_FACTS: JSON.stringify([scanFacts]), REPOSITORY: checked.repository },
+      encoding: 'utf8', env: { HOME: home, PATH: home, CALLS: callsFile, FACTS: JSON.stringify(facts), TOPICS: JSON.stringify(topics), REENTRY: reentryFile, FAIL_WAKE: failWakeFile, SCAN_FACTS: JSON.stringify([scanFacts]), REPOSITORY: checked.repository, LOCK_FACTS: lockFactsFile, FLOCK: realFlock },
     });
   const reenterOn = (match, command, ...args) => {
     writeFileSync(reentryFile, JSON.stringify({ match, args: [loaderFlag, ...command.split(' ').slice(2), ...args] }));
@@ -39,7 +41,9 @@ const { appendFileSync, existsSync, readFileSync, unlinkSync } = require('node:f
 const { basename } = require('node:path');
 const command = basename(process.argv[1]);
 const args = process.argv.slice(2);
-appendFileSync(process.env.CALLS, JSON.stringify([command, ...args]) + '\\n');
+if (command !== 'flock' || existsSync(process.env.LOCK_FACTS)) {
+  appendFileSync(process.env.CALLS, JSON.stringify([command, ...args]) + '\\n');
+}
 if (command === 'pots' && args.includes('principal') && existsSync(process.env.FAIL_WAKE)) {
   unlinkSync(process.env.FAIL_WAKE);
   process.stderr.write('Fixture wake failure');
@@ -54,7 +58,18 @@ if (existsSync(file)) {
     appendFileSync(process.env.CALLS, JSON.stringify(['reentry', nested.status, nested.stderr]) + '\\n');
   }
 }
-if (command === 'gh' && args[1] === 'view') process.stdout.write(process.env.FACTS);
+if (command === 'flock') {
+  const lock = spawnSync(process.env.FLOCK, args, { stdio: ['ignore', 'inherit', 'inherit', 3] });
+  if (lock.status === 0 && existsSync(process.env.LOCK_FACTS)) {
+    appendFileSync(process.env.CALLS, JSON.stringify(['locked']) + '\\n');
+  }
+  process.exit(lock.status ?? 1);
+}
+if (command === 'gh' && args[1] === 'view') {
+  const isAfterLock = readFileSync(process.env.CALLS, 'utf8').split('\\n').includes('["locked"]');
+  const facts = isAfterLock && existsSync(process.env.LOCK_FACTS) ? readFileSync(process.env.LOCK_FACTS, 'utf8') : process.env.FACTS;
+  process.stdout.write(facts);
+}
 if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') process.stdout.write(process.env.SCAN_FACTS);
 if (command === 'gh' && args[0] === 'repo' && args[1] === 'list') {
   process.stdout.write(JSON.stringify([{ nameWithOwner: process.env.REPOSITORY, repositoryTopics: [{ name: 'factory' }] }]));
@@ -62,10 +77,14 @@ if (command === 'gh' && args[0] === 'repo' && args[1] === 'list') {
 if (command === 'gh' && args[0] === 'api') process.stdout.write(process.env.TOPICS);
 if (command === 'git') process.stdout.write('Fixture diff');
 `, { mode: 0o700 });
-  for (const name of ['gh', 'git', 'pots']) symlinkSync(fake, join(home, name));
-  symlinkSync(execFileSync('which', ['flock'], { encoding: 'utf8' }).trim(), join(home, 'flock'));
+  for (const name of ['gh', 'git', 'pots', 'flock']) symlinkSync(fake, join(home, name));
   const calls = () => readFileSync(callsFile, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
-  return { home, run, calls, reenterOn, failNextReport: () => writeFileSync(failWakeFile, '') };
+  const changePullAtLock = facts => {
+    writeFileSync(callsFile, '');
+    writeFileSync(lockFactsFile, JSON.stringify(facts));
+    return () => rmSync(lockFactsFile);
+  };
+  return { home, run, calls, reenterOn, changePullAtLock, failNextReport: () => writeFileSync(failWakeFile, '') };
 }
 
 export function handoff({ run, calls }, record) {

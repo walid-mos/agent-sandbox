@@ -90,23 +90,23 @@ test('the current checked review can escalate and close its round', t => {
   expectRefusal(action(rig, show), /is escalated/);
 });
 
-test('a verdict committed during escalation validation wins the transition', t => {
+test('a verdict committed before escalation acquires the lock wins the transition', t => {
   const rig = fixture(t);
   const { verdict, escalate } = handoff(rig, checked);
   const notes = join(rig.home, 'race notes');
   writeFileSync(notes, 'A competing decision.');
-  rig.reenterOn(['gh', 'pr', 'view'], verdict.replace(' VERDICT NOTES_FILE', ''), 'FAIL', notes);
+  rig.reenterOn(['flock', '--exclusive'], verdict.replace(' VERDICT NOTES_FILE', ''), 'FAIL', notes);
   expectRefusal(action(rig, escalate.replace(' NOTE_FILE', ''), notes), /is failed/);
   assert.deepEqual(rig.calls().find(([command]) => command === 'reentry'), ['reentry', 0, '']);
   assert.equal(rig.calls().filter(call => call[0] === 'pots' && call.includes('principal')).length, 1);
 });
 
-test('a scan can hold the round during escalation validation', t => {
+test('a scan can hold the round before escalation acquires the lock', t => {
   const rig = fixture(t);
   const { escalate } = handoff(rig, checked);
   const notes = join(rig.home, 'scan notes');
   writeFileSync(notes, 'Both judges stopped.');
-  rig.reenterOn(['gh', 'pr', 'view'], `with-vault node ${factory} scan`);
+  rig.reenterOn(['flock', '--exclusive'], `with-vault node ${factory} scan`);
   expectRefusal(action(rig, escalate.replace(' NOTE_FILE', ''), notes), /is held/);
   assert.deepEqual(rig.calls().find(([command]) => command === 'reentry'), ['reentry', 0, '']);
   assert.equal(rig.calls().filter(([command]) => command === 'pots').length, 1);
@@ -121,6 +121,18 @@ test('checked escalation refuses a changed head or draft PR', t => {
   expectRefusal(rig.run(args, { ...ready, headRefOid: otherHead }), /this step covers/);
   expectRefusal(rig.run(args, { ...ready, isDraft: true }), /a draft/);
   assert.equal(rig.calls().filter(([command]) => command === 'pots').length, 1);
+});
+
+test('escalation reads live eligibility after taking the record lock', t => {
+  const rig = fixture(t);
+  const { escalate, show } = handoff(rig, checked);
+  const notes = join(rig.home, 'lock wait notes');
+  writeFileSync(notes, 'Both judges stopped.');
+  const restoreReady = rig.changePullAtLock({ ...ready, isDraft: true });
+  expectRefusal(action(rig, escalate.replace(' NOTE_FILE', ''), notes), /a draft/);
+  assert.deepEqual(rig.calls().map(([command]) => command), ['flock', 'locked', 'gh']);
+  restoreReady();
+  assert.match(action(rig, show).stdout, new RegExp(`Head ${head}`));
 });
 
 test('an escalation notification can re-enter and sees the committed stage', t => {

@@ -40,8 +40,11 @@ function escalateReview(review, arguments_) {
   if (arguments_.length !== 1) throw new Error(USAGE);
   const note = escalationNote(arguments_[0]);
   const record = requireReview(review);
-  requireActionable(record);
-  const escalated = withRecord(record, (_, save) => save(reportEscalation(requireReview(review), note)));
+  const escalated = withRecord(record, (_, save) => {
+    const current = requireReview(review);
+    requireActionable(current);
+    return save(reportEscalation(current, note));
+  });
   deliverWakes(escalated);
 }
 
