@@ -14,6 +14,7 @@ fixture = runpy.run_path(str(Path(__file__).with_name('managed-update.py')))
 ManagedFixture = fixture['ManagedFixture']
 ORIGIN = fixture['ORIGIN']
 DISPATCH_REVISION = os.environ.get('FACTORY_RELEASE_REVISION')
+DISPATCH_BASE = os.environ.get('FACTORY_RELEASE_DISPATCH_BASE')
 REPOSITORY = ORIGIN.removeprefix('https://github.com/').removesuffix('.git')
 
 
@@ -116,6 +117,9 @@ if verb == 'dispatch':
         command = [str(checkout / 'probes/dispatch-branches.mjs')]
     elif arguments == ['resumed']:
         command = ['--experimental-test-module-mocks', '--test', str(checkout / 'session/worker-delivery.test.mjs')]
+    elif arguments in (['push-policy', 'before'], ['push-policy', 'after']):
+        command = [{str(Path(__file__).with_name('factory-push-policy.mjs'))!r},
+                   str(checkout), str(root.parent / 'worker-fixture'), arguments[-1]]
     else:
         sys.exit(1)
     node = {shutil.which('node')!r}
@@ -123,6 +127,7 @@ if verb == 'dispatch':
     result = subprocess.run([node, *command], env=environment, capture_output=True)
     (root / 'dispatch-result').write_bytes(result.stdout + result.stderr)
     sys.stdout.buffer.write(result.stdout)
+    sys.stderr.buffer.write(result.stderr)
     sys.exit(result.returncode)
 ''')
         runtime.chmod(0o700)
@@ -182,25 +187,44 @@ class Activation(ActivationFixture):
         code, status = self.activate('advance', revision)
         self.assertEqual((code, status['loaded']), (0, revision))
 
-    @unittest.skipUnless(DISPATCH_REVISION, 'provide the reviewed dispatcher source commit')
-    def test_installed_dispatcher_supports_fresh_and_resumed_work(self):
+    def commit_dispatch_tree(self, revision):
         archive = self.root / 'release.tar'
         with archive.open('wb') as output:
-            subprocess.run(['git', '-C', str(fixture['ROOT']), 'archive', DISPATCH_REVISION],
+            subprocess.run(['git', '-C', str(fixture['ROOT']), 'archive', revision],
                            env=self.environment, stdout=output, check=True)
-        self.git(self.source, 'rm', '-q', '--', 'tracked')
+        self.git(self.source, 'rm', '-qr', '--', '.')
         with tarfile.open(archive) as source:
             source.extractall(self.source, filter='data')
         self.git(self.source, 'add', '--force', '--all')
-        self.git(self.source, 'commit', '-qm', 'Checked dispatcher tree')
-        expected_tree = self.git(fixture['ROOT'], 'rev-parse', f'{DISPATCH_REVISION}^{{tree}}')
+        self.git(self.source, 'commit', '-qS', '-m', 'Dispatcher fixture tree')
+        expected_tree = self.git(fixture['ROOT'], 'rev-parse', f'{revision}^{{tree}}')
         self.assertEqual(self.git(self.source, 'rev-parse', 'HEAD^{tree}'), expected_tree)
-        self.desired = self.git(self.source, 'rev-parse', 'HEAD')
+        return self.git(self.source, 'rev-parse', 'HEAD')
+
+    def install_dispatch_base(self):
+        self.installed = self.commit_dispatch_tree(DISPATCH_BASE)
+        self.git(self.checkout, 'fetch', '-q', str(self.source), 'refs/heads/main')
+        self.git(self.checkout, 'reset', '-q', '--hard', self.installed)
+
+    def assert_policy_launch(self, phase):
+        result = self.command('dispatch', 'push-policy', phase)
+        self.assertEqual(result.returncode, 0, (self.receiver / 'dispatch-result').read_text())
+        print(json.dumps(json.loads(result.stdout)), flush=True)
+
+    @unittest.skipUnless(DISPATCH_REVISION, 'provide the reviewed dispatcher source commit')
+    def test_installed_dispatcher_supports_fresh_and_resumed_work(self):
+        if DISPATCH_BASE:
+            self.install_dispatch_base()
+        self.desired = self.commit_dispatch_tree(DISPATCH_REVISION)
         self.git(self.stage, 'fetch', '-q', str(self.source), 'refs/heads/main:refs/heads/main')
         revision = self.arrange_activation()
+        if DISPATCH_BASE:
+            self.assert_policy_launch('before')
         code, status = self.activate('advance', revision)
         self.assertEqual((code, status['loaded'], status['known_good']), (0, revision, revision))
         self.assert_dispatches_from_loaded_release(revision)
+        if DISPATCH_BASE:
+            self.assert_policy_launch('after')
 
 
 if __name__ == '__main__':
