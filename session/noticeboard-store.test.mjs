@@ -30,6 +30,31 @@ function database(t) {
   assert.equal(statSync(database_.path).mode & 0o777, 0o600);
 });
 
+test('binary attachment bytes survive failed readback and verify after reopening the archive', async t => {
+  const archiveDatabase = database(t);
+  const bytes = Buffer.from([0x00, 0xff, 0x0d, 0x0a, 0x80]);
+  const attachment = { id: '99999999999999999', filename: 'fixture.bin', size: bytes.length,
+    url: 'https://cdn.discordapp.com/attachments/fixture/fixture.bin' };
+  const context = fixture({ attachments: [attachment] });
+  const readCopy = context.client.readCopy;
+  context.client.download = async () => Buffer.from(bytes);
+  context.client.readCopy = async () => { throw new Error('fixture readback interrupted'); };
+
+  await noticeboardPass({ ...context, store: archiveDatabase.store });
+
+  const store = archiveDatabase.reopen();
+  const [record] = store.records();
+  const [copy] = context.copies.values();
+  assert.equal(record.stage, 'copied');
+  assert.deepEqual(Buffer.from(record.archive.files[0].bytes, 'base64'), bytes);
+  assert.deepEqual(Buffer.from(copy.files[0].bytes, 'base64'), bytes);
+
+  context.client.readCopy = readCopy;
+  await noticeboardPass({ ...context, event: undefined, store, now: context.now + 10_000 });
+  assert.equal(store.get(record.key).stage, 'verified');
+  assert.deepEqual(context.effects, ['react', 'copy']);
+});
+
  test('durable inbox retains failed work independently of its high-water cursor', t => {
   const database_ = database(t);
   const { event } = fixture();

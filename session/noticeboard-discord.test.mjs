@@ -8,6 +8,8 @@ import { fixture, authorId, channelId, messageId, threadId, guildId, copyId } fr
 import { noticeboardDiscord } from './noticeboard-discord.mjs';
 import { noticeboardDiscordInbox } from './noticeboard-discord-inbox.mjs';
 import { noticeboardPass } from './noticeboard-worker.mjs';
+import { noticeboardStore } from './noticeboard-store.mjs';
+import { noticeboardServicePass } from './noticeboard-service.mjs';
 
 const account = 'fixture-discord';
 const appUserId = '88888888888888888';
@@ -23,7 +25,7 @@ function gatewayDatabase(t) {
   const database = new DatabaseSync(path);
   database.exec('CREATE TABLE gw_events (id INTEGER PRIMARY KEY, channel TEXT, kind TEXT, raw TEXT)');
   t.after(() => { database.close(); rmSync(folder, { recursive: true, force: true }); });
-  return { path, insert: (id, channel, kind, raw) => database.prepare('INSERT INTO gw_events VALUES (?, ?, ?, ?)').run(id, channel, kind, JSON.stringify(raw)) };
+  return { folder, path, insert: (id, channel, kind, raw) => database.prepare('INSERT INTO gw_events VALUES (?, ?, ?, ?)').run(id, channel, kind, JSON.stringify(raw)) };
 }
 
  test('gateway reads only scoped event references, including partial edits and deletes', t => {
@@ -72,6 +74,36 @@ function ownerCalls(context, source = message) {
   assert.equal(original.reply.messageId, threadId);
   assert.equal(context.store.records()[0].reason, 'conditional-delete-unavailable');
   assert.deepEqual(context.effects, ['react']);
+});
+
+test('a partial edit reacts to the same original linked by the verified thread copy', async t => {
+  let store;
+  t.after(() => store?.close());
+  const gateway = gatewayDatabase(t);
+  gateway.insert(1, account, 'edit', { ...reference, content: 'Incomplete event snapshot' });
+  const context = fixture();
+  const { channels } = context.configuration;
+  const readEvents = noticeboardDiscordInbox(gateway.path, { account, channels });
+  const { client, methods, posted } = ownerCalls(context, { ...message, edited_timestamp: createdAt });
+  store = noticeboardStore(join(gateway.folder, 'archive.sqlite'));
+  const reactions = [];
+  const react = (route, id) => reactions.push({ channelId: route.channelId, messageId: id });
+
+  await noticeboardServicePass({ ...context, client: { ...client, readEvents, react }, store });
+
+  const [record] = store.records();
+  const [, manifest] = posted().content.split('\n', 2);
+  const { original } = JSON.parse(manifest);
+  assert.deepEqual(reactions, [{ channelId, messageId }]);
+  assert.deepEqual(reactions[0], { channelId: original.channelId, messageId: original.id });
+  assert.equal(original.content, 'Exact @everyone\ntext');
+  assert.deepEqual(record.copy, { id: copyId, channelId: threadId });
+  assert.equal(record.stage, 'verified');
+  assert.equal(record.reason, 'conditional-delete-unavailable');
+  assert.equal(store.cursor(), 1);
+  assert.deepEqual(store.events(), []);
+  assert.equal(methods.some(method => method.startsWith('DELETE ')), false);
+  assert.deepEqual(context.effects, []);
 });
 
  test('unsupported attachment transport holds before reaction or publication', async () => {
