@@ -21,7 +21,7 @@ for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/pr
 		esac ;;
 	esac
 done
-for path in "$root"/session/*.mjs "$root"/session/factory-image/*.mjs "$root"/session/factory-runtime/*.mjs "$root"/herdr/*.js; do
+for path in "$root"/session/*.mjs "$root"/session/factory-image/*.mjs "$root"/session/factory-runtime/*.mjs "$root"/mac/*.mjs "$root"/herdr/*.js; do
 	node --check "$path"
 done
 # node --check rejects type annotations, so a TypeScript file is checked with its types stripped.

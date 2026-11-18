@@ -1,10 +1,17 @@
-import { answerParts, answersOf, checkDiscordPolicy, DIALOG_ID, DIGEST, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
+import { answerParts, answersOf, checkDiscordPolicy, DIALOG_ID, DIGEST, DISCORD_MESSAGE_LIMIT, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
 import { bindsTo, eventOf } from './discord-event.mjs';
 import { isPotName, isRequestId } from './door-messages.mjs';
+import { requireApprovalDisplay } from './discord-admin-message.mjs';
 
-const MESSAGE_LIMIT = 2000;
+export function registerDiscordQuestion(registration, store, identity) {
+  return saveRegistration(registration, store, identity, { savedRegistration: registration, registrationState: 'saved', registered: false });
+}
 
-export async function registerDiscordQuestion(registration, store, identity) {
+export function registerOwnerQuestion(registration, store, ownerId) {
+  return saveRegistration(registration, store, undefined, { localAdmin: true, ownerId, registration, registrationState: 'acknowledged', registered: true });
+}
+
+async function saveRegistration(registration, store, identity, state) {
   const { question, request, pot, channelAccount, guildId, messages } = registration;
   if (question?.type !== 'human.question' || question.version !== VERSION || !DIALOG_ID.test(question.dialog) || !DIGEST.test(question.digest)) throw new Error('discord-human: invalid question packet.');
   if (!isRequestId(request) || !isPotName(pot) || !channelAccount || !isSnowflake(guildId)) throw new Error('discord-human: register the originating door and channel account.');
@@ -20,8 +27,14 @@ export async function registerDiscordQuestion(registration, store, identity) {
       if (JSON.stringify(registrationOf(existing)) !== JSON.stringify(registration)) throw new Error('discord-human: a registration cannot change.');
       return existing;
     }
-    return save({ id: question.dialog, savedRegistration: registration, registrationState: 'saved', registered: false, picks: {} });
+    return save({ id: question.dialog, picks: {}, ...state });
   }, question.dialog);
+}
+
+function requireApprovalOwner(record, event) {
+  if (!record.localAdmin) return;
+  if (![event.userId === record.ownerId, event.guildId === record.registration.guildId].every(Boolean)) throw new Error('discord-human: only the guild owner in the registered guild can decide this administration approval.');
+  requireApprovalDisplay(event.interaction?.message, record.registration.messages[event.questionIndex]);
 }
 
 const formChildren = component => component.components ?? (component.component ? [component.component] : []);
@@ -64,7 +77,7 @@ function disabled(components = []) {
 const answered = answer => `Answered: ${answerParts(answer).join(', ')}`;
 
 function messageUpdate(message, content, components = message.components) {
-  const body = { content: content.slice(0, MESSAGE_LIMIT), allowed_mentions: { parse: [] } };
+  const body = { content: content.slice(0, DISCORD_MESSAGE_LIMIT), allowed_mentions: { parse: [] } };
   if (components?.length) body.components = disabled(components);
   return { channelId: message.channelId, messageId: message.messageId, body };
 }
@@ -80,6 +93,7 @@ export async function acceptDiscordClick(row, { store, identity, channelAccount,
     const message = asked && messages[event.questionIndex];
     if (!message || channelAccount !== record.registration.channelAccount || (event.guildId && event.guildId !== record.registration.guildId)) throw new Error('discord-human: click does not belong to the registered message.');
     if (!bindsTo(record.registration, asked, event.questionIndex, event)) throw new Error('discord-human: click does not name a registered control of this question.');
+    requireApprovalOwner(record, event);
     if (record.closed || Object.hasOwn(record.picks, asked.id)) return withdrawn(record, asked, message, save);
     const messageUrl = discordMessageUrl({ guildId: record.registration.guildId, ...message });
     const evidence = discordEvidence({ userId: event.userId, guildId: event.guildId ?? record.registration.guildId, messageUrl, at }, identity, question.policy);

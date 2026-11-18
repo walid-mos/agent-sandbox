@@ -186,6 +186,8 @@ For this checkout on a Mac, run `./bin/import-private OLD_CHECKOUT` from a clone
 
 ## Daily operations
 
+[Mac launch setup](docs/mac-launch.md) lets a pot propose a prompt for one Mac. That Mac verifies the operator's Discord click before starting Pi. The feature stays disabled until private configuration and setup on each Mac.
+
 Start Herdr once so it creates its configuration, then install the Pots pane and the login watchdog from the Mac checkout:
 
 ```sh
@@ -332,7 +334,7 @@ A pot's bot follows [the work center's instructions](session/bot), and the Maste
 
 For rules maintained in a private source, use [the client-rules import and approval commands](docs/client-rules.md). `vm-config` carries the approved snapshot through the trusted launcher to the existing read-only configuration mount. An unsigned source update alone cannot activate new rules.
 
-A sandbox for a client uses `rules` for the client's own instruction file, which can make every push wait for the person's yes. The yes is a rule that the bot and the worker follow, and the sandbox's token can push without it. The bot asks before a start, because the start pushes the branch to open the draft PR. It asks again when a worker stops with unpushed commits, then sends the worker the yes for that one push.
+Both the work center and its workers follow the [push policy](docs/human-dialogs.md#when-to-ask-for-push-approval).
 
 The bot starts and reaches workers itself. To do it by hand, create a brief or a message file inside the session, then run this from the Mac. The dispatcher identifies the repository explicitly when looking up its default branch.
 

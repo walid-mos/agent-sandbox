@@ -27,6 +27,7 @@ restart_services "$session" pots-router pots-tailnet
 restart_services "$session" pots-gateway pots-watcher pots-sources
 # The Factory bot's routine needs a running gateway, so it comes after the restart.
 "$POTS_REPO/bin/sandbox-exec" node "$POTS_SESSION_REPOSITORY/session/factory-bot.mjs"
+"$POTS_REPO/bin/sandbox-exec" node "$POTS_SESSION_REPOSITORY/session/discord-admin-bot.mjs"
 "$POTS_REPO/bin/tailnet-up"
 # Serving the pot's files needs the session node that tailnet-up joins, so it comes last.
 "$POTS_REPO/bin/sandbox-exec" node "$POTS_SESSION_REPOSITORY/session/cloud.mjs"

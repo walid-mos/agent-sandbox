@@ -1,19 +1,17 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { factoryCommand, WATCH } from './factory-reports.mjs';
-import { FACTORY_BOT, factoryBotHome } from './factory-identity.mjs';
+import { FACTORY_BOT } from './factory-identity.mjs';
 import { FACTORY_TOPIC } from './factory-github.mjs';
 import { linkFolder } from './link.mjs';
 import { main } from './main.mjs';
-import { ROUTER_MODEL } from './models.mjs';
+import { ensureRouterBot } from './router-bot.mjs';
 import { command } from './run.mjs';
 import { owners } from './sandbox.mjs';
 import { isRetiredSessionFactory } from './factory-authority.mjs';
 
 const VERSIONED = join(dirname(fileURLToPath(import.meta.url)), 'factory');
-const BOT_HOME = factoryBotHome();
 const SCAN_EVERY = '5m';
 const SCAN_TIMEOUT = '60m';
 const ABOUT = `checks, judges and merges ready pull requests in repositories with the ${FACTORY_TOPIC} topic`;
@@ -24,11 +22,6 @@ const READY_TIMEOUT_MS = 60000;
 const READY_POLL_MS = 1000;
 
 const pots = arguments_ => execFileSync('pots', arguments_, { stdio: 'inherit' });
-
-function create() {
-  pots(['bot', 'new', FACTORY_BOT.name, '--id', FACTORY_BOT.id, '--model', ROUTER_MODEL, '--judge', 'off', '--about', ABOUT]);
-  if (!existsSync(BOT_HOME)) throw new Error(`factory: pots bot new made no ${BOT_HOME}. Check pots status, then run this again.`);
-}
 
 // The gateway starts a new bot, or comes back from its restart, a few seconds after the command, and adds a routine only to a running bot.
 function waitUntilRunning() {
@@ -55,8 +48,7 @@ main(import.meta, () => {
     process.stdout.write('factory: this pot owns no repositories, so it runs no Factory bot\n');
     return;
   }
-  if (!existsSync(BOT_HOME)) create();
-  linkFolder(VERSIONED, BOT_HOME);
+  linkFolder(VERSIONED, ensureRouterBot(FACTORY_BOT, ABOUT));
   waitUntilRunning();
   holdCheckIn();
   pots(['routine', 'add', WATCH, '--bot', FACTORY_BOT.id, '--every', SCAN_EVERY, '--timeout', SCAN_TIMEOUT, '--run', factoryCommand('scan')]);

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export function readJson(path) {
@@ -9,6 +10,11 @@ export function readJson(path) {
 // A reader never sees a half-written file: the value lands under a temporary name, then takes the real one.
 export function writePrivateJson(path, value) {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(`${path}.tmp`, JSON.stringify(value), { mode: 0o600 });
-  renameSync(`${path}.tmp`, path);
+  const staging = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(staging, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
+    renameSync(staging, path);
+  } finally {
+    rmSync(staging, { force: true });
+  }
 }

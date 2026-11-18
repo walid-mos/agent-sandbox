@@ -25,11 +25,19 @@ sequenceDiagram
     M->>D: Show the owning pot's final answer
 ```
 
+## When to ask for push approval
+
+Before `dispatch start` or a worker push, apply the repository, release and branch controls. If `/etc/agent-sandbox/sandbox.json` sets `rules`, read and apply that client instruction file. Routine feature-branch pushes need no human approval unless an applicable rule requires it. If a rule requires approval, use the route it permits and scope the yes to one push.
+
+`dispatch start` pushes the new branch to open the draft pull request. The work center and the worker apply the approval rules before their respective pushes. Git credentials let the launcher and the worker push independently of this instruction.
+
 ## Private configuration
 
 Ordinary questions have no role, permission or user allowlist check. The operator waived those checks for the server they use alone. The handler still requires the exact registered message and originating request and stores the actual clicker, time and message link.
 
-Push approvals stay off until this PR is merged and verified live. After that rollout is authorized, configure `humanDiscord.userId` privately and enable `humanDiscord.pushApprovalsEnabled` in each involved pot's `/etc/agent-sandbox/sandbox.json`. Push acceptance compares the clicker with that one operator ID. Missing or disabled configuration rejects push clicks. Never commit personal identifiers, message links containing them, or runtime answer records.
+Discord push-click acceptance stays off until the merged transport is verified live. After that rollout is authorized, configure `humanDiscord.userId` privately and enable `humanDiscord.pushApprovalsEnabled` in each involved pot's `/etc/agent-sandbox/sandbox.json`. Push acceptance compares the clicker with that one operator ID. Missing or disabled configuration rejects push clicks. The applicable rules still govern whether the push requires approval. Never commit personal identifiers, message links containing them, or runtime answer records.
+
+Discord Admin has a separate private switch, `discordAdmin.enabled: true`, in Mastermind's `/etc/agent-sandbox/sandbox.json`. It defaults off. The command and bot installer check it before credentials or network access. Its rollout requires a separately authorized signed tip and Mastermind restart window, independent of push approvals and model/client-rules changes. Read [discord-admin.md](discord-admin.md) for canonical message verification and owning metadata requirements. Do not enable it as part of an ordinary source update or another feature's bootstrap.
 
 Secret pages require Pots' `publicUrl` and `pagePort` in `~/.pots/settings.json`. Publish the loopback page port with `tailnet-link`, then set `publicUrl` to that exact HTTPS origin. Changing an existing public URL can break old links, so check its existing links and obtain authorization before changing it. The bridge checks Tailscale Serve's mapping and rejects a public URL that is absent, unrelated to the loopback page port, or enabled for Funnel. It never starts a tunnel or changes Serve.
 
