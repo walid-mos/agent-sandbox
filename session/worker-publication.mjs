@@ -1,4 +1,4 @@
-import { checkedDiscordAnswer, checkAnswerDoor } from './human-dialogs.mjs';
+import { consumeDiscordPush } from './human-consume.mjs';
 import { humanStore } from './human-store.mjs';
 import { pushApproved } from './push-approved.mjs';
 import { command } from './run.mjs';
@@ -12,26 +12,6 @@ function repositoryWorker(name) {
   const worker = ownedWorker(name, botId);
   if (!worker?.repository || worker.kind === 'task') throw new Error('dispatch: publication requires an owned repository worker.');
   return worker;
-}
-
-// Only the checked registered Discord receipt may release the first approved push, inside this lock:
-// a terminal answer, or any record without the registered door, packet evidence and configured operator,
-// releases nothing. The reply and current identity come from the staged record the owning relay wrote.
-async function consumeDiscordPush(id, input, store = humanStore()) {
-  return store.locked(({ get, save }) => {
-    const dialog = get(id);
-    checkAnswerDoor(dialog, input.door);
-    checkedDiscordAnswer(dialog, input.reply, input.identity);
-    const checked = get(id);
-    if (checked.result?.status !== 'answered' || checked.result.origin !== 'discord') throw new Error('human: first publication needs its checked registered Discord answer.');
-    const [answer] = checked.result.answers;
-    if (checked.result.answers.length !== 1 || answer.labels.length !== 1 || answer.labels[0] !== AFFIRMATIVE_LABEL || answer.text) {
-      throw new Error('human: this is not the requested affirmative push answer.');
-    }
-    if (checked.consumption) throw new Error('human: this push receipt was already consumed. Ask for a new approval.');
-    if (checked.scope !== input.scope) throw new Error('human: push consumption does not match its scope and receipt.');
-    return save({ ...checked, consumption: { scope: input.scope, label: AFFIRMATIVE_LABEL, at: Date.now() } });
-  }, id);
 }
 
 function checkCheckout(worker, git) {
@@ -74,9 +54,7 @@ export async function publishWorker([name, dialogId, label], store = humanStore(
   if (label !== AFFIRMATIVE_LABEL) throw new Error(`dispatch: publication requires the explicit affirmative label "${AFFIRMATIVE_LABEL}".`);
   const worker = repositoryWorker(name);
   const request = firstPush(worker);
-  const staged = store.get(dialogId)?.staged;
-  if (!staged) throw new Error('human: first publication waits for its checked registered Discord answer. Ask again when it exists.');
-  await consumeDiscordPush(dialogId, { ...staged, scope: request.scope }, store);
+  await consumeDiscordPush(dialogId, { scope: request.scope, label }, store);
   const options = { cwd: worker.worktree };
   const git = args => command('git', args, options);
   checkCheckout(worker, git);

@@ -7,7 +7,7 @@ import { approval, fixture, git, github, githubState, home, humanStore, openWork
 test('deferred publication rejects pending, negative and old bootstrap scopes without consuming or pushing', async () => {
   const f = fixture();
   const scope = workerScope([f.worker.name]).scope;
-  for (const id of [await approval(scope, 'Push once', false), await approval(scope, 'Keep local'), await approval('Old empty-bootstrap startup scope')]) {
+  for (const id of [await approval(scope, { isPending: true }), await approval(scope, { label: 'Keep local' }), await approval('Old empty-bootstrap startup scope')]) {
     await assert.rejects(publishWorker([f.worker.name, id, 'Push once']));
     assert.equal(humanStore().get(id).consumption, undefined);
     assert.equal(remoteHeads(f), '');

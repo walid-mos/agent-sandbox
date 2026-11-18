@@ -1,7 +1,7 @@
-import { questionDigest } from './human-dialogs.mjs';
+import { checkDiscordReceipt, questionDigest } from './human-dialogs.mjs';
 import { humanStore } from './human-store.mjs';
 
-export async function consumePush(id, input, store = humanStore()) {
+async function consume(id, input, store, checkReceipt) {
   return store.locked(({ get, save }) => {
     const dialog = get(id);
     if (dialog?.kind !== 'question' || dialog.policy !== 'push') throw new Error('human: consumption requires a scoped push question.');
@@ -14,6 +14,14 @@ export async function consumePush(id, input, store = humanStore()) {
       throw new Error('human: this is not the requested affirmative push answer.');
     }
     if (dialog.consumption) throw new Error('human: this push receipt was already consumed. Ask for a new approval.');
+    checkReceipt?.(dialog);
     return save({ ...dialog, consumption: { scope: input.scope, label: input.label, at: Date.now() } });
   }, id);
+}
+
+export const consumePush = (id, input, store = humanStore()) => consume(id, input, store);
+
+export async function consumeDiscordPush(id, input, store = humanStore()) {
+  const { readHumanDiscord } = await import('./sandbox.mjs');
+  return consume(id, input, store, dialog => checkDiscordReceipt(dialog, readHumanDiscord()));
 }
