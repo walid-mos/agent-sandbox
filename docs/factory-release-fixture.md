@@ -12,7 +12,7 @@ work=$(mktemp -d)
 python3 -B probes/landing-policy.py --release 5947f43fe411c78510b58121df27dc96eaedf2c5 --export "$work/release"
 ```
 
-The command tests retargeting, a base update just before the push, and an ambiguous result without a saved signed release. The successful scenario restarts after signing and again after pushing. It verifies the signature before writing `receipt.json`, `candidate.bundle`, `operator-public.asc` and `factory-public.asc`. Fresh disposable keys make each run's commit IDs different. The bundle and receipt from one run must travel together. The fixture puts its private keyrings in its temporary working directory and cleans them up before returning.
+The command tests retargeting, a base update just before the push, recovery with a fresh review on a trusted advance, and an ambiguous result without a saved signed release. The successful retry scenario restarts after signing and again after pushing. It verifies the signature before writing `receipt.json`, `candidate.bundle`, `operator-public.asc` and `factory-public.asc`. Fresh disposable keys make each run's commit IDs different. The bundle and receipt from one run must travel together. The fixture puts its private keyrings in its temporary working directory and cleans them up before returning.
 
 ## Reuse in a receiver
 
@@ -51,7 +51,17 @@ For #53, seed the disposable installed checkout at `base`, stage the bundle's `m
 
 The producer builds a signed commit with the checked base as its only parent and the checked head's tree. The remote compares that exact base on the explicitly named target ref in the push. The producer checks live PR readiness, target and source head before signing and pushing. Git cannot compare live GitHub PR metadata inside that ref update. A later retarget or head edit cannot substitute another target or tree into the push. A direct squash push also does not establish that GitHub marked the PR merged.
 
-The producer saves the signed object in the shared review record before any push. A retry can publish from the same base after rechecking the live PR, or acknowledge the exact candidate already at the target. Any other tip stops the retry. The protected signer keeps the identical receipt across restarts. If a signed candidate never landed and the base has since moved, the next request stops at that unresolved signer receipt.
+The producer saves the signed object in the shared review record before any push. A retry can publish from the same base after rechecking the live PR, or acknowledge the exact candidate already at the target. Any other tip stops the retry. The protected signer keeps the identical receipt across restarts.
+
+A fresh checked review can replace the signer receipt when the live target equals its new, trusted base and that base strictly advances the old receipt's base. The old release cannot use its lease on that target. The signer still checks the installed anchor, fetched PR head and reviewed tree before saving the new receipt. The old shared review record keeps its signed evidence. Recovery assumes the target advances without a forced rewind. The current ref cannot prove whether a candidate appeared in history that was later rewritten.
+
+### GitHub merge state
+
+[GitHub's merge API](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request) can match the PR head. It has no input for the expected base SHA, expected target ref or a caller-signed commit to publish. The [asynchronous endpoint](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request-asynchronously) has the same limit.
+
+[GitHub supports indirect merges](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges#indirect-merges) when an external update makes the PR head reachable from the default branch. A two-parent commit with the checked base first and the reviewed head second would give GitHub that ancestry and preserve the checked tree. A disposable Git repository verified both properties and the leased update. GitHub's merge status would still be a separate observation. A PR retarget or head change racing the push could leave the signed commit on the target without a merged PR. Direct pushes also depend on the target's branch rules.
+
+The one-parent fixture remains the receiver contract pending the owner's decision. A two-parent release would require #53 to verify both parents and a new signed format before accepting it. Any workflow that uses indirect merges would record GitHub's confirmed outcome with the signed candidate and queue the Principal report under the same review lock. GitHub's merge endpoint remains the option for a native squash outcome if the owner changes the release guarantees.
 
 Source integration follows #55. Until then the existing GitHub squash entry point refuses the landing repository. At cutover, drain old record writers and start checked actions through generation-bound commands. Preserve terminal records, and use an observed draft/ready cycle to issue a fresh review generation if an eligible old record lacks a bound command.
 

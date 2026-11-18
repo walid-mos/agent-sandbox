@@ -81,7 +81,7 @@ class Signer:
         anchor = execute(["/usr/bin/git", *GIT_OPTIONS, "-c", f"safe.directory={self.clone}", "-C", str(self.clone), "rev-parse", "HEAD"]).decode().strip()
         self.git("merge-base", "--is-ancestor", anchor, base)
         if previous:
-            self.git("merge-base", "--is-ancestor", previous["commit"], base)
+            self.require_forward_base(previous, base)
         try:
             require_signed(self.store, base, self.trust)
         except Untrusted as error:
@@ -89,6 +89,15 @@ class Signer:
         self.git("merge-base", "--is-ancestor", base, head)
         if self.git("rev-parse", f"{head}^{{tree}}") != tree:
             raise Refused("landing: the proposed tree differs from the checked head.")
+
+    def require_forward_base(self, previous, base):
+        previous_base = previous["request"]["base"]
+        if base == previous_base:
+            raise Refused("landing: the saved candidate can still land on its checked base. Retry that exact release.")
+        try:
+            self.git("merge-base", "--is-ancestor", previous_base, base)
+        except Refused as error:
+            raise Refused("landing: the checked base does not advance the saved candidate's base.") from error
 
     def construct(self, request):
         message = f"{PROVENANCE_HEADER}\n\n{json.dumps(request, sort_keys=True, separators=(',', ':'))}\n"

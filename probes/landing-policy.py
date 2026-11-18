@@ -152,6 +152,22 @@ class LandingPolicy(unittest.TestCase):
         with self.assertRaises(self.module.Refused):
             self.signer.sign({**self.request, "generation": self.request["generation"] + 1})
 
+    def recovery_review(self, parent, message="operator advance"):
+        operator = {**FIXED_ENVIRONMENT, "GNUPGHOME": str(self.operator)}
+        base = self.git("commit-tree", self.tree, "-p", parent, f"-S{self.operator_key}", "-m", message, environment=operator)
+        head = self.git("commit-tree", self.tree, "-p", base, "-m", "fresh reviewed head")
+        return {**self.request, "generation": self.request["generation"] + 1, "base": base, "head": head}
+
+    def test_recovery_refuses_a_trusted_target_outside_the_previous_base_history(self):
+        prior = self.recovery_review(self.base)
+        self.publish(prior["base"], prior["head"])
+        pending = self.signer.sign(prior)
+        divergent = self.recovery_review(self.base, "divergent target")
+        self.publish(divergent["base"], divergent["head"])
+        with self.assertRaises(self.module.Refused):
+            self.module.Signer().sign(divergent)
+        self.assertEqual(json.loads(self.signer.receipt.read_text()), pending)
+
 
 def load_signer(source):
     sys.modules.pop("launch", None)
@@ -164,9 +180,10 @@ def load_signer(source):
 def run_release(fixture, shared_revision, scenario):
     policy = Path(__file__).resolve()
     shared = fixture.root / "review-source"
-    shared.mkdir()
-    for name in ("factory-records.mjs", "factory-review.mjs", "private-json.mjs"):
-        (shared / name).write_text(run("git", "-C", str(REPOSITORY), "show", f"{shared_revision}:session/{name}") + "\n")
+    if not shared.exists():
+        shared.mkdir()
+        for name in ("factory-records.mjs", "factory-review.mjs", "private-json.mjs"):
+            (shared / name).write_text(run("git", "-C", str(REPOSITORY), "show", f"{shared_revision}:session/{name}") + "\n")
     (fixture.root / "request.json").write_text(json.dumps(fixture.request))
     node = shutil.which("node")
     if node is None:
@@ -208,6 +225,11 @@ def release_main():
             else:
                 run_release(fixture, revision, scenario)
             print(f"landing release fixture: {scenario} passed")
+            if scenario == "moved":
+                fixture.request = fixture.recovery_review(fixture.head)
+                fixture.publish(fixture.request["base"], fixture.request["head"])
+                run_release(fixture, revision, "recovered")
+                print("landing release fixture: recovered passed")
         finally:
             fixture.doCleanups()
 

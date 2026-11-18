@@ -48,6 +48,11 @@ if (scenario === 'moved') {
   git.publish(candidate.commit, proof);
   assert.throws(() => publish({ sign: () => assert.fail('unrecorded publication reached the signer') }), /expected checked base/);
   assert.equal(readRecord(checked).stage, 'judged');
+} else if (scenario === 'recovered') {
+  const published = publish();
+  assert.equal(published.stage, 'published');
+  assert.equal(git.tip(proof.ref), published.release.commit);
+  assert.deepEqual(published.release.request, proof);
 } else {
   let original;
   assert.throws(() => publish({ sign(request) {
