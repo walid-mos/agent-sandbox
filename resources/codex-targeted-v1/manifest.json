@@ -456,16 +456,12 @@
       "bytes": 605
     },
     "resources/codex-targeted-v1/README.md": {
-      "sha256": "a88d608c9c47a6529b13c3f97679109d7a90a501300de51e0c628b57516a4eac",
-      "bytes": 11182
+      "sha256": "74250ef36e1c2eca18d123461683231c46b669c9d8d52f1d967b7898fea8df74",
+      "bytes": 11155
     },
     "resources/codex-targeted-v1/build-manifest.mjs": {
       "sha256": "850a4b1e92f88e52620a762b7409168b390f2acd7c39029cbe0527f8257d99f2",
       "bytes": 1366
-    },
-    "resources/codex-targeted-v1/review-prompts.md": {
-      "sha256": "6f9f7d17dae270d1c3723aaefa02116189e2cad1065347d829cc1b4ab32a5237",
-      "bytes": 3525
     },
     "resources/codex-targeted-v1/review.template.json": {
       "sha256": "6c41800419cfc1b9fdb95bb7bf26ba9a17cc6367b6aea104e8560bfe03feebbc",

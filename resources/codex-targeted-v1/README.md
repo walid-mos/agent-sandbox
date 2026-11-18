@@ -68,4 +68,4 @@ Fixture probes cover malformed private input, rejected binding/feature/wire drif
 
 ## Review hold
 
-The required Claude clean pass is incomplete because the known quota restriction forbids another attempt. No alternative review was run and self-inspection counts as no clean pass. See `review-prompts.md` for the three roles and one nomination for the parent's later combined human choice. PR #49 remains draft regardless of checks.
+No Claude pass or substitute review ran, and self-inspection counts as no clean pass. The parent review packet records the current human review disposition separately. PR #49 remains draft under the explicit parent hold regardless of checks. The source freeze and execution approval gates remain in force.
