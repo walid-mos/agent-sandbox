@@ -13,26 +13,28 @@ const SESSION = dirname(fileURLToPath(import.meta.url));
 export const factoryCommand = (operation, ...arguments_) => [WITH_VAULT, 'node', join(SESSION, 'factory.mjs'), operation, ...arguments_].join(' ');
 
 const COMMANDS = {
-  checked: (facts, pull) => {
+  checked: pull => {
     const review = bindReview(pull);
     return {
       show: factoryCommand('review', review, 'show'),
       verdict: factoryCommand('review', review, 'verdict', 'VERDICT', 'NOTES_FILE'),
+      escalate: factoryCommand('review', review, 'escalate', 'NOTE_FILE'),
+    };
+  },
+  conflict: ({ repository, number, head }) => {
+    const facts = [repository, String(number), head];
+    return {
+      resolve: factoryCommand('resolve', ...facts),
+      push: factoryCommand('push', ...facts),
       escalate: factoryCommand('escalate', ...facts, 'NOTE_FILE'),
     };
   },
-  conflict: facts => ({
-    resolve: factoryCommand('resolve', ...facts),
-    push: factoryCommand('push', ...facts),
-    escalate: factoryCommand('escalate', ...facts, 'NOTE_FILE'),
-  }),
 };
 
 // Each wake of these two goes out before its record is written, and its ID, one per stage, pull request and head commit, makes a rerun after a crash wake nobody twice.
 export function handToFactory(record) {
   const { stage: event, ...pull } = record;
-  const facts = [pull.repository, String(pull.number), pull.head];
-  const note = { event, pullRequest: pullUrl(pull), ...pull, commands: COMMANDS[event](facts, pull) };
+  const note = { event, pullRequest: pullUrl(pull), ...pull, commands: COMMANDS[event](pull) };
   command('pots', ['wake', '--bot', FACTORY_BOT.id, '--from', WATCH, '--id', `factory-${event}-${pullKey(pull)}-${pull.generation ?? 0}`, '--note', JSON.stringify(note)]);
   return writeRecord(record);
 }

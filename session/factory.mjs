@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { probe } from './factory-checks.mjs';
 import { requireActionable } from './factory-github.mjs';
 import { changeText } from './factory-mirror.mjs';
-import { pullArguments, pullUrl, readRecord } from './factory-records.mjs';
+import { pullArguments, pullUrl, requireRecord } from './factory-records.mjs';
 import { reportToPrincipal } from './factory-reports.mjs';
 import { push, resolve } from './factory-resolve.mjs';
 import { requireReview } from './factory-review.mjs';
@@ -26,16 +26,29 @@ function show(review, arguments_) {
   ].join('\n'));
 }
 
-function escalate(arguments_) {
-  const pull = pullArguments(arguments_);
-  const record = readRecord(pull);
-  if (!record) throw new Error(`factory: ${pullUrl(pull)} at ${pull.head} was never scanned.`);
-  const note = readFileSync(arguments_[3] ?? '', 'utf8').trim();
+function escalationNote(path) {
+  const note = readFileSync(path ?? '', 'utf8').trim();
   if (!note) throw new Error('factory: write what Principal must decide in the note file, then escalate again.');
-  reportToPrincipal({ ...record, stage: 'escalated', note }, `PR factory needs a decision on ${pullUrl(pull)} at head ${pull.head}: ${note}`);
+  return note;
 }
 
-const REVIEW_ACTIONS = { show, verdict };
+function reportEscalation(record, note) {
+  reportToPrincipal({ ...record, stage: 'escalated', note }, `PR factory needs a decision on ${pullUrl(record)} at head ${record.head}: ${note}`);
+}
+
+function escalateReview(review, arguments_) {
+  if (arguments_.length !== 1) throw new Error(USAGE);
+  const note = escalationNote(arguments_[0]);
+  reportEscalation(requireReview(review), note);
+}
+
+function escalate(arguments_) {
+  const pull = pullArguments(arguments_);
+  const record = requireRecord(pull, 'conflict');
+  reportEscalation(record, escalationNote(arguments_[3]));
+}
+
+const REVIEW_ACTIONS = { show, verdict, escalate: escalateReview };
 
 function review([id, action, ...arguments_]) {
   if (!Object.hasOwn(REVIEW_ACTIONS, action)) throw new Error(USAGE);
@@ -50,6 +63,6 @@ const OPERATIONS = {
   push,
   escalate,
 };
-const USAGE = 'usage: factory scan | probe | resolve|push REPOSITORY NUMBER HEAD | review REVIEW_ID show | review REVIEW_ID verdict PASS|PASS+NOTES|FAIL [NOTES_FILE] | escalate REPOSITORY NUMBER HEAD NOTE_FILE';
+const USAGE = 'usage: factory scan | probe | resolve|push REPOSITORY NUMBER HEAD | review REVIEW_ID show | review REVIEW_ID escalate NOTE_FILE | review REVIEW_ID verdict PASS|PASS+NOTES|FAIL [NOTES_FILE] | escalate REPOSITORY NUMBER HEAD NOTE_FILE';
 
 main(import.meta, () => runOperation(OPERATIONS, USAGE));

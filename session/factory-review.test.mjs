@@ -112,6 +112,50 @@ test('a second round on the same head rejects the first round verdict', t => {
   expectRefusal(action(rig, second, 'PASS'), /is refused/);
 });
 
+test('an older review cannot escalate a superseded same-head generation', t => {
+  const rig = fixture(t);
+  const first = handoff(rig, checked);
+  handoff(rig, { ...checked, generation: 1 });
+  const notes = join(rig.home, 'retry notes');
+  writeFileSync(notes, 'The judge stopped before deciding.');
+  const before = rig.calls();
+  expectRefusal(action(rig, first.escalate.replace(' NOTE_FILE', ''), notes), /checked record no longer matches/);
+  const legacy = rig.run([factory, 'escalate', checked.repository, String(checked.number), head, notes]);
+  expectRefusal(legacy, /needs it conflict/);
+  assert.deepEqual(rig.calls(), before);
+});
+
+test('a completed verdict cannot be overwritten by its review escalation', t => {
+  const rig = fixture(t);
+  const { verdict, escalate } = handoff(rig, checked);
+  const notes = join(rig.home, 'terminal notes');
+  writeFileSync(notes, 'The judge stopped before deciding.');
+  assert.equal(action(rig, verdict.replace(' VERDICT NOTES_FILE', ''), 'FAIL', notes).status, 0);
+  const before = rig.calls();
+  expectRefusal(action(rig, escalate.replace(' NOTE_FILE', ''), notes), /is failed/);
+  assert.deepEqual(rig.calls(), before);
+});
+
+test('the current checked review can escalate and close its round', t => {
+  const rig = fixture(t);
+  const { escalate, show } = handoff(rig, { ...checked, generation: 1 });
+  const notes = join(rig.home, 'retry notes');
+  writeFileSync(notes, 'Both judges stopped before deciding.');
+  const result = action(rig, escalate.replace(' NOTE_FILE', ''), notes);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(rig.calls().at(-1).at(-1), /Both judges stopped before deciding/);
+  expectRefusal(action(rig, show), /is escalated/);
+});
+
+test('conflict escalation retains its repository and head command', t => {
+  const rig = fixture(t);
+  const { escalate } = handoff(rig, { ...checked, stage: 'conflict' });
+  assert.match(escalate, /escalate walid-mos\/agent-sandbox 22 0123456789abcdef0123456789abcdef01234567 NOTE_FILE/);
+  const notes = join(rig.home, 'conflict notes');
+  writeFileSync(notes, 'Principal must resolve the conflict.');
+  assert.equal(action(rig, escalate.replace(' NOTE_FILE', ''), notes).status, 0);
+});
+
 test('bound actions still refuse a changed head, draft, closed PR, or removed topic', t => {
   const rig = fixture(t);
   const { verdict } = handoff(rig, checked);
