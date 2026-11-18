@@ -1,5 +1,6 @@
 import { DIALOG_ID, discordEvidence, discordMessageUrl, isSnowflake, LAUNCH_POLICY } from '../session/human-contract.mjs';
 import { fetchedRequest, CLOCK_SKEW_MS, OPEN, sameRequest } from '../session/launch-contract.mjs';
+import { executionFingerprint, executionScope } from './launch-execution-contract.mjs';
 
 const PRESS_MAX_AGE_MS = 30_000;
 // The press has its own limit up to the claim, so a slow start is judged from the claim and a Mac that slept in between still starts nothing.
@@ -30,11 +31,13 @@ export function verifyOffer(shown, notice, settings, now) {
   if (state !== OPEN || now >= request.expiresAt || now < request.createdAt - CLOCK_SKEW_MS) throw new Error('mac-launch: this launch is closed, expired or from the future.');
   const refused = request.acts.filter(act => settings.refusedActs.includes(act));
   if (refused.length) throw new Error(`mac-launch: this Mac refuses ${refused.join(', ')}. Start that work manually.`);
-  return { request, prompt };
+  executionScope(settings, request.acts);
+  return { request, prompt, executionDigest: executionFingerprint(settings) };
 }
 
 export function verifyPress(event, offer, settings, now, action) {
   const { request } = offer;
+  if (offer.executionDigest !== executionFingerprint(settings)) throw new Error('mac-launch: the execution scope changed. Ask for a new offer.');
   const message = event.message;
   const isContext = event.type === 3 && event.data?.component_type === 2 && event.application_id === offer.applicationId
     && event.guild_id === settings.guildId && event.channel_id === settings.channelId && message?.id === offer.messageId;
@@ -46,5 +49,5 @@ export function verifyPress(event, offer, settings, now, action) {
   if (now < at - CLOCK_SKEW_MS || now - at > PRESS_MAX_AGE_MS || now >= request.expiresAt) throw new Error('mac-launch: this press is too old, from the future or expired.');
   const evidence = discordEvidence({ userId: event.member?.user?.id, guildId: event.guild_id,
     messageUrl: discordMessageUrl({ guildId: event.guild_id, channelId: event.channel_id, messageId: message.id }), at: new Date(at).toISOString() }, settings.humanDiscord, LAUNCH_POLICY);
-  return { launch: request.launch, digest: request.digest, target: request.target, pot: request.pot, interaction: event.id, ...evidence };
+  return { launch: request.launch, digest: request.digest, target: request.target, pot: request.pot, interaction: event.id, executionDigest: offer.executionDigest, ...evidence };
 }

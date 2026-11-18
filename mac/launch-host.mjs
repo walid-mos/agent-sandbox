@@ -5,9 +5,10 @@ import { LAUNCH_TTL_MS } from '../session/launch-contract.mjs';
 import { command, commandOutput } from '../session/run.mjs';
 import { discordClient } from './launch-discord.mjs';
 import { potTransport } from './launch-pots.mjs';
-import { herdrRunner } from './launch-runner.mjs';
+import { herdrRunner, protectedHerdr } from './launch-runner.mjs';
+import { checkNativeIsolation } from './launch-native.mjs';
 import { launchService } from './launch-service.mjs';
-import { keychainToken, loadSettings, STATE_HOME } from './launch-settings.mjs';
+import { gateToken, loadSettings, STATE_HOME } from './launch-settings.mjs';
 import { gateStore, readPrivate } from './launch-store.mjs';
 
 const POLL_MS = 5000;
@@ -16,15 +17,17 @@ const COMMAND_MS = 10_000;
 
 export async function check() {
   const config = loadSettings();
-  console.log('Private settings: valid.');
-  const client = discordClient(keychainToken());
+  checkNativeIsolation(config);
+  console.log('Protected installation, separate UID/GID, native sandbox and privilege denial: valid.');
+  const context = protectedHerdr(config);
+  const client = discordClient(gateToken());
   await client.check(config);
   console.log('Discord bot, intent, channel and operator membership: valid.');
-  for (const tool of ['node', 'pi', 'hc']) {
-    await commandOutput(tool, ['--version'], { timeout: COMMAND_MS });
-    console.log(`${tool}: available.`);
+  for (const tool of ['node', 'hc']) {
+    await commandOutput(config.tools[tool], ['--version'], { timeout: COMMAND_MS, env: context.env, cwd: context.directory });
+    console.log(`${tool}: protected runtime available.`);
   }
-  const pots = potTransport();
+  const pots = potTransport(context);
   for (const pot of config.pots) {
     await pots.reach(pot);
     console.log(`Herdr reaches ${pot}.`);
@@ -71,10 +74,12 @@ async function history(client, service, config, applicationId) {
 export async function serve() {
   const config = loadSettings();
   checkDiscordPolicy(LAUNCH_POLICY, config.humanDiscord);
+  checkNativeIsolation(config);
+  const context = protectedHerdr(config);
   const store = gateStore(STATE_HOME);
   const release = lockService(STATE_HOME);
-  const client = discordClient(keychainToken());
-  const service = launchService({ store, discord: client, pots: potTransport(), runner: herdrRunner(store), settings: loadSettings, warn });
+  const client = discordClient(gateToken());
+  const service = launchService({ store, discord: client, pots: potTransport(context), runner: herdrRunner(context), settings: loadSettings, warn });
   let applicationId;
   let pending = Promise.resolve();
   const enqueue = operation => { pending = pending.then(operation).catch(() => warn('mac-launch: event refused or unavailable. No approval was inferred.')); return pending; };

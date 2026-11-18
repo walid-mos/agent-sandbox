@@ -43,13 +43,15 @@ export function gateStore(folder) {
   const forget = id => rmSync(path(id, NOTICE), { force: true });
   const decision = id => read(id, DECISION);
   // The first decision written for a launch is its only one: the exclusive create refuses a second, and the file and its name reach the disk before anything acts on it.
-  function decide(id, decided) {
-    writeFileSync(path(id, DECISION), JSON.stringify(decided), { flag: 'wx', mode: 0o600, flush: true });
+  function exclusive(id, suffix, decided) {
+    writeFileSync(path(id, suffix), JSON.stringify(decided), { flag: 'wx', mode: 0o600, flush: true });
     const directory = openSync(folder, 'r');
     try { fsyncSync(directory); } finally { closeSync(directory); }
   }
+  const decide = (id, decided) => exclusive(id, DECISION, decided);
+  const beginExecution = id => exclusive(id, '.execution', { startedAt: Date.now() });
   // Only the record leaves. The decision stays where the exclusive create looks, so a launch ID the Mac decided once is never decided or offered again.
   const shelve = id => renameSync(path(id, RECORD), join(shelf, `${id}${RECORD}`));
   const session = id => path(id, '.session.jsonl');
-  return { get, save, all, notices, remember, forget, decision, decide, shelve, session, folder };
+  return { get, save, all, notices, remember, forget, decision, decide, beginExecution, shelve, session, folder };
 }

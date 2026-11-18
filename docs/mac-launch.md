@@ -1,225 +1,135 @@
-# Mac launch: a prompt starts on a Mac only on the operator's own click
+# Mac launch on the operator's own click
 
-A pot writes a prompt for one of the operator's Macs. That Mac shows it in Discord with a "Launch on NAME" button. The operator's click starts a Pi in Herdr on that Mac with the prompt's exact bytes. No pot reaches a Mac at any step: the Mac fetches what it acts on, and it alone hears the click.
+A pot proposes a prompt for a Mac. The Mac posts its exact bytes in Discord, and the operator's own click starts Pi in a restricted account inside a protected Herdr terminal. The requesting pot receives status and the final report.
 
-Everything here is off until one Mac is set up and its private switch is on. [Setup](#setup-one-paste-per-mac) holds the two paste-ready blocks.
+The feature remains disabled until the [protected installation and native checks](mac-launch-install.md) pass. There is no operator-user execution mode.
 
 ## Threat model
 
-### Boundary
+```mermaid
+flowchart LR
+    P[Untrusted pot] -->|Proposal fetched by gate| G[Protected root gate]
+    D[Discord] -->|Authenticated operator press| G
+    G -->|Exclusive durable claim| S[Private decision store]
+    G -->|Fixed launch operation| H[Private root Herdr]
+    H -->|Irreversible UID and group transition| E[Restricted Pi with native sandbox]
+    E -->|Untrusted session report| G
+    G -->|Status and final reply| P
+```
 
 | Trusted principal | Untrusted principal |
 | --- | --- |
-| The launch gate, a process of the operator's user on one Mac, running this repository's code from the Mac's checkout. `mac/update` moves that checkout only to a tip the operator signed. | Every pot, Mastermind included: its model, its bot, its files, its Discord bot token, its door records and every byte it sends or stores. |
-| Discord, for one fact: which account pressed which button on which message. | Every Discord message the gate did not write, and every member of the server but the operator. |
-| The operator's Discord account, signed in on the operator's own devices. | The launched Pi's later output. It is a report and never an instruction to the gate. |
+| The root gate, its protected installed code/runtime, launchd configuration, private Herdr context and decision store | Every pot, Mastermind included, and every byte it sends |
+| Discord for the account, application and message named by an authenticated interaction | Other Discord users and other applications' messages |
+| The operator's Discord login, kept outside every pot and execution account | The launched Pi, its tools, selected work files, session log and later output |
+| The operator/admin who stages the protected installation and explicit delegations | Project configuration, dependencies, hooks and instructions in an execution workspace |
 
-A pot's model runs with its user's full permissions. It can read its bot's Discord token, write its human-dialog store and forge any receipt a pot computes. So nothing a pot says or stores is evidence of the operator's act. The gate reads a pot's request as a proposal and nothing more.
+A pot's model has that pot user's permissions. It can read its bot token and forge its local approval receipts. The Mac therefore treats a pot's message as a proposal. It never treats a pot-computed receipt as the operator's act.
 
-### What the Mac trusts
+The gate accepts only Discord's `INTERACTION_CREATE` event over its own authenticated outbound gateway connection. Each Mac has a separate Discord application and a dedicated token in the root-private gate directory. A pot token belongs to another application and cannot receive the gate application's interaction. Discord supplies the pressing user's ID. The gate compares it with the configured operator through the shared human-dialog contract.
 
-The gate launches on one input only: an `INTERACTION_CREATE` event that Discord sends over the gate's own gateway connection, and that names the operator's user ID as the account that pressed the button.
+The event must name the gate's own unedited offer, exact attachment, application, channel, target and prompt digest. The gate starts its saved prompt bytes. Its exclusive flushed decision makes replay ineffective. Old presses and claims expire independently, so sleeping or delayed startup cannot reuse approval indefinitely. Gateway reconnects do not resume missed interactions.
 
-Four facts make that event impossible for a pot's model to produce or replay.
+The operator's Discord session must never be available to a pot or execution account. Account takeover remains outside this boundary. Root/admin compromise and a compromised protected runtime remain outside it too.
 
-1. **Each Mac has its own Discord application.** A button belongs to the application that posted its message, and Discord delivers a press only to that application. The Mac Studio's buttons live on the Mac Studio application's messages, the MacBook Pro's on its own.
-2. **That application's token exists only on that Mac**, in the login keychain, written by the operator's own masked paste. It is in no vault folder, no pot, no door message and no repository. The gate reads events over an outbound TLS connection that this token opens. A pot holds another application's token, so it can neither open that connection nor inject an event into it.
-3. **Discord sets the clicker's user ID from the pressing account's login.** A bot token cannot press a button: Discord's interaction endpoint takes a user's session only. The gate compares that ID with the one operator ID in the Mac's private configuration, through the same contract function as the push policy.
-4. **The gate keeps its own record of what the button means.** The event must name the exact message the gate posted, unedited, with the attachment the gate uploaded. The gate launches the bytes it stored when it posted that message, never bytes a click or a pot hands over.
+## Separate execution authority
 
-A replay fails on the same record. The gate writes its claim with an exclusive create before it starts anything, and a press older than 30 seconds is refused. The gate never resumes a gateway session, so Discord never redelivers a press the Mac missed.
+The gate runs as root in a system LaunchDaemon. Code, dependencies and every protected ancestor must be root-owned, without symlinks, group/world write permissions or extended ACL grants. The gate home is private. Its token, settings, offers, decisions and execution markers are private files. The execution account receives no gate descriptors or callable privileged service.
 
-**This rests on one condition the gate cannot check.** The operator's own Discord login must not exist inside a pot: no Discord web session in a pot's browser, no user token in a pot's files. A model that holds his login can press as him. The same holds for anyone who takes over his Discord account. Both are outside this perimeter, and the setup block says so.
+The root Herdr context has its own HOME, XDG directories, session and socket. It does not reuse the operator's Herdr configuration or SSH session. Pot transport uses only that private context's explicitly configured machines. The gate opens no inbound TCP port for pots.
 
-### One decision per launch, written on the Mac
+Herdr starts one fixed wrapper with one launch ID. The wrapper requires root and reads that ID from the fixed protected store. It verifies the fresh claim and its execution configuration digest, writes an additional exclusive execution marker, and prepares a fresh run HOME. It accepts no command, executable, UID or path from a pot or Pi.
 
-A launch leaves the offered state once. The gate writes one decision file for it, with an exclusive create, and flushes the file and its directory entry before it acts. The first decision written is the only one. It is a claim, which the operator's press makes, or a closure: refused, cancelled, superseded, expired or failed. One gate handles every event in one queue, and the exclusive create holds even if two gates ran.
+The wrapper clears supplementary groups, changes GID and UID irreversibly, and starts the protected Pi runtime through `/usr/bin/sandbox-exec`. It passes a rebuilt environment. No operator HOME, SSH agent, Herdr identity, browser login, vault session, signing key or model login is inherited. Pi resource auto-discovery and MCP are disabled for this path. Built-in tools remain available inside the native restrictions.
 
-A pot cannot close a launch. `cancel` and `--replaces` record what the pot asks and send the notice again. The Mac reads the pot's answer and writes the closure itself, also for a launch it never offered. Only then does it report `cancelled` or `superseded`, and the pot's record changes state on that report alone. Until then the pot lists the launch as open, with `asked` set.
+A model can create subprocesses within its already approved restricted work. It cannot create another gate-authorized launch, access the protected gate, or acquire the operator's identity. The sandbox remains mandatory for its descendants. A missing native mechanism fails closed.
 
-When the Mac claims the operator's press first, the launch runs. The Mac reports `started`, and the pot's note for that status carries `tooLate` with the closure that lost. The Mac never reports a claimed launch as cancelled.
+### Selected work and delegated capabilities
 
-The gate asks the pot once more at the press. A closed answer becomes the Mac's closure instead of a claim. A pot that does not answer starts nothing and leaves the press unused, and the operator gets a private reply telling him to press again. A press the Mac will not accept, because it is too old, from the future or from a disabled gate, gets that private reply too and consumes nothing. That last look narrows the window. It is not the boundary, because a pot may ask a moment after it.
+The private configuration selects one execution-owned work directory under the execution work tree. Requests cannot choose another path. Each run also gets its own HOME and scratch directory under a root-owned parent. The native profile denies by default and exposes only selected work, the current run, protected tools and required system resources. It does not grant all of `/System`, whose Data volume contains user files.
 
-So a launch is dead from the moment the Mac writes its closure. From then on no press, no notice and no answer from the pot starts it, a pot that shows it open again included. A launch a pot asked to close, and that the Mac has not closed yet, is still live and its button still works. A pot that hides its own cancellation from the Mac gets no confirmation: the operator still decides on the Mac's own message.
+A real model run requires an explicit dedicated API credential and selected network destinations. Supported model credential names are defined by the execution contract. Subscription and operator auth files are not copied. Delegated task credentials are separate private files, with an allowlist of environment names. Selected SSH config, key and known-hosts files may be copied into the fresh run HOME. Direct network connections are limited to the configured IPv4 destinations and ports for the capabilities declared by that request. The required explicit `system-dns` capability allows hostname queries through the macOS resolver, including arbitrary query names. DNS is a network channel and appears in the offer. Loopback and link-local metadata destinations are refused.
 
-Expiry is the one closure each side reaches alone. The Mac refuses a press at or after the request's expiry by its own clock and writes `expired`. A pot that heard nothing tells its bot `expired` one minute after the expiry, with a detail saying that no Mac reported a start. A start the Mac claimed just before, and reports later, still lands with `tooLate` set to `expired`.
+A configured Boat capability can supply its own token and API endpoints for `spend`. A publishing capability can supply its own scoped GitHub credential or selected SSH files and endpoints for `publish`. Only capabilities whose acts the request declares are handed over. The installer must verify each credential's scope and budget. A name in a manifest cannot narrow a broadly privileged credential.
 
-### Credentials
+Signing, gate modification, VM-root setup, pot restarts and credential administration have no supported privileged delegation and are refused. Workspace/Boat flows that require the operator's vault, local privileged Docker socket, unrestricted SSH or VM-root authority remain unavailable through this path. The failure must identify the missing capability. The gate never supplies those permissions as a fallback.
 
-| Credential | Held by | Lifetime | What it opens |
-| --- | --- | --- | --- |
-| Discord bot token of the Mac's own application | That Mac's login keychain, service `agent-sandbox-mac-launch` | Until the operator resets it in the Discord developer portal | The gate's gateway connection and its own messages |
-| The Mac user's whole session | The launched Pi | The life of that Pi | Everything that user can do on that Mac |
+The offer shows the account, work directory, capability names, allowed network destinations, declared acts and cost. A change to the configured execution scope invalidates the earlier offer and claim. The marker-pattern act scan helps the operator read a request. It does not enforce the running model's permissions.
 
-The gate holds no pot credential. It reaches a pot the way the operator's Herdr already does, with `hc exec --on POT`.
-
-The Mac owns its settings, offers and decisions. One gate serializes events and updates those records. The exclusive decision file guards terminal creation across gate restarts. Keep those files when restoring the Mac.
-
-A launch that ended and was reported moves to `closed/`, so each pass reads live launches only. Its decision file stays in place, and its ID is never offered or decided again. A gate that stopped after a claim and before it recorded the start reports `failed` and never launches that approval again. A Pi may be running in that case, and the report says so.
-
-The token stays in memory after its Keychain read. Subprocess environments, arguments, reports and errors never carry it. A pot has no Mac mount, no process access there and no inbound endpoint. It cannot change the Mac's environment, lookup paths, sourced files, tool configuration or shared files. The Mac user's tools and configuration are trusted. An approved Pi shares that user and can read or alter the gate and its Keychain. Approval admits that prompt's work to the trusted Mac side. The act scan and system instruction do not isolate it from the gate.
-
-### Channels
-
-| Channel | What a pot's model would try | Closed by |
-| --- | --- | --- |
-| Network to the Mac | Open a connection to the gate | The gate listens on nothing. Its only connections are outbound: Discord's gateway and REST API, and `hc exec --on POT`. |
-| Forged click | Send an event that names the operator | Events arrive only over the gate's own authenticated connection. A pot has no token for it. |
-| Its own button | Post a look-alike message with a button | Discord sends that press to the pot's application. The gate never sees it, and its own record names another message. |
-| Replay | Reuse an approval | One exclusive decision file per launch, 30-second press age, no gateway resume. |
-| Swap after approval | Change the prompt between display and launch | The gate launches its stored bytes, whose digest it recomputes at the press. The pot's copy is read again at the press and can only stop the launch. |
-| Swap before approval | Make the operator see other text than what runs | The prompt is shown as the gate's own attachment on the gate's own message. A press on an edited message, or one whose attachment or text differs from the gate's record, is refused. |
-| Invisible text | Hide an instruction, or an act name, from a reader | A prompt holding a control, format, private-use or line-separator character is refused, at the pot and again on the Mac. The act scan removes combining and ignorable characters before matching, so an act name cannot hide behind one. |
-| Undeclared privileged act | Ask for `vm-up` under a harmless title | The gate matches the prompt, the title and the stated cost against each privileged act's marker pattern and refuses a request that matches one it does not declare. The declared acts are on the button message. This is a text match, and other wording passes it. |
-| Stale prompt | Launch a superseded, cancelled or expired prompt | A closure the Mac wrote is final: no press, notice or later answer from the pot reopens it. The gate also asks the pot at the press, and a closed answer becomes a closure instead of a claim. A dead offer loses its buttons and its attachment. [One decision per launch](#one-decision-per-launch-written-on-the-mac) says what the Mac cannot know. |
-| Late launch | Fire after the Mac slept | The press is at most 30 seconds old, by Discord's own timestamp, when the Mac claims it. The Pi starts at most 30 seconds after the claim, by the Mac's clock. |
-| Data from the pot | Break out of a field | The gate parses the pot's answer as JSON under a size cap. Values reach `hc` and `pi` as separate arguments, never through a shell, and reach Discord inside code spans with mentions disabled. |
-| Report path | Use a status to start work | `hc exec` runs one fixed command in the pot with JSON on standard input. The pot's rules read it as a report. |
-| Gate code | Change the gate through a pull request, or through a launched prompt | The Mac runs a tip the operator signed, and a pot cannot write to the Mac's checkout. A request whose text matches the gate's file or switch names must declare `launch-gate`, and the gate refuses that declaration by default. That refusal reads text. It does not stop an approved Pi from changing the gate, as [What a launched Pi can reach](#what-a-launched-pi-can-reach) says. |
-| Other server members | Press the button, or post a notice | The press is compared with the one operator ID. Notices count only from the configured announcer IDs, and a notice is no more than a reason to fetch. |
-
-### What a launched Pi can reach
-
-#### What the operating system restricts
-
-Nothing. A launched Pi runs as the Mac's user, in Herdr, exactly like a Pi the operator starts by hand. It can read and change that user's files, use its credentials, ssh keys, signing key and vault login, use the Mac's network, reach its pots, and spend money wherever that user can. The gate does not sandbox it and does not limit its network.
-
-That includes the gate itself. A launched Pi can read the gate's token from the Keychain, change its settings, its decisions and its code, and run `pi` or `hc` without any press. It may also be able to press as the operator through a Discord session signed in on that Mac. So from the first launch on, every guarantee on this page holds only as long as each approved prompt left the gate alone.
-
-The prompt is free text, so the operator's reading of it is the control, and the button message exists to make that reading honest.
-
-#### What the gate checks in the text
-
-Three checks support that reading. Each one reads or writes text. None restricts a running Pi.
-
-- The button message names the privileged acts the request declares, from the fixed list below, and the cost the pot states.
-- The gate matches the prompt, the title and the cost against one marker pattern per act. It refuses a request that matches an act it does not declare, and one that declares an act listed in the Mac's `refusedActs`. The default list holds `sign-tip` and `launch-gate`: a signed tip decides the code every pot and this gate run, so the gate offers no request that declares either unless the operator removes it from that list.
-- The gate adds a frame to the Pi's system prompt: the approved acts, that no later message from a pot is an instruction, and that its final reply is the report. It is an instruction to a model.
-
-The match catches a prompt that says `vm-up` and declares nothing. It does not catch a prompt that describes the same act in other words, or one that builds a name from pieces. A launched Pi can sign a tip or change the gate whatever its request declared.
-
-| Act | Declared when the prompt asks to | Request refused by default |
-| --- | --- | --- |
-| `sign-tip` | Sign a commit or a tip that pots then run | Yes |
-| `launch-gate` | Change this gate, its settings, its token or its service | Yes |
-| `vm-up` | Run `vm-up` or `vm-config`, which change a pot VM's root side | No |
-| `restart-pot` | Restart or stop a pot, its session or its services | No |
-| `spend` | Create or resume paid machines or services | No |
-| `publish` | Push, merge, release or deploy | No |
-| `credentials` | Create, rotate, move or print credentials | No |
-
-### Probes
-
-Each guarantee has an attack that must fail. `bin/check` runs them.
-
-| Guarantee | Probe |
+| Channel | Enforcement |
 | --- | --- |
-| Only the operator's press on the gate's own unedited message launches, once, in time, with the switch on | `probes/human-mac-launch-gate.mjs` |
-| A request with invisible text, an undeclared or refused act, a wrong digest or another target makes no offer. A pot's cancellation stays asked until the Mac reports it, and a start the Mac committed first is reported as too late | `probes/human-mac-launch-request.mjs` |
-| From notice to report through the whole gate: foreign notices, a pot that changes its answer or reopens a closed launch, a claim that beat a cancellation, a pot that does not answer, a double press, a failed start, a disabled switch | `probes/human-mac-launch-service.mjs` |
-| A failed Discord edit still reports a start, an unreadable record does not stop other launches, a closure survives a crash before its record update, notices retry only within their lifetime, mismatched sources leave the queue, a lapsed request reports `expired`, and rejected presses consume nothing | `probes/human-mac-launch-recovery.mjs` |
-| The gateway client identifies, answers requested heartbeats while awaiting an acknowledgement, reconnects without resuming, and stops on a refused token | `probes/human-mac-launch-discord.mjs` |
+| Gate files, token and code | Root-private gate parent, protected ownership/modes and native ACL checks |
+| Operator files and sessions | A separate non-login UID, fresh HOME, no inherited authority and default-deny native file/Mach access |
+| Privilege escalation | No supplementary authority, no sudo delegation, no setuid launch helper and mandatory sandboxing |
+| Process inspection | Separate identities and native default-deny policy, requiring native verification |
+| Loader, shell and tool configuration | Protected runtime/code, fixed executables, rebuilt environments and no project code in privileged processes |
+| Shared files or symlinks | Protected parent directories, exclusive run creation, no-follow bounded report reads and no shell evaluation of data |
+| Network and control sockets | Explicit destinations, private gate socket, no operator socket or agent passed to the child |
+| Child output | Untrusted report data only, never a command or approval |
 
-`node probes/mac-launch-runner.mjs` starts a stand-in `pi` through the real `hc` and reads its report back. It checks that an error, a length-limited turn and a final turn with no text end the launch, and that a terminal lookup does not hold the event loop. It needs Herdr, so it runs by hand and not in `bin/check`.
-
-Nothing here ran on a real Mac or against Discord's servers. The keychain read, the launchd service and the live gateway are proven only by the setup block's own check.
-
-## Flow
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant P as Requesting pot
-    participant M as Mastermind
-    participant D as Discord
-    participant G as Launch gate on the Mac
-    participant O as Operator
-    P->>P: Store the request and its prompt
-    P->>M: Door request with a launch notice
-    M->>D: Post the notice in the launch channel
-    D-->>G: Notice, over the gate's own connection
-    G->>P: hc exec: show this launch
-    P-->>G: Request, prompt and state
-    G->>G: Check target, digest, text and acts
-    G->>D: Post the offer: prompt file, scope, buttons
-    G->>P: hc exec: status offered
-    O->>D: Press "Launch on NAME"
-    D-->>G: Press, with the operator's user ID
-    G->>D: Answer the press at once
-    G->>G: Check operator, message, digest and age
-    G->>P: hc exec: show this launch again
-    alt The pot answers open
-        G->>G: Write the claim, exclusive and flushed
-        G->>G: hc run: Pi with the stored prompt
-        G->>P: hc exec: status started
-        G->>P: hc exec: status finished, with the final reply
-    else The pot answers closed
-        G->>G: Write the closure
-        G->>P: hc exec: status cancelled or superseded
-    else The pot does not answer
-        G->>D: Private reply to the operator: nothing started, press again
-    end
-    G->>D: Replace the buttons with the final state
-```
+## One Mac decision per launch
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Offered: Valid open request fetched
-    [*] --> Closed: The pot closed it before any offer
-    Offered --> Claimed: Operator's press, decision file written first
-    Offered --> Closed: Refused, cancelled, superseded or expired, decision file written first
-    Claimed --> Started: Pi runs in Herdr
-    Claimed --> Failed: Pi did not start
-    Started --> Finished: Final reply read
-    Started --> Failed: Terminal gone with no reply
+    [*] --> Offered: Valid open proposal fetched
+    [*] --> Closed: Source closed before an offer
+    Offered --> Claimed: Operator press and exclusive decision
+    Offered --> Closed: Refusal or Mac closure
+    Claimed --> Started: Restricted Pi in protected Herdr
+    Claimed --> Failed: No reconciled start
+    Started --> Finished: Final reply delivered
+    Started --> Failed: Missing or invalid final reply
     note right of Claimed
-        A closure asked after the claim changes nothing.
-        The pot hears started, with tooLate.
+        Approval is consumed permanently.
+        Later cancellation is too late.
     end note
 ```
 
-Every state but `Offered` is final for the approval. A launch that failed, expired or was refused needs a new request and a new press.
+The Mac writes and flushes one exclusive decision before acting. Closure and claim compete for that same file. A later notice, source answer or press cannot reopen a decided launch. The second execution marker also prevents the privileged wrapper from starting the same claim twice.
 
-A request lives 30 minutes from its creation in the pot. The enabled pot service wakes its bot one minute after the expiry even if the Mac is offline. The MacBook Pro shows an offer only while it is awake. A notice it slept through is read when it reconnects, and offered only if the request is still open.
+Cancellation and replacement are requests until the Mac records their closure and reports it. A pot lists the request as open with `asked` set in the meantime. A claim that wins first stands, and the pot's start note includes `tooLate`. The gate does not kill a committed run or claim that it was cancelled.
 
-A valid, bound request the Mac cannot offer is answered on the pot. The Mac reports `refused` when the request declares an act it refuses, `expired` when the request lapsed before the Mac read it, and `failed` with the reason for other rejected requests. A notice whose fetch or post fails is kept on the Mac and retried across restarts until its local retry deadline. A mismatched source answer is dropped. If the pot remains unreachable, the notice leaves the retry queue and the pot reports its own expiry.
+The gate rechecks the source at the press. A closed source becomes a Mac closure. An outage starts nothing, leaves approval unused and gives the operator a private explanation. A pot that hides its cancellation cannot receive confirmation for it. A stale or disabled press also receives an explanation and consumes nothing.
 
-A Discord post may succeed before its response is lost. A retry can then leave an earlier message with buttons that work on no offer. Only the message in the Mac's saved offer can authorize a launch, and the launch's exclusive decision still prevents a second start.
+The source expires locally if the Mac remains silent. A late start that the Mac validly claimed before expiry still reaches the pot with `tooLate`. The contract defines the time limits. Expiry notices and report delivery retry within their documented lifecycle.
 
-Buttons are the only entry. The gate has no slash command: a second entry would be a second gate to prove, and the operator can ask any pot for a prompt.
+### Restart and failure behavior
+
+The root launch record retains the Herdr terminal identity, execution UID and exact session path. On gate restart the service resumes polling and delivery for that run. It does not start it again. A claim with no reconciled start remains consumed and reports failure with instructions to inspect the `ml-` terminal.
+
+A final session is opened without following its last path component, checked for its execution owner, regular-file type, link count and byte limit, then parsed as JSON lines. A forged final reply is still only a reply. Invalid, oversized or substituted reports fail the run. Provider failures, length-limited turns and empty final replies also report failure.
+
+A failed Discord edit cannot withhold a committed start from the pot. An unreadable record does not block other launches. Notice retries survive restart and stop at their deadline. Mismatched source answers are discarded. A Discord post whose response is lost can leave inert buttons on an earlier message. Only the saved message can authorize the launch.
+
+An accepted replacement is not a transaction across the pot, Discord and Mac. A failed new announcement does not reopen an older closure. A new request and click are the recovery path.
+
+Reports flow back through one fixed pot command with JSON on standard input. No mid-run instruction channel is provided. A new instruction needs a new prompt and click.
 
 ## Formats
 
-All identifiers below are placeholders.
+All identifiers and credentials below are placeholders. The human-dialog contract owns validation, digest rules and operator policy.
 
-### Pot settings
+### Pot configuration and commands
 
-`macLaunch` in a pot's `/etc/agent-sandbox/sandbox.json` turns the pot side on. Without `enabled: true`, `mac-launch.mjs` refuses every request.
+A private pot `sandbox.json` enables `macLaunch` and names its allowed target Macs. Mastermind also names its Discord channel account and launch channel.
 
 ```json
-{"macLaunch": {"enabled": true, "targets": {"mac-studio": "Mac Studio", "macbook-pro": "MacBook Pro"}}}
+{"macLaunch":{"enabled":true,"targets":{"mac-studio":"Mac Studio","macbook-pro":"MacBook Pro"}}}
 ```
-
-Mastermind's also names where it posts notices: `"channelAccount": "discord"` and `"channelId": "LAUNCH_CHANNEL_ID"`.
-
-### Pot commands
 
 ```sh
 launch=/opt/agent-sandbox/session/mac-launch.mjs
-node "$launch" request --target mac-studio --title "TITLE" [--acts vm-up,restart-pot] [--cost "TEXT"] [--replaces LAUNCH_ID] PROMPT_FILE
+node "$launch" request --target mac-studio --title "TITLE" [--acts spend] [--cost "TEXT"] [--replaces LAUNCH_ID] PROMPT_FILE
 node "$launch" cancel LAUNCH_ID
 node "$launch" list
 node "$launch" announce REQUEST_ID
 ```
 
-`request` stores the prompt, sends the notice to Mastermind through the door and prints the launch. `--replaces` asks the Mac to supersede an earlier launch in the same step, and `cancel` asks it to cancel one. Both print `asked` with `effective: false`. The launch is closed when the Mac reports it, and `list` shows `asked` until then. If the earlier launch started first, the replacement stays open: cancel it if it must not run too. `announce` runs on Mastermind only: it posts a received notice in the launch channel and replies to the door request with a posting confirmation. The gate itself calls two more, `show LAUNCH_ID` and `status`.
+`request` saves the bytes and sends a notice through Mastermind's door. `announce` runs on Mastermind and posts that notice unchanged. Cancellation and replacement print `asked` with `effective: false` until the Mac reports closure. Prompts cannot start with `@` or `/`, which Pi interprets specially. The contract rejects invisible characters and oversized inputs.
 
-A prompt must not begin with `@` or `/`, which Pi reads as a file argument or as one of its own commands. It is at most 12 000 bytes of UTF-8 text with no control, format, private-use or line-separator character but line feed and tab. A title and a cost are one line of at most 100 characters.
+### Notice and fetched request
 
-### Launch notice
-
-The door request to Mastermind and the Discord message hold the same text, and Mastermind posts it unchanged:
+The door request and Discord notice have this exact fixed text:
 
 ````text
 Post this Mac launch notice with node /opt/agent-sandbox/session/mac-launch.mjs announce and this door request ID. Target mac-studio, pot accor.
@@ -229,119 +139,34 @@ Post this Mac launch notice with node /opt/agent-sandbox/session/mac-launch.mjs 
 ```
 ````
 
-A notice carries no prompt and no state. It tells the named Mac to fetch the launch from the named pot. A cancellation and a replacement send the same notice again.
-
-### Request, as the gate fetches it
-
-`hc exec --on POT node /opt/agent-sandbox/session/mac-launch.mjs show LAUNCH_ID` prints one JSON line:
+A notice holds no prompt or approval. It tells the gate to fetch the proposal from that pot through its own private Herdr context. The gate calls `show LAUNCH_ID` and receives a packet of this shape:
 
 ```json
-{"type":"mac.launch-request","version":1,"launch":"LAUNCH_ID","pot":"accor","target":"mac-studio","title":"Manage Workspace and Boats","digest":"SHA256_OF_PROMPT_BYTES","acts":["spend"],"cost":"One small Boat VM for an hour","createdAt":1794945000000,"expiresAt":1794946800000,"state":"open","prompt":"PROMPT_TEXT"}
+{"type":"mac.launch-request","version":1,"launch":"LAUNCH_ID","pot":"accor","target":"mac-studio","title":"Manage Boats","digest":"SHA256_OF_PROMPT_BYTES","acts":["spend"],"cost":"APPROVED_COST","createdAt":1794945000000,"expiresAt":1794946800000,"state":"open","prompt":"PROMPT_TEXT"}
 ```
 
-`digest` is the SHA-256 of the prompt's UTF-8 bytes. `state` is `open` while the pot wants the launch offered. It is `cancelled` or `superseded` from the moment the pot asks, so the Mac can write the closure.
+### Offer, decision and report
 
-### Offer
+The offer attaches the saved prompt as `prompt-DIGEST12.txt`. It names the restricted identity, work path, capabilities, network destinations, declared acts and cost. Launch and refusal buttons carry `ml:LAUNCH_ID:DIGEST` and `mx:LAUNCH_ID:DIGEST`. Closed offers retain their identity and final state, with no buttons or attachment.
 
-The gate posts the offer in the launch channel, with the prompt as the attachment `prompt-DIGEST12.txt`:
-
-```text
-Launch on Mac Studio?
-Pot: `accor` · Title: `Manage Workspace and Boats`
-Prompt: the attached file, 5321 bytes, sha256 `SHA256_OF_PROMPT_BYTES`
-Runs as: a Pi in Herdr on Mac Studio, as this Mac's user with no restriction: its files, credentials, network and this gate
-Privileged acts declared: `spend` (create or resume paid machines or services)
-Cost declared: `One small Boat VM for an hour`
-Notice: https://discord.com/channels/GUILD/CHANNEL/MESSAGE
-Expires <t:1794946800:R>
-```
-
-Its buttons carry `ml:LAUNCH_ID:DIGEST` for "Launch on Mac Studio" and `mx:LAUNCH_ID:DIGEST` for "Refuse". A dead offer keeps its first two lines and its final state, and loses its buttons and its attachment.
-
-### Decision record
-
-The gate keeps one per launch on the Mac, as `~/.config/agent-sandbox/mac-launch/LAUNCH_ID.decision`, written once with an exclusive create. A closure holds its `state` and `decidedAt`, and a refusal adds the press. A claim holds the press it consumed:
+The private decision under the gate's `launches` directory records the consumed press. `executionDigest` binds the protected execution configuration as well as the prompt:
 
 ```json
-{"state":"claimed","decidedAt":1794945600000,"launch":"LAUNCH_ID","digest":"SHA256_OF_PROMPT_BYTES","target":"mac-studio","pot":"accor","interaction":"INTERACTION_ID","userId":"CONFIGURED_OPERATOR_ID","guildId":"GUILD","messageUrl":"https://discord.com/channels/GUILD/CHANNEL/OFFER_MESSAGE","at":"ISO_PRESS_TIMESTAMP"}
+{"state":"claimed","decidedAt":1794945600000,"launch":"LAUNCH_ID","digest":"PROMPT_DIGEST","executionDigest":"EXECUTION_CONFIGURATION_DIGEST","target":"mac-studio","pot":"accor","interaction":"INTERACTION_ID","userId":"OPERATOR_ID","guildId":"GUILD","messageUrl":"https://discord.com/channels/GUILD/CHANNEL/OFFER_MESSAGE","at":"ISO_PRESS_TIMESTAMP"}
 ```
 
-### Status
-
-The gate reports to the requesting pot with `hc exec --on POT -i node /opt/agent-sandbox/session/mac-launch.mjs status`, JSON on standard input:
+The gate sends a status packet to `status` through its private Herdr context, with JSON on standard input:
 
 ```json
-{"type":"mac.launch-status","version":1,"launch":"LAUNCH_ID","target":"mac-studio","digest":"SHA256_OF_PROMPT_BYTES","status":"finished","detail":"","messageUrl":"https://discord.com/channels/GUILD/CHANNEL/OFFER_MESSAGE","report":"FINAL_REPLY"}
+{"type":"mac.launch-status","version":1,"launch":"LAUNCH_ID","target":"mac-studio","digest":"PROMPT_DIGEST","status":"finished","detail":"","messageUrl":"https://discord.com/channels/GUILD/CHANNEL/OFFER_MESSAGE","report":"FINAL_REPLY"}
 ```
 
-`status` is `offered`, `started`, `finished`, `refused`, `expired`, `superseded`, `cancelled` or `failed`. The pot checks the launch and its digest against its own record, stores the status and wakes its bot with `from` set to `mac-launch` and that packet as the note. When `started` arrives for a launch the pot had asked to close, or had already called expired, the note also holds `tooLate` with that closure. A status the pot did not get is sent again until it lands. `report` is the Pi's final reply, cut at 8000 characters.
+The source validates the target and digest, stores the status and wakes its bot with `from` set to `mac-launch`. The final reply is bounded. Every terminal state consumes the approval, including failure. A new attempt needs a new request.
 
-A report is all that flows back. The gate has no way to send a pot's words into a running Pi: a new instruction is a new request with its own press. The gate does not stop a launched Pi from contacting a pot by itself. That Pi has the Mac user's network and Herdr, and only its instructions tell it to take no follow-up.
+## Proof boundaries
 
-## Setup: one paste per Mac
+`bin/check` includes operator/message/replay checks, claim-versus-closure recovery, configuration-scope invalidation and malicious execution probes in an owned disposable Linux container. The latter uses another numeric UID, fake operator/gate files and a protected dummy Herdr socket. It exercises the shared identity-drop, environment and report-read code. It creates no host account or permission grant.
 
-Each block is a prompt for a Pi on that Mac with Node 24 or newer. Paste it once per Mac. Before its proof step, complete the shared Pots setup below with the operator's explicit permission. Each block first makes the Pi read out what a launched Pi can reach, in two parts: what the operating system restricts, which is nothing, and what the gate checks in a request's text.
+`node probes/mac-launch-runner.mjs` uses a separate real Herdr context and a stand-in Pi to prove launch identity, progress and final reporting. It tears down that context. No model or Mac is involved.
 
-### Mac Studio
-
-```text
-Set up the Mac launch gate on this Mac Studio. Read docs/mac-launch.md in my agent-sandbox checkout first, including the shared Pots setup before the proof. Ask my explicit permission before applying any pot settings or restart, and wait while a paid run is active. Run no vm-up and change nothing else.
-
-Tell me these three things before anything else, and wait for my yes.
-What the operating system restricts: nothing. A prompt I launch from Discord runs as a Pi under my own user on this Mac, with no sandbox and with this Mac's network. It can read and change my files, use my credentials, ssh keys, signing key and vault login, reach my pots and spend money wherever I can. It can also read this gate's Discord token, change the gate's settings and code, and start more Pis with no click. It may be able to press buttons as me through a Discord session signed in on this Mac. So after my first launch, the gate is only as sound as every prompt I approved.
-What the gate checks: the request's text, before I see the button. It matches the prompt, the title and the cost against a fixed pattern per privileged act. It refuses a request that matches an act it did not declare, and one that declares sign-tip or launch-gate. A prompt that asks for the same act in other words passes, and the check stops nothing a launched Pi does afterwards. The button message shows me the prompt, the pot that asks and the acts it declares. My reading of the prompt is the only control.
-What it rests on: a pot is kept out only if my own Discord login never lives inside a pot.
-
-Then, in order:
-1. Check that the checkout is on main at a commit that has mac/launch-gate, and that node, hc and pi run. Stop if not.
-2. Ask me to create a Discord application named "Mac Studio launcher" in the developer portal, turn on its Message Content intent, and add its bot to my server with View Channel, Send Messages, Attach Files and Read Message History in the launch channel. It must be an application no other machine uses.
-3. Ask me for these, and never repeat them outside this Mac: my Discord user ID, the server ID, the launch channel ID and Mastermind's bot user ID. List my pots from `hc machine ls` and ask which may request a launch here.
-4. Run: ./mac/launch-gate configure --name mac-studio --label "Mac Studio" --operator ID --guild ID --channel ID --announcer ID --pots POT,POT --directory "$HOME"
-5. Ask me to run this myself in a terminal and paste the bot token at its hidden prompt: ./mac/launch-gate token
-6. Run ./mac/launch-gate check and show me every line. Stop on any failure.
-7. Only on my explicit yes: ./mac/launch-gate enable, then ./mac/launch-gate install
-8. Proof: ask me to have any pot request a launch here whose prompt is "Reply with the word ready." and to press its button. Show me that a Pi named ml-… appeared in Herdr and that the offer says Started, then Finished.
-
-To turn it off: ./mac/launch-gate disable, then ./mac/launch-gate remove. To remove the token: security delete-generic-password -s agent-sandbox-mac-launch, then reset it in the developer portal.
-```
-
-### MacBook Pro
-
-```text
-Set up the Mac launch gate on this MacBook Pro. Read docs/mac-launch.md in my agent-sandbox checkout first, including the shared Pots setup before the proof. Ask my explicit permission before applying any pot settings or restart, and wait while a paid run is active. Run no vm-up and change nothing else.
-
-Tell me these three things before anything else, and wait for my yes.
-What the operating system restricts: nothing. A prompt I launch from Discord runs as a Pi under my own user on this Mac, with no sandbox and with this Mac's network. It can read and change my files, use my credentials, ssh keys, signing key and vault login, reach my pots and spend money wherever I can. It can also read this gate's Discord token, change the gate's settings and code, and start more Pis with no click. It may be able to press buttons as me through a Discord session signed in on this Mac. So after my first launch, the gate is only as sound as every prompt I approved.
-What the gate checks: the request's text, before I see the button. It matches the prompt, the title and the cost against a fixed pattern per privileged act. It refuses a request that matches an act it did not declare, and one that declares sign-tip or launch-gate. A prompt that asks for the same act in other words passes, and the check stops nothing a launched Pi does afterwards. The button message shows me the prompt, the pot that asks and the acts it declares. My reading of the prompt is the only control.
-What it rests on: a pot is kept out only if my own Discord login never lives inside a pot. This Mac shows a button only while it is awake, and a request dies 30 minutes after a pot wrote it.
-
-Then, in order:
-1. Check that the checkout is on main at a commit that has mac/launch-gate, and that node, hc and pi run. Stop if not.
-2. Ask me to create a second Discord application named "MacBook Pro launcher" in the developer portal, turn on its Message Content intent, and add its bot to my server with View Channel, Send Messages, Attach Files and Read Message History in the launch channel. It must not be the Mac Studio's application.
-3. Ask me for these, and never repeat them outside this Mac: my Discord user ID, the server ID, the launch channel ID and Mastermind's bot user ID. List my pots from `hc machine ls` and ask which may request a launch here.
-4. Run: ./mac/launch-gate configure --name macbook-pro --label "MacBook Pro" --operator ID --guild ID --channel ID --announcer ID --pots POT,POT --directory "$HOME"
-5. Ask me to run this myself in a terminal and paste the bot token at its hidden prompt: ./mac/launch-gate token
-6. Run ./mac/launch-gate check and show me every line. Stop on any failure.
-7. Only on my explicit yes: ./mac/launch-gate enable, then ./mac/launch-gate install
-8. Proof: ask me to have any pot request a launch here whose prompt is "Reply with the word ready." and to press its button. Show me that a Pi named ml-… appeared in Herdr and that the offer says Started, then Finished.
-
-To turn it off: ./mac/launch-gate disable, then ./mac/launch-gate remove. To remove the token: security delete-generic-password -s agent-sandbox-mac-launch, then reset it in the developer portal.
-```
-
-### Pots
-
-A pot may request a launch once its `sandbox.json` holds `macLaunch` with `enabled: true` and `./bin/vm-config` copied it. After first enabling this feature, the operator restarts the pot session with `./bin/pots-session restart` to load the expiry service. Mastermind's also needs the launch channel. The setup Pi edits the private sandbox files on the Mac, preserves all other keys and existing targets, and applies them only on the operator's explicit approval. It runs `SANDBOX=POT ./bin/vm-config` and `SANDBOX=POT ./bin/pots-session restart` per enabled pot, waiting while paid work is active. This phase happens before the proof in each setup block. Already configured pots need no restart.
-
-### What `check` proves
-
-`./mac/launch-gate check` prints each group of checks and exits non-zero when one fails: the settings file is private and complete, the token opens Discord as a bot, that bot's application has the Message Content intent, it sees the launch channel in the configured server, the operator ID is a member of that server, this Mac's clock is within five seconds of Discord's, `pi` and `hc` run, and `hc exec` reaches every listed pot.
-
-### Mac settings
-
-`~/.config/agent-sandbox/mac-launch.json`, mode 600, written by `configure`:
-
-```json
-{"humanDiscord": {"userId": "OPERATOR_ID", "macLaunchEnabled": false}, "name": "mac-studio", "label": "Mac Studio", "guildId": "GUILD", "channelId": "LAUNCH_CHANNEL", "announcers": ["MASTERMIND_BOT_USER_ID"], "pots": ["mastermind", "accor"], "refusedActs": ["sign-tip", "launch-gate"], "directory": "/Users/NAME", "path": ["/opt/homebrew/bin"], "piArguments": []}
-```
-
-`humanDiscord` has the shape the push policy reads, so one contract function checks both. The gate exits at once while `macLaunchEnabled` is not `true`. It exits with a failure, so launchd starts it again every 30 seconds and it exits again until `enable`, or until `remove` takes the service away.
+Linux proof does not establish Mac account isolation, ACL handling, sandbox compilation/inheritance, Keychain denial, launchd behavior, live Discord, provider connectivity, real Pi startup or GUI discovery. A process-environment attack was blocked by the harness environment-dump rule and was not run. Native `check` and the later clicked proof are mandatory. If a native mechanism fails, installation/activation fails with it. The [installation guide](mac-launch-install.md) identifies those checks and both Mac setup prompts.

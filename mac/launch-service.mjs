@@ -71,9 +71,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     catch (error) {
       let bound;
       try { bound = boundRequest(shown, proposed, config); } catch { return; }
-      // The pot learns why nothing started. Only a declared act makes this a refusal, and only a lapsed clock an expiry.
-      const refused = bound.request.acts.some(act => config.refusedActs.includes(act));
-      const state = refused ? 'refused' : clock() >= bound.request.expiresAt ? EXPIRED : 'failed';
+      const state = clock() >= bound.request.expiresAt ? EXPIRED : 'refused';
       closeUnoffered(shown, proposed, { state, details: { detail: error.message } });
       return;
     }

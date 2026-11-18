@@ -4,6 +4,7 @@ import { humanStore } from '../session/human-store.mjs';
 import { launchNotice, launchRequest, launchStatus, noticeOf, noticeText } from '../session/launch-contract.mjs';
 import { askClosure, launchSettings, listedLaunches, openLaunch, shownLaunch, recordStatus, expireLaunches } from '../session/launch-requests.mjs';
 import { ownedFolder, now, settings as gateSettings } from './fixtures/mac-launch.mjs';
+import { executionFingerprint } from '../mac/launch-execution-contract.mjs';
 import { piArguments } from '../mac/launch-pi.mjs';
 
 const input = { launch: 'a'.repeat(32), pot: 'alpha', target: 'mac-studio', title: 'Ready', prompt: 'Reply ready.', createdAt: now };
@@ -88,7 +89,7 @@ test('an offline Mac does not prevent the pot reporting expiry, with retries', a
 });
 
 test('the last process before Pi rechecks sleep, identity, expiry and exact bytes', () => {
-  const approved = { ...request(), state: 'claimed', decidedAt: now, userId: gateSettings.humanDiscord.userId };
+  const approved = { ...request(), executionDigest: executionFingerprint(gateSettings), state: 'claimed', decidedAt: now, userId: gateSettings.humanDiscord.userId };
   const offer = { request: request(), prompt: input.prompt };
   assert.equal(piArguments(offer, gateSettings, approved, 'session.jsonl', now).at(-1), 'Reply ready.');
   assert.equal(piArguments(offer, gateSettings, approved, 'session.jsonl', now + 30_000).at(-1), 'Reply ready.');

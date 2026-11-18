@@ -9,7 +9,10 @@ import { launchNotice, launchRequest, noticeText, shownRequest } from '../../ses
 
 export const now = 1794945000000;
 export const settings = { name: 'mac-studio', label: 'Mac Studio', pots: ['alpha'], refusedActs: ['sign-tip', 'launch-gate'],
-  guildId: '222222222222222222', channelId: '333333333333333333', announcers: ['888888888888888888'], directory: tmpdir(), piArguments: [],
+  guildId: '222222222222222222', channelId: '333333333333333333', announcers: ['888888888888888888'], directory: '/Library/AgentSandbox/Execution/work/fixture',
+  tools: { node: '/Library/AgentSandbox/Runtime/bin/node', pi: '/Library/AgentSandbox/Runtime/pi.mjs', hc: '/Library/AgentSandbox/Runtime/bin/hc' },
+  execution: { user: '_maclaunch', uid: 65001, gid: 65001, grants: [],
+    model: { resolver: 'system-dns', provider: 'openai', name: 'fixture-model', credential: '/Library/AgentSandbox/Delegations/model.json', network: [{ address: '192.0.2.1', port: 443 }] } },
   humanDiscord: { userId: '111111111111111111', macLaunchEnabled: true } };
 export const application = '555555555555555555';
 export const snowflake = at => ((BigInt(at) - 1420070400000n) << 22n).toString();

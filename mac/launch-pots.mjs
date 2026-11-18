@@ -4,11 +4,11 @@ import { commandWithInput } from '../session/run.mjs';
 
 const REMOTE_TIMEOUT_SECONDS = 10;
 
-export function potTransport() {
+export function potTransport(context) {
   async function exec(pot, command, input) {
     if (!isPotName(pot)) throw new Error('mac-launch: invalid pot name.');
     const options = ['exec', '--json', '--on', pot, '--timeout', `${REMOTE_TIMEOUT_SECONDS}`, ...(input === undefined ? [] : ['-i']), ...command];
-    const stdout = await commandWithInput('hc', options, input, { timeout: REMOTE_TIMEOUT_SECONDS * 1000 })
+    const stdout = await commandWithInput(context.binary, options, input, { timeout: REMOTE_TIMEOUT_SECONDS * 1000, env: context.env })
       .catch(() => { throw new Error('mac-launch: Herdr could not reach the pot.'); });
     const response = JSON.parse(stdout);
     if (response.code !== 0 || response.timed_out || response.truncated) throw new Error(`mac-launch: ${pot} did not complete the command.`);

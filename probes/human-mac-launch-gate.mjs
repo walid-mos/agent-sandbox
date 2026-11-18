@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { executionFingerprint } from '../mac/launch-execution-contract.mjs';
 import { buttonId, verifyOffer, verifyPress } from '../mac/launch-approval.mjs';
 import { launchNotice, launchRequest, shownRequest } from '../session/launch-contract.mjs';
 import { application, now, pressEvent, settings, snowflake } from './fixtures/mac-launch.mjs';
@@ -7,7 +8,7 @@ import { application, now, pressEvent, settings, snowflake } from './fixtures/ma
 const { guildId: guild, channelId: channel, humanDiscord: { userId: operator } } = settings;
 const message = '444444444444444444';
 const request = launchRequest({ launch: 'a'.repeat(32), target: 'mac-studio', pot: 'alpha', title: 'Reply', prompt: 'Reply ready.', createdAt: now });
-const offer = { request, prompt: 'Reply ready.', content: 'Approve this prompt', messageId: message, applicationId: application, attachment: { id: '666666666666666666', filename: 'prompt.txt', size: 12 } };
+const offer = { request, executionDigest: executionFingerprint(settings), prompt: 'Reply ready.', content: 'Approve this prompt', messageId: message, applicationId: application, attachment: { id: '666666666666666666', filename: 'prompt.txt', size: 12 } };
 const click = () => pressEvent(offer, now);
 
 test('only the enabled operator may approve the gate message', () => {
