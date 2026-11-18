@@ -1,13 +1,13 @@
 import hashlib
 import io
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
 import tarfile
-import tempfile
 import time
+
+from ownership import OwnedFixture
 
 AREA = Path(__file__).resolve().parents[1]
 ROOT = AREA.parents[1]
@@ -33,12 +33,10 @@ def git(path, *arguments):
 
 class Fixture:
     def __init__(self, case):
-        self.scratch = tempfile.TemporaryDirectory(prefix='rules-only-')
-        case.addCleanup(self.scratch.cleanup)
+        self.scratch = OwnedFixture(case)
         self.root = Path(self.scratch.name).resolve()
         self.root.chmod(0o700)
         self.run_id = self.root.name
-        write_json(self.root / 'fixture-owner.json', {'runId': self.run_id, 'pid': os.getpid()})
         self.checkout = self.root / 'mac'
         self.vm = self.root / 'vm'
         self.private = self.root / 'private'
