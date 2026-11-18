@@ -148,3 +148,4 @@ install_tailscale
 install_door
 configure_swap "$swap_gib"
 install_units
+/usr/bin/python3 -B "$here/usage_setup.py"
