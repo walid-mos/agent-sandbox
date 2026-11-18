@@ -1,8 +1,8 @@
 import { attachmentOf, fingerprint, NOTICEBOARD_LIMITS } from './noticeboard-policy.mjs';
 
-const DISCORD_CONTENT = 2000;
+export const DISCORD_CONTENT = 2000;
 const encodedFile = (filename, bytes) => ({ filename, bytes: bytes.toString('base64'), sha256: fingerprint(bytes), size: bytes.length });
-const messageLink = snapshot => `https://discord.com/channels/${snapshot.guildId}/${snapshot.channelId}/${snapshot.id}`;
+export const messageLink = snapshot => `https://discord.com/channels/${snapshot.guildId}/${snapshot.channelId}/${snapshot.id}`;
 
 export async function captureArchive(snapshot, client) {
   const files = [];
@@ -18,8 +18,8 @@ export async function captureArchive(snapshot, client) {
   return { content, files, allowed_mentions: { parse: [], users: [], roles: [], replied_user: false } };
 }
 
-export function matchesArchive(expected, actual, route) {
-  if (!actual || actual.isOwnedByApp !== true || actual.channelId !== route.threadId || actual.content !== expected.content || !Array.isArray(actual.files)) return false;
+export function matchesArchive(expected, actual, identity) {
+  if (!actual || actual.isOwnedByApp !== true || actual.id !== identity.id || actual.channelId !== identity.channelId || actual.content !== expected.content || !Array.isArray(actual.files)) return false;
   if (actual.files.length !== expected.files.length) return false;
   return expected.files.every((file, index) => {
     const received = actual.files[index];

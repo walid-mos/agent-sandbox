@@ -25,7 +25,8 @@ async function observe(context, configuration) {
 async function sendCopy(record, context) {
   const { store, client } = context;
   if (record.stage === 'observed') {
-    record = { ...record, archive: await captureArchive(record.snapshot, client), stage: 'captured' };
+    const prepared = client.prepareArchive ? await client.prepareArchive(record.snapshot) : { archive: await captureArchive(record.snapshot, client) };
+    record = prepared.archive ? { ...record, archive: prepared.archive, stage: 'captured' } : { ...record, stage: 'held', reason: prepared.reason };
     store.put(record);
   }
   if (record.stage === 'captured') {
@@ -36,9 +37,9 @@ async function sendCopy(record, context) {
   if (record.stage !== 'acknowledged') return record;
   record = { ...record, stage: 'copy-unknown' };
   store.put(record);
-  const copy = await client.createCopy({ ...record.archive, nonce: record.nonce, enforce_nonce: true, channelId: record.route.threadId });
+  const copy = await client.createCopy({ ...record.archive, nonce: record.nonce, enforce_nonce: true, channelId: record.route.threadId }, record.route);
   if (!isCopy(copy, record.route)) return record;
-  record = { ...record, stage: 'copied', copy };
+  record = { ...record, stage: 'copied', copy: { id: copy.id, channelId: copy.channelId } };
   store.put(record);
   return record;
 }
@@ -46,7 +47,8 @@ async function sendCopy(record, context) {
 async function reconcile(record, context) {
   const result = await context.client.findCopy(record.route, { nonce: record.nonce, fingerprint: record.key, limit: NOTICEBOARD_LIMITS.batch });
   if (result?.status !== 'found' || !isCopy(result.copy, record.route)) return record;
-  const next = { ...record, stage: 'copied', copy: result.copy };
+  const { id, channelId } = result.copy;
+  const next = { ...record, stage: 'copied', copy: { id, channelId } };
   context.store.put(next);
   return next;
 }
@@ -64,7 +66,7 @@ async function advance(record, context) {
     const resolved = attempted.stage === 'copy-unknown' ? await reconcile(attempted, context) : await sendCopy(attempted, context);
     if (resolved.stage !== 'copied') return;
     const actual = await client.readCopy(resolved.copy, resolved.route, { maxBytes: NOTICEBOARD_LIMITS.attachmentBytes });
-    const isVerified = matchesArchive(resolved.archive, actual, resolved.route);
+    const isVerified = matchesArchive(resolved.archive, actual, resolved.copy);
     store.put({ ...resolved, stage: isVerified ? 'verified' : 'held', verifiedAt: isVerified ? now : undefined,
       reason: isVerified ? 'conditional-delete-unavailable' : 'copy-verification-failed' });
   } catch (error) {

@@ -40,7 +40,7 @@ export function routeFor(event, configuration) {
 
 export function snapshotOf(message, event, route) {
   requireValue(message?.id === event.messageId && message.channelId === route.channelId && message.guildId === route.guildId);
-  requireValue(message.type === 0 && isText(message.content, NOTICEBOARD_LIMITS.content));
+  requireValue([0, 19].includes(message.type) && isText(message.content, NOTICEBOARD_LIMITS.content));
   requireValue(onlyFields(message.author, ['id', 'username', 'displayName', 'isBot']));
   requireValue(isId(message.author.id) && isText(message.author.username, 128) && isText(message.author.displayName, 128));
   requireValue(typeof message.author.isBot === 'boolean' && typeof message.isPinned === 'boolean' && isText(message.webhookId, 20));
