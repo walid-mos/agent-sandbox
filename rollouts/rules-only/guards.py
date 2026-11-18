@@ -76,6 +76,14 @@ def environment():
             'GIT_ATTR_NOSYSTEM': '1', 'PYTHONDONTWRITEBYTECODE': '1'}
 
 
+def stop_read_process(process):
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.communicate()
+
+
 class Commands:
     def __init__(self, seconds):
         self.seconds = seconds
@@ -92,9 +100,12 @@ class Commands:
         try:
             output, _ = process.communicate(input_bytes, timeout=timeout)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
+            stop_read_process(process)
             raise Refused('read-only command deadline reached') from None
+        except BaseException:
+            if not mutation:
+                stop_read_process(process)
+            raise
         if mutation:
             self.deadline = time.monotonic() + self.seconds
         require(process.returncode == 0 and len(output) <= MAX_BYTES,
