@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_candidate import verify_publication
 from managed_update import (Blocked, SANDBOX, SHA1, checkout_revision, read_git, require_protected,
                             require_receiver, restrict_environment, source_origin, verify_signature)
-from receiver_staging import fetch_tip, stage_candidate
+from receiver_staging import fetch_tip, materialize, verify_series
 from receiver_state import CONTROL, PROTOCOL, STATUS, admission, read_state, write_state
 
 ORIGIN = source_origin(SANDBOX)
@@ -95,11 +95,17 @@ class Receiver:
         candidate = None
         try:
             candidate = fetch_tip(self.root, self.origin, endpoint, protocol)
-            stage_candidate(self.root, self.origin, state['known_good'], candidate, endpoint, protocol)
+            checkpoints = verify_series(self.root, self.origin, state['known_good'], candidate, endpoint, protocol)
         except (Blocked, OSError) as problem:
             reason = str(problem) if isinstance(problem, Blocked) else 'candidate-staging-io-failed'
             return write_state(self.root, {**state, 'desired': candidate, 'verified': None, 'blocked': reason})
-        return self.advance(candidate, descriptor)
+        if not checkpoints:
+            return self.advance(candidate, descriptor)
+        for checkpoint in checkpoints:
+            state = self.advance(checkpoint['revision'], descriptor, checkpoint=checkpoint)
+            if state['blocked'] is not None:
+                break
+        return state
 
     def status(self, descriptor):
         state = read_state(self.root)
@@ -113,13 +119,13 @@ class Receiver:
             return {**state, 'loaded': None, 'blocked': 'loaded-revision-unverified'}
         return {**state, 'loaded': revision}
 
-    def advance(self, revision, descriptor):
+    def advance(self, revision, descriptor, *, checkpoint=None):
         previous = read_state(self.root)
         if previous['phase'] != 'ready':
             return self.restore(previous, previous['blocked'] or 'activation-interrupted', descriptor)
         state = {**previous, 'blocked': None, 'desired': revision, 'verified': None}
         try:
-            return self.apply_revision(state, revision, descriptor)
+            return self.apply_revision(state, revision, descriptor, checkpoint)
         except Blocked as problem:
             return self.record_block(revision, str(problem))
         except OSError:
@@ -128,7 +134,7 @@ class Receiver:
     def record_block(self, revision, reason):
         return write_state(self.root, {**read_state(self.root), 'desired': revision, 'blocked': reason})
 
-    def apply_revision(self, state, revision, descriptor):
+    def apply_revision(self, state, revision, descriptor, checkpoint):
         known_good = state['known_good']
         checkout = self.require_release(known_good)
         self.require_health(checkout, known_good, descriptor)
@@ -138,7 +144,7 @@ class Receiver:
             return write_state(self.root, state)
         if state['accepted'] not in (known_good, revision):
             raise Blocked('candidate-checkpoint-mismatch')
-        verified = verify_publication(self.root, self.origin, known_good, revision)
+        verified = self.prepare_checkpoint(known_good, revision, checkpoint)
         target = self.require_release(revision)
         if read_git(target, 'rev-parse', f'{revision}^{{tree}}') != verified['tree']:
             raise Blocked('release-tree-mismatch')
@@ -154,6 +160,14 @@ class Receiver:
             return self.restore(changing, reason, descriptor)
         return write_state(self.root, {**changing, 'phase': 'ready', 'known_good': revision,
                                        'filesystem': revision, 'loaded': revision})
+
+    def prepare_checkpoint(self, known_good, revision, checkpoint):
+        if checkpoint is None:
+            return verify_publication(self.root, self.origin, known_good, revision)
+        if checkpoint['review']['base'] != known_good or checkpoint['revision'] != revision:
+            raise Blocked('candidate-checkpoint-mismatch')
+        materialize(self.root, self.origin, checkpoint)
+        return checkpoint
 
     def dispatch(self, arguments, descriptor):
         state = read_state(self.root)

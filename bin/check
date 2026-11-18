@@ -87,5 +87,8 @@ if [ -n "${FACTORY_RELEASE_EXPORT:-}" ]; then
 	python3 -B "$root/probes/factory-producer-receiver.py"
 	python3 -B "$root/probes/factory-installed-receiver.py"
 fi
+if [ -n "${FACTORY_RELEASE_SERIES:-}" ]; then
+	python3 -B "$root/probes/factory-receiver-series.py"
+fi
 git -C "$root" diff --check
 printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'

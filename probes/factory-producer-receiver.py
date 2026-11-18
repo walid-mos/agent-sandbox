@@ -19,16 +19,10 @@ FIXTURE_REPOSITORY = 'probe/factory'
 FIXTURE_ORIGIN = f'https://github.com/{FIXTURE_REPOSITORY}.git'
 
 
-@unittest.skipUnless(EXPORT, 'provide a disposable #30 export')
 class ProducerExportFixture(probe['ActivationFixture']):
     def setUp(self):
         super().setUp()
-        self.export = Path(EXPORT)
-        self.bundle = self.export / 'candidate.bundle'
-        self.receipt = json.loads((self.export / 'receipt.json').read_text())
-        self.candidate = self.receipt['candidate']
-        self.revision = self.candidate['commit']
-        self.installed = self.candidate['request']['base']
+        self.prepare_export()
         self.git(self.checkout, 'fetch', '-q', str(self.bundle), 'refs/heads/main')
         self.git(self.checkout, 'reset', '--hard', self.installed)
         self.git(self.checkout, 'remote', 'set-url', 'origin', FIXTURE_ORIGIN)
@@ -37,6 +31,20 @@ class ProducerExportFixture(probe['ActivationFixture']):
         shutil.copyfile(self.export / 'factory-public.asc', self.receiver / 'factory-signers.asc')
         (self.receiver / 'releases').mkdir()
         self.initialize_runtime()
+
+    def prepare_export(self):
+        self.export = Path(EXPORT)
+        archive = self.export / 'candidate.bundle'
+        self.receipt = json.loads((self.export / 'receipt.json').read_text())
+        self.candidate = self.receipt['candidate']
+        self.revision = self.candidate['commit']
+        self.installed = self.candidate['request']['base']
+        self.bundle = self.root / 'publisher.git'
+        self.git(self.root, 'init', '-q', '--bare', str(self.bundle))
+        review = f"refs/pull/{self.candidate['request']['number']}/head"
+        tag = 'refs/tags/factory-reviewed/' + self.revision
+        self.git(self.bundle, 'fetch', '-q', '--no-tags', str(archive),
+                 'refs/heads/main:refs/heads/main', f'{review}:{tag}')
 
     def command(self, operation, *arguments):
         script = '\n'.join([
@@ -49,6 +57,7 @@ class ProducerExportFixture(probe['ActivationFixture']):
         return self.run_receiver(operation, *arguments, entry=['-c', script])
 
 
+@unittest.skipUnless(EXPORT, 'provide a disposable #30 export')
 class ProducerExport(ProducerExportFixture):
     def test_poll_activates_exact_producer_candidate_and_matches_checked_round(self):
         request, review = self.candidate['request'], self.receipt['review']

@@ -1,10 +1,11 @@
+from functools import partial
 import os
 from pathlib import Path
 import stat
 import tempfile
 
-from factory_candidate import LANDING_REF, signed_landing, verify_publication
-from managed_update import TRACKING_REF, Blocked, read_git, require_exact_commit, require_protected, require_repository
+from factory_candidate import LANDING_REF, REVIEW_TAG_ROOT, verify_checkpoint
+from managed_update import TRACKING_REF, Blocked, read_git, require_protected, require_repository, staged_candidate
 from source_refresh import BRANCH, git
 
 
@@ -29,15 +30,12 @@ def fetch_tip(root, origin, endpoint, protocol):
     return read_git(stage, 'rev-parse', '--verify', TRACKING_REF)
 
 
-def fetch_review(root, origin, candidate, endpoint, protocol):
-    stage = root / 'candidate.git'
-    require_exact_commit(stage, candidate, 'candidate-not-commit')
-    _, request = signed_landing(root, origin, stage, candidate)
-    try:
-        require_exact_commit(stage, request['head'], 'factory-review-object-missing')
-    except Blocked:
-        fetch_ref(stage, endpoint, protocol, f"refs/pull/{request['number']}/head", 'refs/factory/review',
-                  'factory-review-fetch-failed')
+def fetch_review(stage, endpoint, protocol, candidate, head):
+    destination = 'refs/factory/review'
+    fetch_ref(stage, endpoint, protocol, REVIEW_TAG_ROOT + candidate, destination, 'factory-review-fetch-failed')
+    direct = read_git(stage, 'rev-parse', '--verify', destination, failure='factory-review-ref-mismatch')
+    if direct != head:
+        raise Blocked('factory-review-ref-mismatch')
 
 
 def materialize(root, origin, verified):
@@ -56,9 +54,12 @@ def materialize(root, origin, verified):
         checkout.replace(target)
 
 
-def stage_candidate(root, origin, installed, candidate, endpoint, protocol):
-    if candidate == installed:
-        return
-    fetch_review(root, origin, candidate, endpoint, protocol)
-    verified = verify_publication(root, origin, installed, candidate)
-    materialize(root, origin, verified)
+def verify_series(root, origin, installed, tip, endpoint, protocol):
+    stage = staged_candidate(root, origin, installed, tip)
+    revisions = read_git(stage, 'rev-list', '--first-parent', '--reverse', f'{installed}..{tip}').splitlines()
+    fetch = partial(fetch_review, stage, endpoint, protocol)
+    checkpoints = []
+    for revision in revisions:
+        checkpoints.append(verify_checkpoint(root, origin, stage, installed, revision, fetch))
+        installed = revision
+    return checkpoints

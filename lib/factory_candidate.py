@@ -6,6 +6,7 @@ from managed_update import (BRANCH, SHA1, GIT_READ_OPTIONS, Blocked, commit_obje
                             require_exact_commit, require_protected, staged_candidate, verify_signature)
 
 LANDING_REF = f'refs/heads/{BRANCH}'
+REVIEW_TAG_ROOT = 'refs/tags/factory-reviewed/'
 PROVENANCE_HEADER = b'Factory landing v1'
 REQUEST_FIELDS = {'repository', 'number', 'generation', 'ref', 'head', 'base', 'tree'}
 MAX_SAFE_INTEGER = (1 << 53) - 1
@@ -40,11 +41,8 @@ def landing_request(stage, candidate, repository):
     return request
 
 
-def require_reviewed_tree(stage, candidate, request, installed):
+def require_reviewed_tree(stage, candidate, request):
     base, head, tree = (request[key] for key in ('base', 'head', 'tree'))
-    if base != installed:
-        raise Blocked('factory-base-mismatch')
-    require_landing_parents(stage, candidate, base)
     require_exact_commit(stage, head, 'factory-review-object-missing')
     read_git(stage, 'merge-base', '--is-ancestor', base, head, failure='factory-head-not-reviewed-base')
     if any(read_git(stage, 'rev-parse', f'{revision}^{{tree}}') != tree for revision in (head, candidate)):
@@ -65,9 +63,19 @@ def signed_landing(root, origin, stage, candidate):
     return signer, landing_request(stage, candidate, repository)
 
 
-def verify_publication(root, origin, installed, candidate):
-    stage = staged_candidate(root, origin, installed, candidate)
+def verify_checkpoint(root, origin, stage, installed, candidate, fetch_review=None):
+    require_exact_commit(stage, candidate, 'candidate-not-commit')
     signer, request = signed_landing(root, origin, stage, candidate)
-    require_reviewed_tree(stage, candidate, request, installed)
+    if request['base'] != installed:
+        raise Blocked('factory-base-mismatch')
+    require_landing_parents(stage, candidate, installed)
+    if fetch_review is not None:
+        fetch_review(candidate, request['head'])
+    require_reviewed_tree(stage, candidate, request)
     return {'revision': candidate, 'signer': signer, 'ref': LANDING_REF,
             'tree': request['tree'], 'review': request}
+
+
+def verify_publication(root, origin, installed, candidate):
+    stage = staged_candidate(root, origin, installed, candidate)
+    return verify_checkpoint(root, origin, stage, installed, candidate)
