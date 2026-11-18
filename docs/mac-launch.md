@@ -165,7 +165,7 @@ The source validates the target and digest, stores the status and wakes its bot 
 
 ## Proof boundaries
 
-`bin/check` includes operator/message/replay checks, claim-versus-closure recovery, configuration-scope invalidation and malicious execution probes in an owned disposable Linux container. The latter uses another numeric UID, fake operator/gate files and a protected dummy Herdr socket. It exercises the shared identity-drop, environment and report-read code. It creates no host account or permission grant.
+`bin/check` includes operator/message/replay checks, claim-versus-closure recovery and configuration-scope invalidation. Run `node probes/mac-launch-isolation.mjs` separately on a host with Docker. It creates an owned disposable Linux container with no network, then exercises another numeric UID against fake operator/gate files and a protected dummy Herdr socket. It uses the shared identity-drop, environment and report-read code and creates no host account or permission grant. Keep this probe outside the factory check container, which has no Docker socket.
 
 `node probes/mac-launch-runner.mjs` uses a separate real Herdr context and a stand-in Pi to prove launch identity, progress and final reporting. It tears down that context. No model or Mac is involved.
 
