@@ -3,7 +3,7 @@ import { constants, closeSync, fstatSync, lstatSync, openSync, readSync, readdir
 import { dirname, join, resolve } from 'node:path';
 import { CODE_HOME, DELEGATIONS_HOME, EXECUTION_HOME, GATE_HOME, RUNTIME_HOME, RUNS_HOME, checkedExecution } from './launch-execution-contract.mjs';
 
-export const REPORT_BYTES = 1024 * 1024;
+const REPORT_BYTES = 1024 * 1024;
 
 export function requireGate() {
   if (process.getuid() !== 0 || process.geteuid() !== 0) throw new Error('mac-launch: only the protected root gate may perform this operation.');
@@ -38,7 +38,7 @@ export function protectedPath(path) {
   checkNativeAcls(inspected);
 }
 
-export function protectedTree(path) {
+function protectedTree(path) {
   const inspected = new Set();
   function visit(folder) {
     collectProtected(folder, inspected);

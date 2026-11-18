@@ -13,7 +13,7 @@ export const MIN_EXECUTION_ID = 501;
 export const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
 export const MODEL_KEYS = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', google: 'GEMINI_API_KEY' };
 export const TASK_KEYS = ['BOAT_API_KEY', 'BOAT_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN'];
-export const FORBIDDEN_ACTS = ['sign-tip', 'launch-gate', 'vm-up', 'restart-pot', 'credentials'];
+const FORBIDDEN_ACTS = ['sign-tip', 'launch-gate', 'vm-up', 'restart-pot', 'credentials'];
 const SAFE_NAME = /^[a-z][a-z0-9-]{0,39}$/;
 
 export const below = (root, path) => typeof path === 'string' && isAbsolute(path) && path === normalize(path) && !/[\x00-\x1f\x7f]/.test(path) && relative(root, path) !== '' && !relative(root, path).startsWith('..') && !isAbsolute(relative(root, path));

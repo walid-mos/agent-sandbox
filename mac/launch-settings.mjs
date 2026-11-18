@@ -13,7 +13,7 @@ const SETTINGS = join(GATE_HOME, 'settings.json');
 const TOKEN = join(GATE_HOME, 'discord-token');
 export const STATE_HOME = join(GATE_HOME, 'launches');
 
-export function checkedSettings(settings) {
+function checkedSettings(settings) {
   const hasLists = ['announcers', 'pots', 'refusedActs'].every(key => Array.isArray(settings[key]));
   if (!hasLists) throw new Error('mac-launch: settings need announcers, pots and refusedActs lists.');
   const hasNames = isTarget(settings.name) && typeof settings.label === 'string' && /^[A-Za-z0-9 -]{1,50}$/.test(settings.label)

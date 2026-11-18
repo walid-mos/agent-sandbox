@@ -6,7 +6,7 @@ import { checkProtectedInstallation, protectedPath } from './launch-protection.m
 
 const NATIVE_MS = 15_000;
 
-export function checkNativeAccount(settings) {
+function checkNativeAccount(settings) {
   checkProtectedInstallation(settings);
   const { execution } = settings;
   const id = flag => execFileSync('/usr/bin/id', [flag, execution.user], { encoding: 'utf8', env: gateEnvironment() }).trim();
@@ -24,7 +24,7 @@ export function checkNativeAccount(settings) {
   protectedPath('/usr/bin/sandbox-exec');
 }
 
-export function prepareGateEnvironment() {
+function prepareGateEnvironment() {
   for (const name of ['config', 'data', 'state', 'cache', 'tmp']) {
     const folder = join(GATE_HOME, name);
     mkdirSync(folder, { recursive: true, mode: 0o700 });
