@@ -6,7 +6,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import runpy
 import sys
 
 AREA = Path(__file__).resolve().parent
@@ -92,9 +91,16 @@ def run_internal_command():
     if script is None:
         return None
     path = AREA / script
-    sys.modules['_rules_only_verified_runner'] = sys.modules[__name__]
+    specification = importlib.util.spec_from_file_location('__main__', path, loader=SourceLoader())
+    module = importlib.util.module_from_spec(specification)
+    runner = sys.modules[__name__]
+    sys.modules['_rules_only_verified_runner'] = runner
     sys.argv = [str(path), *sys.argv[2:]]
-    runpy.run_path(str(path), run_name='__main__')
+    sys.modules['__main__'] = module
+    try:
+        specification.loader.exec_module(module)
+    finally:
+        sys.modules['__main__'] = runner
     return 0
 
 
