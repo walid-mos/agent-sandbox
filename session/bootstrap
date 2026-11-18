@@ -104,6 +104,20 @@ install_router() {
 	rm -rf "$staging"
 }
 
+codex_installed() {
+	codex --version 2> /dev/null | grep -qx "codex-cli $CODEX_VERSION"
+}
+
+# Magpie reads the installed Codex version for account model lists and requests.
+install_codex() {
+	if codex_installed; then return 0; fi
+	env -i HOME="$HOME" PATH="$PATH" NPM_CONFIG_PREFIX="$NPM_CONFIG_PREFIX" \
+		HTTP_PROXY="${HTTP_PROXY:-}" HTTPS_PROXY="${HTTPS_PROXY:-}" ALL_PROXY="${ALL_PROXY:-}" NO_PROXY="${NO_PROXY:-}" \
+		http_proxy="${http_proxy:-}" https_proxy="${https_proxy:-}" all_proxy="${all_proxy:-}" no_proxy="${no_proxy:-}" \
+		SSL_CERT_FILE="${SSL_CERT_FILE:-}" SSL_CERT_DIR="${SSL_CERT_DIR:-}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-}" \
+		npm install --global --ignore-scripts --no-fund --no-audit "@openai/codex@$CODEX_VERSION"
+}
+
 # The router answers for Claude models by running this Claude Code.
 install_claude_code() {
 	if claude --version 2> /dev/null | grep -q "$CLAUDE_CODE_VERSION"; then return 0; fi
@@ -134,15 +148,24 @@ install_harness() {
 	npm install --global --no-fund --no-audit "@earendil-works/pi-coding-agent@$pi_version"
 }
 
+router_tools_installed() {
+	router_installed && codex_installed
+}
+
+install_router_tools() {
+	install_router
+	install_codex
+}
+
 case "${1:-}" in
 	--router-current)
-		router_installed &&
+		router_tools_installed &&
 			curl --silent --fail --max-time 5 "http://$POTS_ROUTER_ADDRESS/api/hello" | jq --exit-status --arg version "$MAGPIE_VERSION" '.version == $version' > /dev/null
 		exit $? ;;
-	--router-only) install_router; exit ;;
+	--router-only) install_router_tools; exit ;;
 	--factory-tools)
 		install_cli_tools
-		install_router
+		install_router_tools
 		install_claude_code
 		install_pots
 		npm install --global --no-fund --no-audit "@earendil-works/pi-coding-agent@$FACTORY_PI_VERSION"
@@ -152,7 +175,7 @@ esac
 install_node
 install_cli_tools
 install_tailscale
-install_router
+install_router_tools
 install_claude_code
 ln -sf "$here/gh" "$POTS_TOOLS/bin/gh"
 configure_git
