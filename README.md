@@ -308,7 +308,7 @@ Bootstrap seeds the router. Seed it alone from the Mac checkout while the Mac's 
 ./bin/router-seed
 ```
 
-The Mac's Magpie groups own the concrete model choices. `router-seed` carries their members, order, efforts and rules to each pot, without keys or sign-ins. Rerun it when those definitions change on the Mac. [The sandbox defaults](session/models.mjs) name groups only. The deliberate direct-provider fallback and advisor choices live in [agent-pi](https://github.com/walid-mos/agent-pi), so they can work while Magpie is down.
+The Mac's Magpie groups own the concrete model choices. `router-seed` carries their members, order, efforts and rules to each pot, without keys or sign-ins. Rerun it when those definitions change on the Mac. [The sandbox defaults](session/models.mjs) name groups only. Every fallback, between Claude accounts and between model families, happens inside those groups: Pi calls Magpie and nothing else.
 
 [The restore step](session/router-restore) applies the seed, syncs credentials and makes two tiny answer requests for the default groups. To avoid a classifier call for the ping, it follows each default's first-member chain to the first rule-free `order` group whose remaining chain also has no rules. It derives the expected model from the restored configuration and compares it with Magpie's `X-Magpie-Model` response header. A fallback is a failure, even if it answers OK. Success names the default group, the group asked when different, and the serving model. Missing, empty, cyclic or unpredictable chains fail before either request.
 
