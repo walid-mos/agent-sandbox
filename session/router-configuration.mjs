@@ -9,10 +9,15 @@ import { CODEX_HOME } from './router-codex.mjs';
 import { READ_COMMAND_MS } from './codex-limits.mjs';
 const privateFailure = () => new Error('CODEX_TARGETED_V1: private configuration unreadable or unsupported, refused. No private contents were printed.');
 
+export function requirePrivateFile(path) {
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o077)) throw privateFailure();
+  return stat;
+}
+
 export function readPrivateJson(path) {
   try {
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o077)) throw privateFailure();
+    requirePrivateFile(path);
     return JSON.parse(readFileSync(path, 'utf8'));
   } catch {
     throw privateFailure();

@@ -11,7 +11,7 @@ function review() {
     pots: ['accor', 'mastermind', 'nextnode', 'personal'], recoveryPot: 'nextnode', manifestSha256: 'fixture',
     routes: Object.fromEntries(['mac', 'accor', 'mastermind', 'nextnode', 'personal', 'nextnodeRecovery'].map(machine => [machine, 'codex/gpt-6.2-sol:high#original'])),
     routerEndpoints: Object.fromEntries(['mac', 'accor', 'mastermind', 'nextnode', 'personal'].map(machine => [machine, 'http://127.0.0.1:3425/v1'])),
-    source: { allowedCommits: ['fixture'] },
+    source: { parent: SOURCE_PARENT, tip: '0'.repeat(40), allowedCommits: ['fixture'] },
     window: { notBefore: '2026-11-20T00:00:00Z', admitUntil: '2026-11-20T02:00:00Z', recoveryReserveSeconds: 1800, minimumStartSeconds: 1800 } };
   const receipt = { state: 'ACCEPTED', scopeSha256: sha256(JSON.stringify(scope)), evidence: 'SYNTHETIC fixture only', at: '2026-11-19T23:00:00Z' };
   return { scope, parentApproval: { ...receipt }, operatorApproval: { ...receipt } };

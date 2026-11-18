@@ -12,23 +12,10 @@ import { codexAnswers } from './router-codex-answers.mjs';
 import { refuseCodex, requireSameSnapshot, upgradedSnapshot } from './router-codex-contract.mjs';
 import { magpieConfigurationCommand, readPrivateJson, readRouterConfiguration } from './router-configuration.mjs';
 import { basicEnvironment, RUNTIME_SETTINGS } from './environment.mjs';
+import { requireOwnerHolds } from './codex-owner-holds.mjs';
 
 const REPOSITORY = join(dirname(fileURLToPath(import.meta.url)), '..');
 const COMMAND_MS = 300_000;
-const OWNER_HOLD_MS = 300_000;
-
-function requireOwnerHolds(review) {
-  const digest = sha256(JSON.stringify(review.scope));
-  for (const pot of CODEX_POTS) {
-    const hold = readPrivateJson(review.scope.ownerHoldPaths?.[pot]);
-    if (hold.contract !== 'CODEX_TARGETED_V1' || hold.scopeSha256 !== digest || hold.pot !== pot || hold.state !== 'HELD' ||
-        !Array.isArray(hold.originalUnfinishedSessions) || hold.originalUnfinishedSessions.some(id => typeof id !== 'string') ||
-        !Number.isFinite(Date.parse(hold.at)) || Date.parse(hold.at) > Date.now() || Date.now() - Date.parse(hold.at) > OWNER_HOLD_MS) {
-      throw refuseCodex('fresh owner reconciliation hold absent or revoked');
-    }
-  }
-}
-
 async function backupMac(journal, snapshot) {
   const passphrase = `${randomBytes(24).toString('hex')}\n`;
   const backup = join(journal.path, 'mac-before.magpie-backup');

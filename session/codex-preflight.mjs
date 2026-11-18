@@ -7,21 +7,27 @@ import { boundedCommand, checkReviewedSource, CODEX_POTS, PREFLIGHT_MS, reviewAd
 import { codexPlan, refuseCodex, upgradedSnapshot } from './router-codex-contract.mjs';
 import { readRouterConfiguration } from './router-configuration.mjs';
 import { openSnapshot } from './router-codex-transfer.mjs';
+import { requireEqual, requireString } from './codex-validation.mjs';
 
 export function potCommand(repository, pot, arguments_, options = {}) {
   return boundedCommand(join(repository, 'bin/sandbox-exec'), arguments_, { ...options,
     env: { ...basicEnvironment(process.env, [...RUNTIME_SETTINGS, 'POTS_RUNTIME']), SANDBOX: pot } });
 }
 
+function bootstrapPin(bootstrap, name) {
+  const pin = bootstrap.match(new RegExp(`^${name}=(.+)$`, 'mu'))?.[1];
+  requireString(pin, 'unsupported version pins');
+  return pin;
+}
+
 function verifyMacVersions(repository, routerApi, deadline) {
   const bootstrap = readFileSync(join(repository, 'session/bootstrap'), 'utf8');
-  const magpie = bootstrap.match(/^MAGPIE_VERSION=(.+)$/mu)?.[1];
-  const codex = bootstrap.match(/^CODEX_VERSION=(.+)$/mu)?.[1];
-  if (!magpie || !codex) throw refuseCodex('unsupported version pins');
-  if (boundedCommand('magpie', ['--version'], { deadline }).trim() !== `magpie ${magpie}` ||
-      boundedCommand('codex', ['--version'], { deadline }).trim() !== `codex-cli ${codex}`) throw refuseCodex('Mac tool version drift');
+  const magpie = bootstrapPin(bootstrap, 'MAGPIE_VERSION');
+  const codex = bootstrapPin(bootstrap, 'CODEX_VERSION');
+  requireEqual(`magpie ${magpie}`, boundedCommand('magpie', ['--version'], { deadline }).trim(), 'Mac Magpie version drift');
+  requireEqual(`codex-cli ${codex}`, boundedCommand('codex', ['--version'], { deadline }).trim(), 'Mac Codex version drift');
   const hello = boundedCommand('curl', ['--silent', '--fail', '--max-time', '5', `${routerApi.slice(0, -3)}/api/hello`], { deadline });
-  if (JSON.parse(hello).version !== magpie) throw refuseCodex('Mac gateway version drift');
+  requireEqual(magpie, JSON.parse(hello).version, 'Mac gateway version drift');
 }
 
 function requireRoute(scope, machine, snapshot) {

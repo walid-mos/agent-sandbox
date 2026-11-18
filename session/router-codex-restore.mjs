@@ -1,13 +1,21 @@
 import { lstatSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
 import { CodexJournal, durablePrivateFile } from './codex-journal.mjs';
 import { CODEX_CONTRACT, refuseCodex, requireSameSnapshot, upgradedSnapshot, validateSnapshot } from './router-codex-contract.mjs';
-import { magpieConfigurationCommand, readPrivateJson, readRouterConfiguration } from './router-configuration.mjs';
+import { magpieConfigurationCommand, readPrivateJson, readRouterConfiguration, requirePrivateFile } from './router-configuration.mjs';
 import { main } from './main.mjs';
+import { requireEqual } from './codex-validation.mjs';
 
 function portable(snapshot) {
   return { providers: snapshot.providers, settings: snapshot.settings, wires: snapshot.wires };
+}
+
+function inspectFailedRestore(journal) {
+  journal.record('failure-inspection', 'INTENT');
+  try {
+    durablePrivateFile(join(journal.path, 'failure-inspection.json'), JSON.stringify(readRouterConfiguration()));
+    journal.record('failure-inspection', 'CONFIRMED', { isPrivateSnapshotRetained: true });
+  } catch { journal.record('failure-inspection', 'UNKNOWN'); }
 }
 
 export async function restoreCodexConfiguration({ seed, source, journalPath, passphrase }) {
@@ -15,9 +23,8 @@ export async function restoreCodexConfiguration({ seed, source, journalPath, pas
   const expected = upgradedSnapshot(before);
   const sourceSnapshot = readPrivateJson(source);
   validateSnapshot(sourceSnapshot);
-  if (!isDeepStrictEqual(portable(expected), portable(sourceSnapshot))) throw refuseCodex('source and destination configuration are incompatible');
-  const seedStat = lstatSync(seed);
-  if (!seedStat.isFile() || seedStat.uid !== process.getuid() || (seedStat.mode & 0o077)) throw refuseCodex('seed must be private and owned');
+  requireEqual(portable(expected), portable(sourceSnapshot), 'source and destination configuration are incompatible');
+  requirePrivateFile(seed);
   const journal = new CodexJournal(journalPath);
   durablePrivateFile(join(journalPath, 'before.json'), JSON.stringify(before));
   durablePrivateFile(join(journalPath, 'expected.json'), JSON.stringify(expected));
@@ -34,11 +41,7 @@ export async function restoreCodexConfiguration({ seed, source, journalPath, pas
       return { isConfigurationEqual: true, areCredentialBytesEqual: true };
     });
   } catch (error) {
-    journal.record('failure-inspection', 'INTENT');
-    try {
-      durablePrivateFile(join(journalPath, 'failure-inspection.json'), JSON.stringify(readRouterConfiguration()));
-      journal.record('failure-inspection', 'CONFIRMED', { isPrivateSnapshotRetained: true });
-    } catch { journal.record('failure-inspection', 'UNKNOWN'); }
+    inspectFailedRestore(journal);
     throw error;
   }
   process.stdout.write(`${CODEX_CONTRACT}: configuration restored and compared, no health requests sent. Claude DEFERRED.\n`);

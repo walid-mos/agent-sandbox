@@ -539,6 +539,10 @@
       "sha256": "6944b730ecf433db5fac108915a0f73fb44b2d2db82df98e11249441e51fdbeb",
       "bytes": 3804
     },
+    "session/codex-contract-names.mjs": {
+      "sha256": "98c58a38684a3cd4509e39057b3f39317bd62e0d1c7619d5fb780a2132711d2e",
+      "bytes": 277
+    },
     "session/codex-journal.mjs": {
       "sha256": "ae2e9311911d7133221b9982d8542beed62a473eb82a2426ef540271de9994b6",
       "bytes": 2014
@@ -547,9 +551,13 @@
       "sha256": "0fd36313c9fc1e72aebb0445f2b6d5f11e78a91197430e6894ae8511b5fe6c12",
       "bytes": 211
     },
+    "session/codex-owner-holds.mjs": {
+      "sha256": "9651c3ef85176692a2fcbe3e5911ced97eabae84597bd8e68e510c9bc0b85c1c",
+      "bytes": 1139
+    },
     "session/codex-preflight.mjs": {
-      "sha256": "4c1e6b34ba0068f36bf1493f4f25cca7cb1f2209e41986cc7380e87de4ba20ed",
-      "bytes": 3518
+      "sha256": "150d8880f1e0fb6746cb5badf3075cbb7b0fe0ccb61e46759baf1b7c4d732ce4",
+      "bytes": 3694
     },
     "session/codex-recovery.mjs": {
       "sha256": "294508ff66bb00eb73f537893e3688c72d474b4587d4665607251894f3dba57a",
@@ -560,16 +568,20 @@
       "bytes": 3320
     },
     "session/codex-review.mjs": {
-      "sha256": "818343027ef361284ce0d3f7e2539accecfe53f89ff04b23e0c55c4bf0bab205",
-      "bytes": 5582
+      "sha256": "24eb31b13697fb49d0aada16043cf69c4eafb1d354c9cca3a8bb4f3e57e3dc33",
+      "bytes": 6725
     },
     "session/codex-review.test.mjs": {
-      "sha256": "40fd643241131b66dbec32b4ed88483926f93c529498a9ca6e39433d258ed724",
-      "bytes": 3708
+      "sha256": "749e0b4462ec911f10b5a515d836eb28cd172eba0b24c5cb33e479221d1d6105",
+      "bytes": 3752
     },
     "session/codex-rollout.mjs": {
-      "sha256": "1fb96629ac2aae573def36470902293912d795991104c27ceb447fd1292e59f4",
-      "bytes": 8363
+      "sha256": "802d3a5444f7e25668c559f6b03f029bdb5329bf4fe3ded63202ccd37afde0f0",
+      "bytes": 7714
+    },
+    "session/codex-validation.mjs": {
+      "sha256": "8c66f650bf3ea358fd52760ee2eee1ba435788e8a571060c3da9401754db3bd2",
+      "bytes": 1366
     },
     "session/commands.mjs": {
       "sha256": "1b5c2c7f1c2ef4e4e860a142c334231a286be33351d1cadb21deaeddbfb1ef90",
@@ -900,20 +912,20 @@
       "bytes": 7304
     },
     "session/router-codex-answers.mjs": {
-      "sha256": "729bef3b540ecb57e225eb52912b84e12fe23fe769910cb962ee4c963d810398",
-      "bytes": 1308
+      "sha256": "57946a047221acd5927ab7aca65f17e725f92de809ab3fd8b41d042af2f4fada",
+      "bytes": 1554
     },
     "session/router-codex-contract.mjs": {
-      "sha256": "004ace1e5b80b9613fe0caf4bb1561ae60e9c1944e1bfb28f07fd9558ee5205f",
-      "bytes": 3526
+      "sha256": "77a44f7e8b4c90af4f966e984db1dff4d8762d5445d9a66f3a0da21aa5355fd0",
+      "bytes": 3650
     },
     "session/router-codex-contract.test.mjs": {
       "sha256": "99279b5eb4dae30866e53acff9472f4d68add9ce08a2621720b1b53fe6e95f91",
       "bytes": 2687
     },
     "session/router-codex-restore.mjs": {
-      "sha256": "a933f84cb4daa8601aa7a086db9829008f468b21d1f0cbc312f74419c5b67148",
-      "bytes": 3029
+      "sha256": "a5d240c67f67f3f8e031ee8c90d0d756e65fa5f36ce40b457cce82bad827004a",
+      "bytes": 2947
     },
     "session/router-codex-restore.test.mjs": {
       "sha256": "f4e3b43fa98833d18ce943720283dc48ba5639951e8e98545783a051e6db59fe",
@@ -932,8 +944,8 @@
       "bytes": 4158
     },
     "session/router-configuration.mjs": {
-      "sha256": "cbb6e5cbb3261e242668db35098e271584e8e43b4754d445ddbe224e5755b56d",
-      "bytes": 2654
+      "sha256": "1863470e8f9c02b974be12f9c00395496571c7ef5a71627f2eb4898b64539ca7",
+      "bytes": 2741
     },
     "session/router-contract.test.mjs": {
       "sha256": "39c9c91e54571d43ef70d15cd7b6a67f2d80ca3ef80cb30ca22e425ece2ef39f",

@@ -2,6 +2,14 @@ import { requestRouterAnswer } from './router-answers.mjs';
 import { CODEX_CONTRACT, codexPlan, requireSameSnapshot } from './router-codex-contract.mjs';
 import { readPrivateJson, readRouterConfiguration } from './router-configuration.mjs';
 import { main } from './main.mjs';
+import { requireEqual } from './codex-validation.mjs';
+
+function requireExactCodexAnswer(result, plan) {
+  const reason = 'direct Codex validation failed. No retry. Claude DEFERRED';
+  requireEqual(200, result.status, reason);
+  if (!Array.isArray(result.answer?.choices) || !result.answer.choices.length) throw new Error(`CODEX_TARGETED_V1: ${reason}.`);
+  requireEqual(plan.served, result.served, reason);
+}
 
 export async function* codexAnswers(snapshot, routerApi) {
   const plan = codexPlan(snapshot);
@@ -11,9 +19,7 @@ export async function* codexAnswers(snapshot, routerApi) {
   } catch {
     throw new Error(`${CODEX_CONTRACT}: direct Codex validation failed, outcome UNKNOWN. No retry. Claude DEFERRED.`);
   }
-  if (result.status !== 200 || !result.answer?.choices?.length || result.served !== plan.served) {
-    throw new Error(`${CODEX_CONTRACT}: direct Codex validation failed. No retry. Claude DEFERRED.`);
-  }
+  requireExactCodexAnswer(result, plan);
   yield `${CODEX_CONTRACT}: direct Codex served ${plan.served}`;
   yield `${CODEX_CONTRACT}: Claude DEFERRED, group runtime and fallbacks untested`;
 }
