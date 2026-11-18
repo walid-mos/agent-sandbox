@@ -1,4 +1,4 @@
-export const TASK_CONTRACT_VERSION = 1;
+export const TASK_CONTRACT_VERSION = 2;
 
 export function taskRequest(request) {
   if (!request || typeof request !== 'object' || Array.isArray(request) || request.version !== TASK_CONTRACT_VERSION) {

@@ -2,9 +2,9 @@
 
 This is the sandbox contract for a Herdr submission to its owning pot. Installing the reviewed, signed source through the normal rollout activates it. A source push alone does not install it. Herdr presentation belongs to `agent-herdr`.
 
-## Control contract v1
+## Control contract v2
 
-`session/task-contract.mjs` owns the protocol version. Read `snapshot.taskContract` before enabling controls. It returns `version`, the configured local `target`, and `operations` derived from the actual control registry. Require version 1 and every operation the UI uses. Each `task-*` request must carry `"version":1`, and each task-row reply carries `version`. Missing or incompatible versions fail before the operation runs. Snapshot itself takes no version argument.
+`session/task-contract.mjs` owns the protocol version. Read `snapshot.taskContract` before enabling controls. It returns `version`, the configured local `target`, and `operations` derived from the actual control registry. Require version 2 and every operation the UI uses, including `task-select` before adoption. Each `task-*` request must carry `"version":2`, and each task-row reply carries `version`. Missing or incompatible versions fail before the operation runs. Version 1 clients are refused because an address-only adoption retry could select a later conversation before its first backend commit. Snapshot itself takes no version argument.
 
 Invoke `node /opt/agent-sandbox/session/control.mjs OPERATION -` with one JSON object on stdin. A JSON argument also works when the caller passes a real argument array. Never interpolate task JSON into a shell command. The target is the configured lowercase bot ID returned as `owner` in task rows. This contract has no machine parameter and never routes into another pot.
 
@@ -12,8 +12,9 @@ Invoke `node /opt/agent-sandbox/session/control.mjs OPERATION -` with one JSON o
 | --- | --- | --- |
 | `task-submit` | `id`, `target`, `text`, `provenance` | Durable intake and an attempted bot wake, followed by the current task row |
 | `task-decide` | `id`, `state`, `reason` | Coordinator decision, with `state` equal to `accepted`, `rejected` or `needs-information` |
-| `task-associate` | `id`, `worker` | Associate an accepted task with an existing registered worker owned by this bot |
-| `task-adopt` | `id`, `terminal` | Associate an accepted task with one exact local execution, without launching or reparenting it |
+| `task-associate` | `id`, `worker` | Associate an accepted task without a pinned selection with an existing registered worker owned by this bot |
+| `task-select` | `id`, `terminal` | Persist the backend-observed exact execution fingerprint before any adoption attempt and return the task row with `selection` |
+| `task-adopt` | `id`, `selection` | Validate the retained backend-issued selection against current execution identity, then associate it without launching or reparenting |
 | `task-result` | `id`, `sessionDigest`, `summary` | Preserve a direct execution's final transcript and screen with an explicit coordinator attestation |
 | `task-delivery` | `id`, `delivery`, `state`, `reason` | Resolve an uncertain adopted follow-up after inspection, with `received` removing it or `retry` permitting another send |
 | `snapshot` | No argument | Existing snapshot plus `taskContract` and `tasks`, an array of versioned task rows |
@@ -28,11 +29,11 @@ The intake wake has `kind: "task-intake"`, the same `version`, `id`, `target`, `
 
 ## One relationship and one execution store
 
-`session/tasks.mjs` owns intake validation and decisions. Intake records live beneath the existing bot terminal directory at `terminal/tasks/ID.json`. `session/task-store.mjs` serializes changes under a process-safe file lock. These records contain no worker status, execution or outcome copies.
+`session/tasks.mjs` owns intake validation and decisions. Intake records live beneath the existing bot terminal directory at `terminal/tasks/ID.json`. `session/task-store.mjs` serializes changes under a process-safe file lock. These records contain no worker status, execution or outcome copies. `session/task-selection.mjs` owns selection validation. The existing intake record retains only `selection.terminal` and `selection.identity`, a SHA-256 fingerprint bound to this protocol, pot, task ID and exact backend-observed execution metadata. It stores no second worker record.
 
 `session/workers.mjs` owns the relationship. `WORKER.task` is the only persisted task association, projected as `worker.taskId`. It is separate from the mutable worker JSON because watcher saves can carry an older copy. Worker saves use their own file lock and cannot overwrite another association. Task operations hold the intake lock before changing the worker relationship. No worker save acquires the intake lock. Existing worker records, queue files, lifecycle files and result storage retain their responsibilities.
 
-For a new worker, the coordinator uses the existing dispatcher with `--task ID` in addition to its existing arguments. It requires prior acceptance. Repeating that start with the same repository, branch and brief returns the existing associated worker, even after restart. Changing those selections under that ID fails. The normal queue, capacity checks, launch identity, exact Pi session and result acknowledgment remain in use. Task intake never starts a worker. Repository publication and approval rules still apply to dispatch. A partial Git/worktree/PR failure remains an actionable dispatch failure, rather than permission to create a replacement.
+For a new worker, the coordinator uses the existing dispatcher with `--task ID` in addition to its existing arguments. It requires prior acceptance and no pinned adoption selection. A selected task must use `task-adopt`, and neither `dispatch start --task` nor `task-associate` can bypass that pin. Repeating that start with the same repository, branch and brief returns the existing associated worker, even after restart. Changing those selections under that ID fails. The normal queue, capacity checks, launch identity, exact Pi session and result acknowledgment remain in use. Task intake never starts a worker. Repository publication and approval rules still apply to dispatch. A partial Git/worktree/PR failure remains an actionable dispatch failure, rather than permission to create a replacement.
 
 ```mermaid
 stateDiagram-v2
@@ -42,7 +43,9 @@ stateDiagram-v2
     pending --> accepted: coordinator takes ownership
     needs_information --> accepted: coordinator takes ownership
     needs_information --> rejected: coordinator refuses
-    accepted --> associated: coordinator chooses existing queue worker or exact terminal
+    accepted --> associated: coordinator chooses existing queue worker
+    accepted --> selected: backend pins exact execution
+    selected --> associated: task-adopt validates retained selection
     associated --> progress: worker observation
     progress --> result_saved: lifecycle result or direct execution attestation
     progress --> attention_needed: execution disappears or identity changes
@@ -52,7 +55,7 @@ Delivery is independent of these states. `associated`, `progress`, `result_saved
 
 ## Snapshot and shared reporting facts
 
-Each task row exposes `version`, `id`, `target`, `owner`, `text`, `provenance`, `receivedAt`, `receipt`, `delivery`, and `acceptance`. `execution` is absent until association. It then exposes:
+Each task row exposes `version`, `id`, `target`, `owner`, `text`, `provenance`, `receivedAt`, `receipt`, `delivery`, and `acceptance`. `selection` is absent until `task-select` persists its immutable `terminal` and `identity`. This pin authorizes no launch or approval. `execution` is absent until association. It then exposes:
 
 - `worker`, the registered worker identity, and its recorded `terminal`, `sessionFile`, and `sessionId` when available.
 - `mode`, either `managed` or `adopted`, and the preserved native `parent` for adoption.
@@ -71,13 +74,13 @@ Herdr must retain the task ID across reconnects, display delivery separately fro
 Herdr submits this synthetic payload to the selected pot through control stdin:
 
 ```json
-{"version":1,"id":"task-synthetic-001","target":"synthetic","text":"Produce the synthetic report.","provenance":{"source":"herdr","author":"synthetic-person","reference":"synthetic-thread"}}
+{"version":2,"id":"task-synthetic-001","target":"synthetic","text":"Produce the synthetic report.","provenance":{"source":"herdr","author":"synthetic-person","reference":"synthetic-thread"}}
 ```
 
 A synthetic successful reply before a coordinator decision has this shape. Timestamps here are illustrative:
 
 ```json
-{"version":1,"id":"task-synthetic-001","target":"synthetic","owner":"synthetic","text":"Produce the synthetic report.","provenance":{"source":"herdr","author":"synthetic-person","reference":"synthetic-thread"},"receivedAt":1700000000000,"receipt":"task-intake-task-synthetic-001","delivery":{"state":"delivered","attemptedAt":1700000000001},"acceptance":{"state":"pending"}}
+{"version":2,"id":"task-synthetic-001","target":"synthetic","owner":"synthetic","text":"Produce the synthetic report.","provenance":{"source":"herdr","author":"synthetic-person","reference":"synthetic-thread"},"receivedAt":1700000000000,"receipt":"task-intake-task-synthetic-001","delivery":{"state":"delivered","attemptedAt":1700000000001},"acceptance":{"state":"pending"}}
 ```
 
 An uncertain wake reply keeps `delivery.state` as `unknown` with its attempt timestamp. Acceptance remains independently `pending`, and `execution` is absent. After acceptance, the reply and snapshot carry the same row with `acceptance.state`, `reason`, `by` and `at`. Association adds the execution fields defined above without changing the submission identity or provenance.
@@ -85,7 +88,7 @@ An uncertain wake reply keeps `delivery.state` as `unknown` with its attempt tim
 The coordinator decides, then selects its worker through the existing dispatcher:
 
 ```sh
-node /opt/agent-sandbox/session/control.mjs task-decide '{"version":1,"id":"task-synthetic-001","state":"accepted","reason":"This pot owns the report."}'
+node /opt/agent-sandbox/session/control.mjs task-decide '{"version":2,"id":"task-synthetic-001","state":"accepted","reason":"This pot owns the report."}'
 node /opt/agent-sandbox/session/dispatch.mjs start --task task-synthetic-001 --title 'feat: synthetic report' --subject 'feat: synthetic report' example/project feat/synthetic /config/synthetic-brief.md main
 ```
 
@@ -93,13 +96,23 @@ These are examples for an installed sandbox under its normal publication rules. 
 
 ## Existing execution example and limits
 
-After accepting `task-synthetic-002`, the coordinator selects its exact local address:
+After accepting `task-synthetic-002`, first pin its exact execution through the backend:
 
 ```sh
-node /opt/agent-sandbox/session/control.mjs task-adopt '{"version":1,"id":"task-synthetic-002","terminal":"t7"}'
+node /opt/agent-sandbox/session/control.mjs task-select '{"version":2,"id":"task-synthetic-002","terminal":"t7"}'
 ```
 
-The adoption request supplies only the version, accepted task ID and exact local terminal address. It never supplies trusted cwd, conversation or parent metadata. Local terminal addresses remain scoped to the selected pot's existing connection. The reply and snapshot expose that recorded address, exact canonical `sessionFile`, `sessionId`, unchanged native `parent`, and derived status in `execution`.
+Retain the returned `selection.identity` and the complete adoption envelope before the first adoption attempt. Send this shape through control stdin, replacing the placeholder with that exact returned value:
+
+```json
+{"version":2,"id":"task-synthetic-002","selection":"<reply.selection.identity>"}
+```
+
+Call `task-adopt` with that retained envelope on every retry. The backend looks up the pinned terminal itself and re-derives its identity before any association, including retries after a prior association. The request accepts no caller-provided terminal, cwd, session or parent metadata. The selection is a public fingerprint, not a credential or approval receipt.
+
+A request lost before the first adoption commit still retains the already-persisted fingerprint. Changing the session path, session header ID, creation time, argv, cwd, name or parent makes adoption fail without changing the selection or associating a worker. Repeating `task-select` cannot replace the pin with the current conversation. Only an explicit new task identity can choose different work. Normal transcript appends with the same session identity remain valid. A lost reply after adoption retries the same fingerprint and returns the same worker.
+
+If the selection reply is lost, inspect `snapshot.tasks[].selection` and retain the saved value. Until a backend selection has been acknowledged and retained, no adoption attempt is allowed. Herdr must never recapture selection during adoption retry or fall back to the old address-only request. Local terminal addresses remain scoped to the selected pot's existing connection. After association, the reply and snapshot expose the recorded address, exact canonical `sessionFile`, `sessionId`, unchanged native `parent`, and derived status in `execution`.
 
 Adoption uses installed hc's `created_ms`, `argv`, local address, name, cwd, parent and `pi.session` label. The address must resolve to exactly one live terminal. The cwd must resolve beneath this pot's `Development` directory. The session must be a regular `.jsonl` file, no larger than 16 MiB, under this pot's Pi or worker session directory, with a Pi session header and exact ID. Symlinks resolving outside these directories are refused. Local aliases retain their published metadata and canonical destinations, and retargeting one invalidates the execution match. Another worker or managed owner on that execution is refused. Associate an existing registered worker with `task-associate` instead.
 

@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import { accorPublicationPolicy } from './accor-publication-policy.mjs';
 import { repositoryOrigin } from './repository-origin.mjs';
 import { find } from './door-requests.mjs';
-import { acceptedTask, associatedWorker } from './tasks.mjs';
+import { unselectedTask, associatedWorker } from './tasks.mjs';
 import { taskLock } from './task-store.mjs';
 import { main, runOperation } from './main.mjs';
 import { MAX_MODEL } from './models.mjs';
@@ -70,7 +70,7 @@ function start(arguments_) {
 
 function startWorker(values, [repository, branch, briefFile, requestedBase]) {
   if (values.task) {
-    acceptedTask(values.task);
+    unselectedTask(values.task);
     const known = associatedWorker(values.task);
     if (known) return repeatStart(known, repository, branch, briefFile);
   }

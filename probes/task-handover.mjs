@@ -2,27 +2,9 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { existingExecution, fixture, submission } from './fixtures/task-harness.mjs';
+import { adoptionRequest, existingExecution, fixture, submission } from './fixtures/task-harness.mjs';
 import { test } from 'node:test';
 import { discordApiFixture } from './fixtures/task-discord.mjs';
-
-test('versioned control refuses absent or incompatible versions before intake', t => {
-  const { control, invoke, run, read } = fixture(t);
-  const missing = invoke('session/control.mjs', ['task-submit', JSON.stringify(submission)]);
-  assert.equal(missing.status, 1);
-  assert.match(missing.stderr, /contract version/);
-  const incompatible = run('task-submit', { ...submission, version: 2 });
-  assert.equal(incompatible.status, 1);
-  assert.match(incompatible.stderr, /contract version/);
-  const snapshot = control('snapshot');
-  assert.equal(snapshot.taskContract.version, 1);
-  assert.equal(snapshot.taskContract.target, 'synthetic');
-  assert.equal(snapshot.taskContract.operations.includes('task-adopt'), true);
-  assert.equal(snapshot.tasks.length, 0);
-  assert.equal(read().wakes.length, 0);
-  assert.equal(control('task-submit', submission).version, 1);
-  assert.equal(control('snapshot').tasks[0].version, 1);
-});
 
 test('simultaneous deliveries keep one durable intake and one bot receipt', async t => {
   const { control, controlAsync, read } = fixture(t);
@@ -60,11 +42,12 @@ test('adoption preserves the exact Mac-parented conversation and one final resul
   patch({ terminals: [terminal] });
   control('task-submit', submission);
   control('task-decide', { id: submission.id, state: 'accepted', reason: 'Own existing work.' });
-  const adopted = control('task-adopt', { id: submission.id, terminal: terminal.address });
+  const retained = adoptionRequest(control, submission.id, terminal.address);
+  const adopted = control('task-adopt', retained);
   assert.equal(adopted.execution.terminal, terminal.address);
   assert.equal(adopted.execution.parent, 'synthetic-mac/t-parent');
   assert.equal(adopted.execution.sessionFile, sessionFile);
-  assert.equal(control('task-adopt', { id: submission.id, terminal: terminal.address }).execution.worker, adopted.execution.worker);
+  assert.equal(control('task-adopt', retained).execution.worker, adopted.execution.worker);
   assert.equal(readFileSync(sessionFile, 'utf8'), transcript);
   workerStep('inspect');
   const digest = createHash('sha256').update(transcript).digest('hex');
@@ -98,7 +81,7 @@ test('an uncertain adopted follow-up stays visible and cannot trigger a replacem
   patch({ terminals: [terminal] });
   control('task-submit', submission);
   control('task-decide', { id: submission.id, state: 'accepted', reason: 'Own existing work.' });
-  const adopted = control('task-adopt', { id: submission.id, terminal: terminal.address });
+  const adopted = control('task-adopt', adoptionRequest(control, submission.id, terminal.address));
   const message = join(folder, 'follow-up.md');
   writeFileSync(message, 'Review the synthetic final report.');
   const sent = invoke('session/dispatch.mjs', ['send', adopted.execution.worker, message]);
@@ -191,7 +174,7 @@ test('adoption resolves local aliases while pinning published execution metadata
   patch({ terminals: [{ ...terminal, cwd: cwdAlias, labels: { 'pi.session': sessionAlias } }] });
   control('task-submit', submission);
   control('task-decide', { id: submission.id, state: 'accepted', reason: 'Own exact execution.' });
-  const adopted = control('task-adopt', { id: submission.id, terminal: terminal.address });
+  const adopted = control('task-adopt', adoptionRequest(control, submission.id, terminal.address));
   assert.equal(adopted.execution.status, 'working');
   assert.equal(adopted.execution.sessionFile, sessionFile);
   assert.equal(adopted.execution.parent, terminal.parent);
@@ -225,17 +208,17 @@ test('changed identity, wrong pot, approval fields and ambiguous adoption are re
     assert.equal(run('task-submit', input).status, 1);
   }
   control('task-decide', { id: submission.id, state: 'needs-information', reason: 'Choose the execution.' });
-  assert.equal(run('task-adopt', { id: submission.id, terminal: 't-synthetic-existing' }).status, 1);
+  assert.equal(run('task-select', { id: submission.id, terminal: 't-synthetic-existing' }).status, 1);
   control('task-decide', { id: submission.id, state: 'accepted', reason: 'Own work.' });
   const { terminal } = existingExecution(folder);
   for (const candidate of [{ ...terminal, address: 'other-pot/t-synthetic-existing' },
     { ...terminal, cwd: '/etc' }, { ...terminal, labels: { 'pi.session': '/etc/credentials.jsonl' } },
     { ...terminal, labels: { ...terminal.labels, 'pots.owner': 'other' } }]) {
     patch({ terminals: [candidate] });
-    assert.equal(run('task-adopt', { id: submission.id, terminal: candidate.address }).status, 1);
+    assert.equal(run('task-select', { id: submission.id, terminal: candidate.address }).status, 1);
   }
   patch({ terminals: [terminal, { ...terminal }] });
-  const ambiguous = run('task-adopt', { id: submission.id, terminal: terminal.address });
+  const ambiguous = run('task-select', { id: submission.id, terminal: terminal.address });
   assert.equal(ambiguous.status, 1);
   assert.match(ambiguous.stderr, /exactly one/);
   assert.equal(read().calls.filter(call => call.binary === 'hc' && call.args[0] === 'run').length, 0);

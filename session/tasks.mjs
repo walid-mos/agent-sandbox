@@ -89,6 +89,12 @@ export function acceptedTask(id) {
   return record;
 }
 
+export function unselectedTask(id) {
+  const record = acceptedTask(id);
+  if (record.selection) throw new Error('task: task has a selected execution. Use task-adopt with its retained selection instead of choosing another worker.');
+  return record;
+}
+
 export function associatedWorker(id) {
   const matches = workers().filter(worker => worker.taskId === id);
   if (matches.length > 1) throw new Error('task: multiple worker associations. Resolve the saved records first.');
@@ -114,7 +120,7 @@ export function resolveTaskDelivery(input) {
 export function associateTask(input) {
   exactFields(input, ['id', 'worker']);
   return taskLock(() => {
-    const record = acceptedTask(input.id);
+    const record = unselectedTask(input.id);
     const worker = workers().find(candidate => candidate.name === input.worker && candidate.owner === botId);
     if (!worker) throw new Error('task: choose a registered worker owned by this bot.');
     const known = associatedWorker(input.id);

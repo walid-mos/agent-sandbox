@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { associateTask, decideTask, resolveTaskDelivery, submitTask } from './tasks.mjs';
 import { taskViews } from './task-view.mjs';
+import { selectTask } from './task-selection.mjs';
 import { TASK_CONTRACT_VERSION, taskRequest } from './task-contract.mjs';
 import { adoptTask, recordAdoptedResult } from './task-adoption.mjs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -189,6 +190,7 @@ const taskOperation = operation => request => JSON.stringify(operation(taskReque
 
 const OPERATIONS = {
   'task-submit': { usage: 'json|-', run: taskOperation(submitTask) },
+  'task-select': { usage: 'json|-', run: taskOperation(selectTask) },
   'task-adopt': { usage: 'json|-', run: taskOperation(adoptTask) },
   'task-delivery': { usage: 'json|-', run: taskOperation(resolveTaskDelivery) },
   'task-result': { usage: 'json|-', run: taskOperation(recordAdoptedResult) },

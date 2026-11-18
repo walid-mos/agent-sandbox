@@ -39,7 +39,8 @@ export function readConversation(path) {
 
 function samePaths(identity, terminal) {
   try {
-    return realpathSync(terminal.cwd) === identity.worktree && realpathSync(terminal.labels['pi.session']) === identity.sessionFile;
+    const conversation = readConversation(terminal.labels['pi.session']);
+    return realpathSync(terminal.cwd) === identity.worktree && conversation.path === identity.sessionFile && conversation.id === identity.sessionId;
   } catch {
     return false;
   }

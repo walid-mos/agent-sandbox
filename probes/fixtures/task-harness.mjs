@@ -87,5 +87,10 @@ export function existingExecution(folder) {
   return { terminal, sessionFile, transcript };
 }
 
+export function adoptionRequest(control, id, terminal) {
+  const selected = control('task-select', { id, terminal });
+  return { id, selection: selected.selection.identity };
+}
+
 export const submission = { id: 'task-synthetic-001', target: 'synthetic', text: 'Produce the synthetic report.',
   provenance: { source: 'herdr', author: 'synthetic-person', reference: 'synthetic-thread' } };

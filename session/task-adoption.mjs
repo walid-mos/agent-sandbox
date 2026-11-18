@@ -1,35 +1,28 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { adoptionIdentity, localAddress, readConversation } from './adopted-execution.mjs';
+import { readConversation } from './adopted-execution.mjs';
 import { isPublished, publication } from './worker-lifecycle.mjs';
 import { keepResult } from './worker-results.mjs';
 import { hasFinalReply } from './worker-runtime.mjs';
 import { botId } from './sandbox.mjs';
 import { acceptedTask, associatedWorker, isTaskText, TASK_TEXT_BYTES } from './tasks.mjs';
 import { taskLock } from './task-store.mjs';
+import { selectedExecution } from './task-selection.mjs';
 import { taskView } from './task-view.mjs';
 import { allTerminals, save, terminalName, terminalOf, workers } from './workers.mjs';
 
-function exactTerminal(address, terminals) {
-  localAddress(address);
-  const matches = terminals.filter(terminal => terminal.address === address);
-  if (matches.length !== 1) throw new Error('task: expected exactly one local terminal at that address. Refresh and choose its exact address.');
-  return matches[0];
-}
-
-export function adoptTask({ id, terminal: address, ...unexpected }) {
-  if (Object.keys(unexpected).length) throw new Error('task: adoption accepts only id and terminal.');
+export function adoptTask({ id, selection, ...unexpected }) {
+  if (Object.keys(unexpected).length) throw new Error('task: adoption accepts only id and backend-issued selection.');
   return taskLock(() => {
     const record = acceptedTask(id);
-    const terminals = allTerminals();
-    const terminal = exactTerminal(address, terminals);
+    const { terminals, terminal, adoption } = selectedExecution(record, selection);
+    const address = terminal.address;
     const known = associatedWorker(id);
     if (known) {
       if (!terminalOf(known, [terminal])) throw new Error('task: already associated with a different or changed execution. Inspect its worker.');
       return taskView(record, workers(), terminals);
     }
     if (workers().some(worker => worker.terminal === address)) throw new Error('task: execution already has a worker. Associate that worker explicitly.');
-    const adoption = adoptionIdentity(terminal);
     const name = terminalName(`pots-adopt-${id}`);
     if (workers().some(worker => worker.name === name)) throw new Error('task: adoption worker name collides. Choose a different task identity.');
     save({ name, owner: botId, taskId: id, launchId: `adopt-${id}`, adoption, terminal: address,
