@@ -8,14 +8,26 @@ const gitHome = process.env.HOME;
 export const { home, sandbox } = sandboxFixture('worker-publication-');
 const { command: realCommand, ...realRun } = await import('../../session/run.mjs');
 export const github = [];
-export const githubState = { canCreatePR: true, pullRequests: [] };
+export const githubState = { canCreatePR: true, failPRHead: undefined, pullRequests: [], pushAttempts: 0, afterPush: undefined, beforePush: undefined, readback: undefined };
 mock.module('../../session/run.mjs', { exports: { ...realRun, WITH_VAULT: '/unused', command(binary, args, options) {
   if (binary !== 'gh') {
-    if (binary === 'git' && args.includes('push')) githubState.beforePush?.();
+    if (binary === 'git' && args.includes('ls-remote') && args.includes(githubState.readback?.url)
+      && githubState.pushAttempts >= githubState.readback.afterPush) {
+      const { respond } = githubState.readback;
+      githubState.readback = undefined;
+      return respond();
+    }
+    if (binary === 'git' && args.includes('push')) {
+      githubState.pushAttempts += 1;
+      if (githubState.beforePush?.url === args.at(-2)) githubState.beforePush.action();
+      const result = realCommand(binary, args, { ...options, env: { ...process.env, ...options?.env, HOME: gitHome } });
+      if (githubState.afterPush?.url === args.at(-2)) githubState.afterPush.action();
+      return result;
+    }
     return realCommand(binary, args, { ...options, env: { ...process.env, ...options?.env, HOME: gitHome } });
   }
   github.push(args);
-  if (args[1] === 'create' && !githubState.canCreatePR) throw new Error('GitHub temporarily unavailable');
+  if (args[1] === 'create' && (!githubState.canCreatePR || args.includes(githubState.failPRHead))) throw new Error('GitHub temporarily unavailable');
   if (args[1] === 'list') return JSON.stringify(githubState.pullRequests);
   return 'https://github.invalid/proof/repository/pull/1';
 } } });

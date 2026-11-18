@@ -67,18 +67,132 @@ test('a failed push burns its receipt and cannot be retried by send or publicati
   const id = await approval(workerScope([f.worker.name]).scope);
   await assert.rejects(publishWorker([f.worker.name, id, 'Push once']));
   assert.ok(humanStore().get(id).consumption);
-  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /already consumed/);
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /remote readback did not prove/);
   assert.equal(remoteHeads(f), '');
+});
+
+test('an uncertain push response recovers only after exact destination readback and does not push twice', async () => {
+  const f = fixture();
+  const request = workerScope([f.worker.name]);
+  const id = await approval(request.scope);
+  const pushes = githubState.pushAttempts;
+  const draftURL = 'https://github.invalid/proof/repository/pull/2';
+  githubState.afterPush = { url: f.remote, action: () => { githubState.afterPush = undefined; throw new Error('push acknowledgement was lost'); } };
+  githubState.pullRequests = [{ url: draftURL, isCrossRepository: false, baseRefName: f.worker.base,
+    headRefName: f.worker.branch, isDraft: true, headRefOid: request.head }];
+  try {
+    assert.equal(await publishWorker([f.worker.name, id, 'Push once']), draftURL);
+  } finally {
+    githubState.afterPush = undefined;
+    githubState.pullRequests = [];
+  }
+  assert.equal(remoteHeads(f), request.head);
+  assert.equal(githubState.pushAttempts, pushes + 1);
+  assert.equal(workers().find(worker => worker.name === f.worker.name).publication, 'published');
+  assert.equal(humanStore().get(id).consumption.scope, request.scope);
+});
+
+test('a later invocation recovers an already consumed receipt after exact remote readback', async () => {
+  const f = fixture();
+  const request = workerScope([f.worker.name]);
+  const id = await approval(request.scope);
+  const pushes = githubState.pushAttempts;
+  githubState.afterPush = { url: f.remote, action: () => { githubState.afterPush = undefined; throw new Error('push acknowledgement was lost'); } };
+  githubState.readback = { url: f.remote, afterPush: pushes + 1, respond: () => { throw new Error('readback unavailable'); } };
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /exact remote readback did not prove recovery/);
+  assert.equal(remoteHeads(f), request.head);
+  const consumed = humanStore().get(id).consumption;
+  assert.equal(workers().find(worker => worker.name === f.worker.name).publication, 'local');
+  git(f.checkout, 'checkout', 'main');
+  git(f.checkout, 'commit', '--allow-empty', '-m', 'test: moved base after uncertain push');
+  git(f.checkout, 'push', 'origin', 'main');
+  git(f.checkout, 'checkout', f.worker.branch);
+  await publishWorker([f.worker.name, id, 'Push once']);
+  assert.equal(githubState.pushAttempts, pushes + 1);
+  assert.equal(workers().find(worker => worker.name === f.worker.name).publication, 'published');
+  assert.deepEqual(humanStore().get(id).consumption, consumed);
+});
+
+test('an uncertain push with a different destination ref stops for inspection', async () => {
+  const f = fixture();
+  const id = await approval(workerScope([f.worker.name]).scope);
+  githubState.beforePush = { url: f.remote, action: () => {
+    githubState.beforePush = undefined;
+    git(f.checkout, 'push', 'origin', `main:refs/heads/${f.worker.branch}`);
+  } };
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /exact remote readback did not prove recovery/);
+  assert.equal(remoteHeads(f), git(f.checkout, 'rev-parse', 'main'));
+  assert.equal(workers().find(worker => worker.name === f.worker.name).publication, 'local');
+  assert.ok(humanStore().get(id).consumption);
+});
+
+test('an unverifiable remote readback never records recovery or retries the push', async () => {
+  const f = fixture();
+  writeFileSync(join(f.remote, 'hooks/pre-receive'), '#!/bin/sh\nexit 1\n', { mode: 0o700 });
+  const id = await approval(workerScope([f.worker.name]).scope);
+  const pushes = githubState.pushAttempts;
+  githubState.readback = { url: f.remote, afterPush: pushes + 1, respond: () => { throw new Error('readback unavailable'); } };
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /exact remote readback did not prove recovery/);
+  assert.equal(remoteHeads(f), '');
+  assert.equal(githubState.pushAttempts, pushes + 1);
+  assert.equal(workers().find(worker => worker.name === f.worker.name).publication, 'local');
+  assert.ok(humanStore().get(id).consumption);
+});
+
+test('uncertain publication refuses a matching commit reported for a different ref', async () => {
+  const f = fixture();
+  const request = workerScope([f.worker.name]);
+  const id = await approval(request.scope);
+  const pushes = githubState.pushAttempts;
+  githubState.afterPush = { url: f.remote, action: () => { githubState.afterPush = undefined; throw new Error('push acknowledgement was lost'); } };
+  githubState.readback = { url: f.remote, afterPush: pushes + 1, respond: () => `${request.head}\trefs/heads/main` };
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /exact remote readback did not prove recovery/);
+  assert.equal(githubState.pushAttempts, pushes + 1);
+  assert.equal(workers().find(worker => worker.name === f.worker.name).publication, 'local');
+});
+
+test('an earlier matching readback cannot open a draft after the destination advances', async () => {
+  const f = fixture();
+  const request = workerScope([f.worker.name]);
+  const id = await approval(request.scope);
+  const previousPRCalls = github.filter(args => args[1] === 'create').length;
+  const pushes = githubState.pushAttempts;
+  githubState.afterPush = { url: f.remote, action: () => {
+    githubState.afterPush = undefined;
+    const next = git(f.checkout, 'commit-tree', `${request.head}^{tree}`, '-p', request.head, '-m', 'test: later destination head');
+    git(f.checkout, 'push', 'origin', `${next}:refs/heads/${f.worker.branch}`);
+    throw new Error('push acknowledgement was lost');
+  } };
+  githubState.readback = { url: f.remote, afterPush: pushes + 1, respond: () => `${request.head}\trefs/heads/${f.worker.branch}` };
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /readback did not prove the approved head/);
+  assert.throws(() => openWorkerPR([f.worker.name]), /readback did not prove the approved head/);
+  assert.equal(github.filter(args => args[1] === 'create').length, previousPRCalls);
+  assert.equal(githubState.pushAttempts, pushes + 1);
+});
+
+test('uncertain publication does not adopt a ready PR for the approved branch', async () => {
+  const f = fixture();
+  const request = workerScope([f.worker.name]);
+  const id = await approval(request.scope);
+  githubState.afterPush = { url: f.remote, action: () => { githubState.afterPush = undefined; throw new Error('push acknowledgement was lost'); } };
+  githubState.pullRequests = [{ url: 'https://github.invalid/proof/repository/pull/999', isCrossRepository: false,
+    baseRefName: f.worker.base, headRefName: f.worker.branch, isDraft: false, headRefOid: request.head }];
+  try {
+    await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /matching draft/);
+    assert.equal(workers().find(worker => worker.name === f.worker.name).publication, 'awaiting-pr');
+  } finally {
+    githubState.pullRequests = [];
+  }
 });
 
 test('failed draft creation retries only the PR and never pushes or consumes again', async () => {
   const f = fixture();
   const id = await approval(workerScope([f.worker.name]).scope);
-  githubState.canCreatePR = false;
+  githubState.failPRHead = f.worker.branch;
   try {
     await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /temporarily unavailable/);
   } finally {
-    githubState.canCreatePR = true;
+    githubState.failPRHead = undefined;
   }
   const consumption = humanStore().get(id).consumption;
   const head = remoteHeads(f);
@@ -95,7 +209,7 @@ test('an existing remote task branch cannot be overwritten even with an answered
   const id = await approval(workerScope([f.worker.name]).scope);
   git(f.checkout, 'push', 'origin', `main:refs/heads/${f.worker.branch}`);
   const head = remoteHeads(f);
-  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /already exists/);
+  await assert.rejects(publishWorker([f.worker.name, id, 'Push once']), /remote task branch already exists/);
   assert.equal(remoteHeads(f), head);
   assert.equal(humanStore().get(id).consumption, undefined);
 });

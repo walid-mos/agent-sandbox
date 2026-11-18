@@ -24,10 +24,10 @@ test('a push destination rewritten immediately before Git runs cannot redirect p
   const wrong = join(home, 'raced-origin.git');
   git(home, 'init', '--bare', wrong);
   const id = await approval(workerScope([f.worker.name]).scope);
-  githubState.beforePush = () => {
+  githubState.beforePush = { url: f.remote, action: () => {
     githubState.beforePush = undefined;
     git(f.checkout, 'config', `url.${wrong}.pushInsteadOf`, f.remote);
-  };
+  } };
   await publishWorker([f.worker.name, id, 'Push once']);
   assert.equal(remoteHeads(f), git(f.checkout, 'rev-parse', 'HEAD'));
   assert.equal(git(wrong, 'for-each-ref', '--format=%(refname)'), '');
