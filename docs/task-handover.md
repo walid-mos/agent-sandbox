@@ -2,11 +2,13 @@
 
 This is the sandbox contract for a Herdr submission to its owning pot. Installing the reviewed, signed source through the normal rollout activates it. A source push alone does not install it. Herdr presentation belongs to `agent-herdr`.
 
-## Control contract
+## Control contract v1
+
+`session/task-contract.mjs` owns the protocol version. Read `snapshot.taskContract` before enabling controls. It returns `version`, the configured local `target`, and `operations` derived from the actual control registry. Require version 1 and every operation the UI uses. Each `task-*` request must carry `"version":1`, and each task-row reply carries `version`. Missing or incompatible versions fail before the operation runs. Snapshot itself takes no version argument.
 
 Invoke `node /opt/agent-sandbox/session/control.mjs OPERATION -` with one JSON object on stdin. A JSON argument also works when the caller passes a real argument array. Never interpolate task JSON into a shell command. The target is the configured lowercase bot ID returned as `owner` in task rows. This contract has no machine parameter and never routes into another pot.
 
-| Operation | Input | Result |
+| Operation | Input beside required `version` | Result |
 | --- | --- | --- |
 | `task-submit` | `id`, `target`, `text`, `provenance` | Durable intake and an attempted bot wake, followed by the current task row |
 | `task-decide` | `id`, `state`, `reason` | Coordinator decision, with `state` equal to `accepted`, `rejected` or `needs-information` |
@@ -14,11 +16,13 @@ Invoke `node /opt/agent-sandbox/session/control.mjs OPERATION -` with one JSON o
 | `task-adopt` | `id`, `terminal` | Associate an accepted task with one exact local execution, without launching or reparenting it |
 | `task-result` | `id`, `sessionDigest`, `summary` | Preserve a direct execution's final transcript and screen with an explicit coordinator attestation |
 | `task-delivery` | `id`, `delivery`, `state`, `reason` | Resolve an uncertain adopted follow-up after inspection, with `received` removing it or `retry` permitting another send |
-| `snapshot` | No argument | Existing snapshot plus `tasks`, an array of task rows |
+| `snapshot` | No argument | Existing snapshot plus `taskContract` and `tasks`, an array of versioned task rows |
 
 `id` is 1-96 letters, digits, dots or hyphens, beginning with a letter or digit. Herdr creates it once and retains the complete original payload for retries. Text is nonempty, contains no NUL, and takes at most 16,384 UTF-8 bytes. `provenance` has exactly `source`, `author`, and `reference`, each subject to that text limit. Submission refuses unknown fields. A different payload under an existing ID fails without replacing the intake. Decision reasons and coordinator result summaries use the same text validation.
 
-The intake wake has `kind: "task-intake"`, the same `id`, `target`, `text`, and `provenance`, plus a fixed instruction about trust and explicit decisions. Its durable receipt ID is `task-intake-ID`. `delivery.state` is `unknown` before the transport call and remains so on any failed reply. Success records `delivered`. Neither state means acceptance. Repeating the original submission retries an unknown wake under its original receipt ID. Pots deduplicates that wake identity. After an uncertain Herdr transport reply, reconnect and inspect `snapshot.tasks`, then repeat the original submission if needed.
+Control writes one JSON task row to stdout on success. A nonzero exit writes a diagnostic to stderr. After any lost reply or failed observation, inspect the snapshot and reuse the original payload and ID. Do not treat an error string as a persisted task state or create a new task automatically.
+
+The intake wake has `kind: "task-intake"`, the same `version`, `id`, `target`, `text`, and `provenance`, plus a fixed instruction about trust and explicit decisions. Its durable receipt ID is `task-intake-ID`. `delivery.state` is `unknown` before the transport call and remains so on any failed reply. Success records `delivered`. Neither state means acceptance. Repeating the original submission retries an unknown wake under its original receipt ID. Pots deduplicates that wake identity. After an uncertain Herdr transport reply, reconnect and inspect `snapshot.tasks`, then repeat the original submission if needed.
 
 `acceptance` contains `state` and, after a decision, `reason`, `by`, and `at`. Acceptance is an explicit coordinator action. Accepted and rejected decisions are final. A repeated identical decision preserves its original timestamp. `needs-information` can later become accepted or rejected. Additional discussion uses the existing bot conversation, rather than editing an intake's immutable content.
 
@@ -48,7 +52,7 @@ Delivery is independent of these states. `associated`, `progress`, `result_saved
 
 ## Snapshot and shared reporting facts
 
-Each task row exposes `id`, `target`, `owner`, `text`, `provenance`, `receivedAt`, `receipt`, `delivery`, and `acceptance`. `execution` is absent until association. It then exposes:
+Each task row exposes `version`, `id`, `target`, `owner`, `text`, `provenance`, `receivedAt`, `receipt`, `delivery`, and `acceptance`. `execution` is absent until association. It then exposes:
 
 - `worker`, the registered worker identity, and its recorded `terminal`, `sessionFile`, and `sessionId` when available.
 - `mode`, either `managed` or `adopted`, and the preserved native `parent` for adoption.
@@ -60,20 +64,28 @@ A result is the existing worker result object with `id`, `state`, `screen`, and 
 
 `session/task-view.mjs` is the sole projection for both snapshot and bot reporting. The existing watcher sends changes as a normal Pots wake with `kind: "task-report"` and `task` equal to the same task row. A deterministic digest supplies the wake ID. A missing transport reply leaves it retryable on the next observation or watcher restart. Task workers use this shared reporting wake in place of the ordinary worker-status wake, including launch failures and saved outcomes. The coordinator relays those facts through its existing conversation/Discord reporting route with the task ID. No separate Discord status computation or Discord credential is introduced.
 
-Herdr must retain the task ID across reconnects, display delivery separately from acceptance, and render execution status and result from this row. Sending text or seeing a terminal alone does not assign a task. Submission and adoption are explicit actions. If the local control contract is absent, show that the installed sandbox needs its normal rollout. Never fall back to direct execution.
+Herdr must retain the task ID across reconnects, display delivery separately from acceptance, and render execution status and result from this row. Sending text or seeing a terminal alone does not assign a task. Submission and adoption are explicit actions. If the local control contract is absent or incompatible, show that the installed sandbox needs its normal rollout. Never fall back to direct execution. Use Herdr's current navigation and terminal-opening flow. This contract depends on no Pots view, Command Center or runtime-configuration screen.
 
 ## New task example
 
 Herdr submits this synthetic payload to the selected pot through control stdin:
 
 ```json
-{"id":"task-synthetic-001","target":"synthetic","text":"Produce the synthetic report.","provenance":{"source":"herdr","author":"synthetic-person","reference":"synthetic-thread"}}
+{"version":1,"id":"task-synthetic-001","target":"synthetic","text":"Produce the synthetic report.","provenance":{"source":"herdr","author":"synthetic-person","reference":"synthetic-thread"}}
 ```
+
+A synthetic successful reply before a coordinator decision has this shape. Timestamps here are illustrative:
+
+```json
+{"version":1,"id":"task-synthetic-001","target":"synthetic","owner":"synthetic","text":"Produce the synthetic report.","provenance":{"source":"herdr","author":"synthetic-person","reference":"synthetic-thread"},"receivedAt":1700000000000,"receipt":"task-intake-task-synthetic-001","delivery":{"state":"delivered","attemptedAt":1700000000001},"acceptance":{"state":"pending"}}
+```
+
+An uncertain wake reply keeps `delivery.state` as `unknown` with its attempt timestamp. Acceptance remains independently `pending`, and `execution` is absent. After acceptance, the reply and snapshot carry the same row with `acceptance.state`, `reason`, `by` and `at`. Association adds the execution fields defined above without changing the submission identity or provenance.
 
 The coordinator decides, then selects its worker through the existing dispatcher:
 
 ```sh
-node /opt/agent-sandbox/session/control.mjs task-decide '{"id":"task-synthetic-001","state":"accepted","reason":"This pot owns the report."}'
+node /opt/agent-sandbox/session/control.mjs task-decide '{"version":1,"id":"task-synthetic-001","state":"accepted","reason":"This pot owns the report."}'
 node /opt/agent-sandbox/session/dispatch.mjs start --task task-synthetic-001 --title 'feat: synthetic report' --subject 'feat: synthetic report' example/project feat/synthetic /config/synthetic-brief.md main
 ```
 
@@ -84,8 +96,10 @@ These are examples for an installed sandbox under its normal publication rules. 
 After accepting `task-synthetic-002`, the coordinator selects its exact local address:
 
 ```sh
-node /opt/agent-sandbox/session/control.mjs task-adopt '{"id":"task-synthetic-002","terminal":"t7"}'
+node /opt/agent-sandbox/session/control.mjs task-adopt '{"version":1,"id":"task-synthetic-002","terminal":"t7"}'
 ```
+
+The adoption request supplies only the version, accepted task ID and exact local terminal address. It never supplies trusted cwd, conversation or parent metadata. Local terminal addresses remain scoped to the selected pot's existing connection. The reply and snapshot expose that recorded address, exact canonical `sessionFile`, `sessionId`, unchanged native `parent`, and derived status in `execution`.
 
 Adoption uses installed hc's `created_ms`, `argv`, local address, name, cwd, parent and `pi.session` label. The address must resolve to exactly one live terminal. The cwd must resolve beneath this pot's `Development` directory. The session must be a regular `.jsonl` file, no larger than 16 MiB, under this pot's Pi or worker session directory, with a Pi session header and exact ID. Symlinks resolving outside these directories are refused. Local aliases retain their published metadata and canonical destinations, and retargeting one invalidates the execution match. Another worker or managed owner on that execution is refused. Associate an existing registered worker with `task-associate` instead.
 
@@ -101,7 +115,7 @@ Reparenting a native Mac child and resuming a vanished direct execution inside t
 | --- | --- |
 | Installed pot-local control and owning coordinator under existing pot rules | Herdr text, claimed provenance, display content and submitted identifiers |
 
-The task code neither requests credentials nor changes credential scope. JSON remains parsed data and fixed argument values. It is never shell source, a launch command, a human-dialog result or an approval receipt. Claimed author metadata is preserved for display and audit, without authenticating a human or granting push, spend, credential or relaunch approval. Any same-user process that can invoke existing local control can also invoke coordinator operations. This is an intake contract, not isolation from a hostile session user.
+The task code neither requests credentials nor changes credential scope. JSON remains parsed data and fixed argument values. It is never shell source, a launch command, a human-dialog result or an approval receipt. Claimed author metadata is preserved for display and audit, without authenticating a human or granting push, spend, credential or relaunch approval. Any same-user process that can invoke existing local control can also invoke coordinator operations. This is an intake contract, not isolation from a hostile session user. It accepts parsed task fields and adds no new environment, filesystem, process, privilege, tool-configuration or network isolation around existing workers. Existing launch and publication rules remain the boundary for running repository code.
 
 Activation requires parent design approval, release of the rollout freeze, the normal reviewed and signed sandbox rollout, a watcher running that installed source, hc metadata compatible with the declared identity checks, and paired Herdr controls using this contract. No unmerged API from sandbox PR #43 is required. Herdr source needs this contract available before enabling submission/adoption controls. This PR remains draft until its hold is explicitly lifted.
 

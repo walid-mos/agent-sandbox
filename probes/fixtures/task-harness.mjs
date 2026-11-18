@@ -5,15 +5,17 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { TASK_CONTRACT_VERSION } from '../../session/task-contract.mjs';
 
 const root = dirname(import.meta.dirname);
 const repository = dirname(root);
 const preload = join(import.meta.dirname, 'task-boundary.mjs');
 const execute = promisify(execFile);
+const payload = input => ({ version: TASK_CONTRACT_VERSION, ...input });
 
 async function controlAsync(folder, operation, input) {
   const reply = await execute(process.execPath, ['--disable-warning=ExperimentalWarning', '--experimental-test-module-mocks',
-    '--import', preload, join(repository, 'session/control.mjs'), operation, JSON.stringify(input)],
+    '--import', preload, join(repository, 'session/control.mjs'), operation, JSON.stringify(payload(input))],
   { env: { ...process.env, POTS_TASK_FIXTURE: folder } });
   return JSON.parse(reply.stdout);
 }
@@ -25,7 +27,7 @@ function invoke(folder, module, args) {
 }
 
 function commands(folder) {
-  const run = (operation, input) => invoke(folder, 'session/control.mjs', [operation, JSON.stringify(input)]);
+  const run = (operation, input) => invoke(folder, 'session/control.mjs', [operation, JSON.stringify(payload(input))]);
   const control = (operation, input) => {
     const reply = run(operation, input);
     assert.equal(reply.status, 0, reply.stderr);

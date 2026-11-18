@@ -16,7 +16,7 @@ export function taskView(record, records, terminals) {
     status: executionStatus(worker, terminal), failure: worker.failure,
     branch: worker.branch, commit: worker.commit, uncommitted: worker.uncommitted, unpushed: worker.unpushed,
     cleanPass: passes(worker), pullRequest: worker.pullRequest, result: worker.result } : undefined;
-  return { id: record.id, target: record.target, owner: record.owner, text: record.text, provenance: record.provenance,
+  return { version: record.version, id: record.id, target: record.target, owner: record.owner, text: record.text, provenance: record.provenance,
     receivedAt: record.receivedAt, receipt: record.receipt, delivery: record.delivery, acceptance: record.acceptance, execution };
 }
 

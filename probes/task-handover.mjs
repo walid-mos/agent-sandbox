@@ -6,6 +6,24 @@ import { existingExecution, fixture, submission } from './fixtures/task-harness.
 import { test } from 'node:test';
 import { discordApiFixture } from './fixtures/task-discord.mjs';
 
+test('versioned control refuses absent or incompatible versions before intake', t => {
+  const { control, invoke, run, read } = fixture(t);
+  const missing = invoke('session/control.mjs', ['task-submit', JSON.stringify(submission)]);
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /contract version/);
+  const incompatible = run('task-submit', { ...submission, version: 2 });
+  assert.equal(incompatible.status, 1);
+  assert.match(incompatible.stderr, /contract version/);
+  const snapshot = control('snapshot');
+  assert.equal(snapshot.taskContract.version, 1);
+  assert.equal(snapshot.taskContract.target, 'synthetic');
+  assert.equal(snapshot.taskContract.operations.includes('task-adopt'), true);
+  assert.equal(snapshot.tasks.length, 0);
+  assert.equal(read().wakes.length, 0);
+  assert.equal(control('task-submit', submission).version, 1);
+  assert.equal(control('snapshot').tasks[0].version, 1);
+});
+
 test('simultaneous deliveries keep one durable intake and one bot receipt', async t => {
   const { control, controlAsync, read } = fixture(t);
   const replies = await Promise.all(Array.from({ length: 4 }, () => controlAsync('task-submit', submission)));
