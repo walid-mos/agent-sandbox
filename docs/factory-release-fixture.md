@@ -9,7 +9,7 @@ Run from a clean checkout of the #30 producer with Git, Node.js, Linux `flock`, 
 ```sh
 git fetch origin fix/bind-factory-verdict
 work=$(mktemp -d)
-python3 -B probes/landing-policy.py --release 4a6f821de09efff0c1c586ef2af9d53d1688b63c --export "$work/release"
+python3 -B probes/landing-policy.py --release 5947f43fe411c78510b58121df27dc96eaedf2c5 --export "$work/release"
 ```
 
 The command tests retargeting, a base update just before the push, and an ambiguous result without a saved signed release. The successful scenario restarts after signing and again after pushing. It verifies the signature before writing `receipt.json`, `candidate.bundle`, `operator-public.asc` and `factory-public.asc`. Fresh disposable keys make each run's commit IDs different. The bundle and receipt from one run must travel together. The fixture puts its private keyrings in its temporary working directory and cleans them up before returning.
@@ -34,8 +34,12 @@ git -C "$store" fetch "$fixture/candidate.bundle" \
 test "$(git -C "$store" rev-parse refs/remotes/origin/main)" = "$candidate"
 test "$(git -C "$store" show -s --format=%P "$candidate")" = "$base"
 test "$(git -C "$store" show -s --format=%T "$candidate")" = "$tree"
+test "$(git -C "$store" rev-parse refs/heads/fixture-source)" = "$head"
 test "$(git -C "$store" rev-parse "$head^{tree}")" = "$tree"
 git -C "$store" merge-base --is-ancestor "$base" "$head"
+test "$(git -C "$store" show -s --format=%s "$candidate")" = 'Factory landing v1'
+test "$(git -C "$store" show -s --format=%b "$candidate" | jq -Sc .)" = \
+  "$(jq -Sc '.candidate.request' "$receipt")"
 python3 -I lib/signed_commit.py verify "$store" "$base" "$fixture/operator-public.asc"
 test "$(python3 -I lib/signed_commit.py verify "$store" "$candidate" "$fixture/factory-public.asc")" = \
   "$(jq -r '.candidate.fingerprint' "$receipt")"
