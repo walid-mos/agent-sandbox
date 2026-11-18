@@ -7,8 +7,6 @@
     "diskGiB": 80
   },
   "bot": "Accor",
-  "rules": "/etc/agent-sandbox/accor-rules.md",
-  "publicationPolicy": "accor-first-publication",
   "owners": {},
   "secrets": {},
   "onRequest": {
