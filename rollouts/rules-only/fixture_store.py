@@ -7,7 +7,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from guards import AREA, encode, private_directory, read_json, require
 from journal import create
-from sources import prove_files
+from sources import load_module, prove_files
 import os
 import tempfile
 
@@ -20,7 +20,7 @@ os.kill(marker['pid'], 0)
 require((root / 'installed').resolve().is_relative_to(root), 'fixture install escaped')
 prove_files(root / 'vm', read_json(AREA / 'resources.json'))
 sys.path.insert(0, str(root / 'vm/lib'))
-import client_rules
+client_rules = load_module('client_rules', root / 'vm', read_json(AREA / 'resources.json'))
 
 fault = json.loads((root / 'fixture-options.json').read_bytes())['storeFault']
 if fault == 'wait-before-write':
