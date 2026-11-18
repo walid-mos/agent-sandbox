@@ -29,6 +29,9 @@
     "router": {
       "/clients/pi": [
         "PI_OAUTH_CODEX"
+      ],
+      "/clients/claude": [
+        "CLAUDE_CODE_OAUTH_TOKEN_SECONDARY"
       ]
     }
   },
