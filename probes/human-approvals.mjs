@@ -51,7 +51,7 @@ async function fixture(policy = 'push', state = 'open') {
   await syncBotDialogs(store, [record]);
   const doors = doorsWith(state);
   const issues = [];
-  await reconcileHuman({ store, doors, identity: IDENTITY, onError: (_, error) => issues.push(error.message) });
+  await reconcileHuman({ store, doors, onError: (_, error) => issues.push(error.message) });
   const dialog = store.get(botDialogId(record.id));
   const question = questionPacket(dialog);
   const components = [{ type: 1, components: choices.map((label, index) => ({ type: 2, style: 1, label, custom_id: `human:${dialog.id}:0:${index}` })) }];
@@ -83,7 +83,7 @@ test('bot-origin startup push goes from immutable question to scoped receipt wit
   assert.ok(update.update.components[0].components.every(component => component.disabled));
   assert.match(update.update.content, /Delivery.*pending/);
   Object.assign(f.doors.find(f.dialog.delivery.id), returnedDoor(f));
-  await reconcileHuman({ store: f.store, doors: f.doors, identity: IDENTITY });
+  await reconcileHuman({ store: f.store, doors: f.doors });
   const final = f.store.get(f.dialog.id);
   assert.deepEqual(final.result.answers, [{ id: 'answer', labels: [choices[0]], text: '' }]);
   assert.equal(final.result.scope, SCOPE);
@@ -186,9 +186,9 @@ test('changed request, digest or origin cannot settle a push', async () => {
   const door = returnedDoor(f);
   const packet = JSON.parse(door.reply);
   for (const field of ['request', 'digest', 'dialog']) {
-    await assert.rejects(acceptDoorAnswer(f.dialog, { ...door, reply: JSON.stringify({ ...packet, [field]: 'changed' }) }, { store: f.store, identity: IDENTITY }), /does not match/);
+    await assert.rejects(acceptDoorAnswer(f.dialog, { ...door, reply: JSON.stringify({ ...packet, [field]: 'changed' }) }, { store: f.store }), /does not match/);
   }
-  await assert.rejects(acceptDoorAnswer(f.dialog, { ...door, pot: 'other' }, { store: f.store, identity: IDENTITY }), /not a reply/);
+  await assert.rejects(acceptDoorAnswer(f.dialog, { ...door, pot: 'other' }, { store: f.store }), /not a reply/);
   assert.equal(f.store.get(f.dialog.id).result, undefined);
 });
 
@@ -196,7 +196,7 @@ test('terminal-first negative answer defeats a later affirmative click', async (
   const f = await fixture();
   await answerQuestion(f.dialog.id, { answers: [{ id: 'answer', labels: [choices[1]], text: '' }] }, { store: f.store });
   await pick(f);
-  await acceptDoorAnswer(f.dialog, returnedDoor(f), { store: f.store, identity: IDENTITY });
+  await acceptDoorAnswer(f.dialog, returnedDoor(f), { store: f.store });
   assert.equal(f.store.get(f.dialog.id).result.answers[0].labels[0], choices[1]);
 });
 
@@ -204,7 +204,7 @@ test('cancellation remains cancellation after a later affirmative click and clos
   const f = await fixture();
   await cancelDialog(f.dialog.id, 'cancelled', f.store);
   await pick(f);
-  await acceptDoorAnswer(f.dialog, returnedDoor(f), { store: f.store, identity: IDENTITY });
+  await acceptDoorAnswer(f.dialog, returnedDoor(f), { store: f.store });
   const result = f.store.get(f.dialog.id);
   assert.equal(result.result.status, 'cancelled');
   assert.equal(result.result.answers, undefined);
@@ -216,7 +216,7 @@ test('cancellation remains cancellation after a later affirmative click and clos
 test('a scoped push receipt is consumed once across simultaneous callers', async () => {
   const f = await fixture();
   await pick(f);
-  await acceptDoorAnswer(f.dialog, returnedDoor(f), { store: f.store, identity: IDENTITY });
+  await acceptDoorAnswer(f.dialog, returnedDoor(f), { store: f.store });
   const input = { scope: SCOPE, label: choices[0] };
   await assert.rejects(consume(f, { ...input, scope: 'other push' }), /scope/);
   const results = await Promise.allSettled([consume(f, input), consume(f, input)]);
@@ -229,11 +229,11 @@ test('a scoped push receipt is consumed once across simultaneous callers', async
 test('ordinary, negative and canceled results cannot be consumed as affirmative push approval', async () => {
   const ordinary = await fixture('ordinary');
   await pick(ordinary);
-  await acceptDoorAnswer(ordinary.dialog, returnedDoor(ordinary), { store: ordinary.store, identity: IDENTITY });
+  await acceptDoorAnswer(ordinary.dialog, returnedDoor(ordinary), { store: ordinary.store });
   await assert.rejects(consume(ordinary, { scope: SCOPE, label: choices[0] }), /push/);
   const negative = await fixture();
   await pick(negative, OPERATOR, 1);
-  await acceptDoorAnswer(negative.dialog, returnedDoor(negative), { store: negative.store, identity: IDENTITY });
+  await acceptDoorAnswer(negative.dialog, returnedDoor(negative), { store: negative.store });
   await assert.rejects(consume(negative, { scope: SCOPE, label: choices[0] }), /affirmative/);
   const canceled = await fixture();
   await cancelDialog(canceled.dialog.id, 'cancelled', canceled.store);
@@ -277,7 +277,7 @@ for (const state of ['unknown', 'undelivered', 'refused']) {
     const f = await fixture('push', state);
     const request = f.dialog.delivery.id;
     const reopened = humanStore(f.directory);
-    await reconcileHuman({ store: reopened, doors: f.doors, identity: IDENTITY, now: Date.now() + 60_000 });
+    await reconcileHuman({ store: reopened, doors: f.doors, now: Date.now() + 60_000 });
     assert.equal(reopened.get(f.dialog.id).delivery.id, request);
     assert.equal(f.store.get(f.dialog.id).result, undefined);
   });

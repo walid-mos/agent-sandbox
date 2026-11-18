@@ -82,7 +82,8 @@ export function checkDiscordReceipt(dialog, identity) {
   answersOf(dialog.questions, result.answers);
 }
 
-export async function answerQuestion(id, answer, { store = humanStore(), identity, origin = 'terminal', messageId, replyDoor } = {}) {
+export async function answerQuestion(id, answer, { store = humanStore(), origin = 'terminal', messageId, replyDoor } = {}) {
+  const readDiscordSettings = origin === 'discord' && (await import('./sandbox.mjs')).readHumanDiscord;
   return store.locked(({ get, save }) => {
     const dialog = get(id);
     if (dialog?.kind !== 'question') throw new Error('human: no such question.');
@@ -90,6 +91,7 @@ export async function answerQuestion(id, answer, { store = humanStore(), identit
     let evidence;
     if (origin === 'discord') {
       if (replyDoor) checkAnswerDoor(dialog, replyDoor);
+      const identity = dialog.policy === 'push' ? readDiscordSettings() : undefined;
       evidence = { ...checkedDiscordAnswer(dialog, answer, identity), ...(replyDoor && { door: replyDoor }) };
     }
     const answers = answersOf(dialog.questions, answer.answers);
@@ -110,12 +112,12 @@ function checkAnswerDoor(dialog, request) {
   if (request?.pot !== MASTERMIND_POT || request.direction !== ASKED || request.id !== dialog.delivery?.id || request.state !== ANSWERED) throw new Error('human: answer is not a reply to this dialog from Mastermind.');
 }
 
-export async function acceptDoorAnswer(dialog, request, options) {
+export async function acceptDoorAnswer(dialog, request, { store } = {}) {
   checkAnswerDoor(dialog, request);
   let reply;
   try { reply = JSON.parse(request.reply); } catch { throw new Error('human: Mastermind reply is not an answer packet.'); }
   const { pot, direction, id, state } = request;
-  return answerQuestion(dialog.id, reply, { ...options, origin: 'discord', replyDoor: { pot, direction, id, state } });
+  return answerQuestion(dialog.id, reply, { store, origin: 'discord', replyDoor: { pot, direction, id, state } });
 }
 
 export function questionNeed(dialog) {

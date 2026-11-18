@@ -6,7 +6,6 @@ const GUILD = '10000000000000003';
 const CHANNEL = '10000000000000004';
 const MESSAGE = '10000000000000005';
 const MESSAGE_URL = `https://discord.com/channels/${GUILD}/${CHANNEL}/${MESSAGE}`;
-export const IDENTITY = { pushApprovalsEnabled: true, userId: OPERATOR };
 export const PUSH_SCOPE = `Push agent-sandbox fix/proof to https://github.com/walid-mos/agent-sandbox.git at ${'a'.repeat(40)}, one push`;
 
 function fixtureDoors() {
@@ -36,7 +35,7 @@ export async function botDialogFixture(home) {
   writeFileSync(join(TERMINAL, 'platform.jsonl'), '');
   const pass = async () => {
     await syncBotDialogs(store);
-    await reconcileHuman({ store, doors, identity: IDENTITY, pages: { sync: id => store.get(id) }, onError: (id, error) => issues.push({ id, error }) });
+    await reconcileHuman({ store, doors, pages: { sync: id => store.get(id) }, onError: (id, error) => issues.push({ id, error }) });
     if (issues.length) throw issues[0].error;
   };
   const ask = (id, options, extra = {}, at = '2026-11-17T16:12:33Z') => {

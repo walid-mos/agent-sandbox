@@ -28,7 +28,7 @@ function doorLink(store) {
     transmit: request => save({ ...request, state: 'open' }),
     acknowledge: request => save({ ...request, state: 'answered', reply: JSON.stringify({ type: 'human.posted-ack', version: 1 }) }),
   };
-  const reconcile = () => reconcileHuman({ store, doors, identity: IDENTITY, onError: (_id, error) => { throw error; } });
+  const reconcile = () => reconcileHuman({ store, doors, onError: (_id, error) => { throw error; } });
   const registrationDoors = {
     find: id => ({ ...doors.find(id), direction: 'received', pot: 'proof' }),
     prepare: ({ need }) => ({ id: nextId('mastermind'), pot: 'mastermind', need, kind: 'dialog', direction: 'received', state: 'open' }),
