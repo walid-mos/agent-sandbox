@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { existingExecution, fixture, submission } from './fixtures/task-harness.mjs';
 import { test } from 'node:test';
@@ -161,6 +161,27 @@ test('failed task launch reports its task identity and reason through the shared
   const reports = read().wakes.filter(wake => wake.note.kind === 'task-report' || wake.note.status === 'not started');
   assert.equal(reports.length, 1);
   assert.equal(reports[0].note.task.id, submission.id);
+});
+
+test('adoption resolves local aliases while pinning published execution metadata', t => {
+  const { folder, control, patch } = fixture(t);
+  const { terminal, sessionFile } = existingExecution(folder);
+  const cwdAlias = join(folder, 'Development/alias');
+  const sessionAlias = join(folder, '.pi/agent/sessions/alias.jsonl');
+  symlinkSync(terminal.cwd, cwdAlias);
+  symlinkSync(sessionFile, sessionAlias);
+  patch({ terminals: [{ ...terminal, cwd: cwdAlias, labels: { 'pi.session': sessionAlias } }] });
+  control('task-submit', submission);
+  control('task-decide', { id: submission.id, state: 'accepted', reason: 'Own exact execution.' });
+  const adopted = control('task-adopt', { id: submission.id, terminal: terminal.address });
+  assert.equal(adopted.execution.status, 'working');
+  assert.equal(adopted.execution.sessionFile, sessionFile);
+  assert.equal(adopted.execution.parent, terminal.parent);
+  const otherSession = join(folder, '.pi/agent/sessions/other.jsonl');
+  writeFileSync(otherSession, '{"type":"session","id":"other-synthetic"}\n');
+  unlinkSync(sessionAlias);
+  symlinkSync(otherSession, sessionAlias);
+  assert.equal(control('snapshot').tasks[0].execution.status, 'attention-needed');
 });
 
 test('task text and claimed author stay literal and cannot grant approval or launch', t => {

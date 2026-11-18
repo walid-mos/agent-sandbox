@@ -21,7 +21,7 @@ export function adoptionIdentity(terminal) {
   if (terminal.state !== 'live') throw new Error('task: adoption needs a live execution. Restore or inspect the original execution first.');
   if (terminal.labels?.['pots.owner'] || terminal.labels?.['pots.launch']) throw new Error('task: this execution has managed ownership labels. Associate its registered worker instead.');
   return { terminal: terminal.address, name: terminal.name, created_ms: terminal.created_ms, argv: terminal.argv,
-    worktree: cwd, parent: terminal.parent, sessionFile: conversation.path, sessionId: conversation.id };
+    cwd: terminal.cwd, worktree: cwd, parent: terminal.parent, sessionLabel: sessionFile, sessionFile: conversation.path, sessionId: conversation.id };
 }
 
 export function readConversation(path) {
@@ -37,9 +37,17 @@ export function readConversation(path) {
   return { path: canonical, id: header.id, content };
 }
 
+function samePaths(identity, terminal) {
+  try {
+    return realpathSync(terminal.cwd) === identity.worktree && realpathSync(terminal.labels['pi.session']) === identity.sessionFile;
+  } catch {
+    return false;
+  }
+}
+
 export function matchesAdoption(worker, terminal) {
   const identity = worker.adoption;
   return Boolean(identity && !terminal.labels?.['pots.owner'] && !terminal.labels?.['pots.launch'] && terminal.address === identity.terminal && terminal.created_ms === identity.created_ms &&
-    terminal.cwd === identity.worktree && terminal.name === identity.name && terminal.parent === identity.parent &&
-    JSON.stringify(terminal.argv) === JSON.stringify(identity.argv) && terminal.labels?.['pi.session'] === identity.sessionFile);
+    terminal.cwd === identity.cwd && terminal.name === identity.name && terminal.parent === identity.parent &&
+    JSON.stringify(terminal.argv) === JSON.stringify(identity.argv) && terminal.labels?.['pi.session'] === identity.sessionLabel && samePaths(identity, terminal));
 }
