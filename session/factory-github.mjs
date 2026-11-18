@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
+import { accorPublicationPolicy } from './accor-publication-policy.mjs';
 import { pullUrl } from './factory-records.mjs';
 import { checkSteps } from './factory-repositories.mjs';
 import { command } from './run.mjs';
-import { owners } from './sandbox.mjs';
+import { owners, sandbox } from './sandbox.mjs';
 
 export const FACTORY_TOPIC = 'factory';
 const REPOSITORY_LIMIT = '1000';
@@ -24,7 +25,7 @@ function topicRepositories(owner) {
     .map(repository => repository.nameWithOwner);
 }
 
-export const watchedRepositories = () => owners.flatMap(topicRepositories);
+export const watchedRepositories = () => accorPublicationPolicy(sandbox) ? [] : owners.flatMap(topicRepositories);
 
 function openPulls(repository) {
   return JSON.parse(gh(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', LIST_FIELDS]));
@@ -44,6 +45,7 @@ function requireTopic(repository) {
 }
 
 export function requireActionable(pull) {
+  if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
   const facts = pullFacts(pull);
   if (facts.state !== 'OPEN' || facts.isDraft || facts.headRefOid !== pull.head) {
     throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);

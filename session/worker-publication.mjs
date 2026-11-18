@@ -1,8 +1,12 @@
+import { ACCOR_FIRST_PUBLICATION, accorPublicationPolicy } from './accor-publication-policy.mjs';
+import { openReadyPR, verifyPublishedPR } from './accor-pull-request.mjs';
 import { consumeDiscordPush, verifyConsumedDiscordPush } from './human-consume.mjs';
 import { humanStore } from './human-store.mjs';
-import { isFullObjectId, pushApproved, remoteHead } from './push-approved.mjs';
+import { isFullObjectId, pushApproved, pushExisting, remoteHead } from './push-approved.mjs';
 import { command } from './run.mjs';
-import { botId } from './sandbox.mjs';
+import { repositoryOrigin } from './repository-origin.mjs';
+import { botId, sandbox } from './sandbox.mjs';
+import { lockWorkerPublication } from './worker-publication-lock.mjs';
 import { ownedWorker, PUBLICATION, recordPublication } from './workers.mjs';
 
 const AFFIRMATIVE_LABEL = 'Push once';
@@ -14,12 +18,19 @@ function repositoryWorker(name) {
   return worker;
 }
 
+const isAccorWorker = worker => worker.publicationPolicy === ACCOR_FIRST_PUBLICATION;
+const gitFor = worker => args => command('git', args, { cwd: worker.worktree });
+
 function checkCheckout(worker, git) {
-  if (worker.publication !== PUBLICATION.local) throw new Error('dispatch: this worker is not waiting for its first approved push. Use open-pr after a successful push.');
   if (git(['branch', '--show-current']) !== worker.branch) throw new Error('dispatch: task branch changed. Restore it before publication.');
   if (!worker.originUrl || git(['remote', 'get-url', 'origin']) !== worker.originUrl) throw new Error('dispatch: origin changed. Restore it and ask for a new approval.');
   if (git(['remote', 'get-url', '--push', '--all', 'origin']) !== worker.originUrl) throw new Error('dispatch: push destination differs from the approved origin. Restore it before asking for approval.');
   if (git(['status', '--porcelain'])) throw new Error('dispatch: commit or remove local changes before requesting publication.');
+}
+
+function checkLocal(worker, git) {
+  if (worker.publication !== PUBLICATION.local) throw new Error('dispatch: this worker is not waiting for its first approved push. Use open-pr after a successful push.');
+  checkCheckout(worker, git);
 }
 
 function newCommits(worker, git) {
@@ -34,7 +45,8 @@ function newCommits(worker, git) {
 
 function scopeFor(worker, { baseCommit, head, commits }) {
   return JSON.stringify({ operation: 'first-worker-push', repository: worker.repository, branch: worker.branch,
-    remote: 'origin', url: worker.originUrl, base: worker.base, baseCommit, commits, head, draftTitle: worker.title });
+    remote: 'origin', url: worker.originUrl, base: worker.base, baseCommit, commits, head,
+    ...(isAccorWorker(worker) ? { publicationPolicy: worker.publicationPolicy, readyTitle: worker.title } : { draftTitle: worker.title }) });
 }
 
 function firstPush(worker, git) {
@@ -63,9 +75,9 @@ function recordPushedBranch(worker, { head, isRecoveredPush }, git) {
 }
 
 async function recordRecoveredPush(worker, head, dialogId, store) {
-  const git = args => command('git', args, { cwd: worker.worktree });
+  const git = gitFor(worker);
   const scope = await verifyConsumedDiscordPush(dialogId, AFFIRMATIVE_LABEL, store);
-  checkCheckout(worker, git);
+  checkLocal(worker, git);
   if (git(['rev-parse', 'HEAD']) !== head) throw new Error('dispatch: head changed before recovery. Stop and inspect the destination.');
   requireRecoveryScope(worker, scope, head);
   requireExactHead(worker, head);
@@ -74,25 +86,36 @@ async function recordRecoveredPush(worker, head, dialogId, store) {
 
 export function workerScope([name]) {
   const worker = repositoryWorker(name);
-  const git = args => command('git', args, { cwd: worker.worktree });
-  checkCheckout(worker, git);
+  const git = gitFor(worker);
+  checkLocal(worker, git);
   const request = firstPush(worker, git);
-  const options = [{ label: AFFIRMATIVE_LABEL, detail: `Push ${request.commits.length} commits to ${worker.branch}, then open its draft PR`, recommended: true }, DECLINE_LABEL];
+  const pr = isAccorWorker(worker) ? 'PR ready for review' : 'draft PR';
+  const options = [{ label: AFFIRMATIVE_LABEL, detail: `Push ${request.commits.length} commits to ${worker.branch}, then open its ${pr}`, recommended: true }, DECLINE_LABEL];
   return { ...request, question: { purpose: 'push', scope: request.scope, ...(worker.servedRequest && { for: worker.servedRequest }), options } };
 }
 
 export async function publishWorker([name, dialogId, label], store = humanStore()) {
   if (label !== AFFIRMATIVE_LABEL) throw new Error(`dispatch: publication requires the explicit affirmative label "${AFFIRMATIVE_LABEL}".`);
   const worker = repositoryWorker(name);
-  const git = args => command('git', args, { cwd: worker.worktree });
-  checkCheckout(worker, git);
+  if (!isAccorWorker(worker)) return publish(worker, dialogId, store);
+  const release = lockWorkerPublication(worker);
+  try {
+    return await publish(repositoryWorker(name), dialogId, store);
+  } finally {
+    release();
+  }
+}
+
+async function publish(worker, dialogId, store) {
+  const git = gitFor(worker);
+  checkLocal(worker, git);
   if (store.get(dialogId)?.consumption) {
     await recordRecoveredPush(worker, git(['rev-parse', 'HEAD']), dialogId, store);
-    return openWorkerPR([name]);
+    return openRecordedPR(repositoryWorker(worker.name));
   }
   const request = firstPush(worker, git);
-  await consumeDiscordPush(dialogId, { scope: request.scope, label }, store);
-  checkCheckout(worker, git);
+  await consumeDiscordPush(dialogId, { scope: request.scope, label: AFFIRMATIVE_LABEL }, store);
+  checkLocal(worker, git);
   if (git(['rev-parse', 'HEAD']) !== request.head) throw new Error('dispatch: publication changed after consumption. Ask for a new approval.');
   try {
     pushApproved(worker, request.head);
@@ -100,16 +123,35 @@ export async function publishWorker([name, dialogId, label], store = humanStore(
     try { await recordRecoveredPush(worker, request.head, dialogId, store); } catch (readbackError) {
       throw new AggregateError([pushError, readbackError], 'dispatch: first push failed and exact remote readback did not prove recovery. Stop and inspect the destination.');
     }
-    return openWorkerPR([name]);
+    return openRecordedPR(repositoryWorker(worker.name));
   }
   recordPushedBranch(worker, request, git);
-  return openWorkerPR([name]);
+  return openRecordedPR(repositoryWorker(worker.name));
+}
+
+function withPublicationLock(name, operation) {
+  const release = lockWorkerPublication(repositoryWorker(name));
+  try {
+    return operation(repositoryWorker(name));
+  } finally {
+    release();
+  }
 }
 
 export function openWorkerPR([name]) {
   const worker = repositoryWorker(name);
-  if (worker.pullRequest) return worker.pullRequest;
+  return isAccorWorker(worker) ? withPublicationLock(name, openRecordedPR) : openRecordedPR(worker);
+}
+
+function openRecordedPR(worker) {
+  if (worker.pullRequest) return isAccorWorker(worker) ? verifiedRemote(worker).pullRequest : worker.pullRequest;
   if (worker.publication !== PUBLICATION.awaitingPr) throw new Error('dispatch: no successful approved first push is recorded.');
+  const pullRequest = isAccorWorker(worker) ? openReadyPR(worker, () => requireExactHead(worker, worker.publishedHead)) : openDraftPR(worker);
+  recordPublication(worker, { publication: PUBLICATION.published, pullRequest });
+  return pullRequest;
+}
+
+function openDraftPR(worker) {
   const options = { cwd: worker.worktree };
   if (command('git', ['remote', 'get-url', 'origin'], options) !== worker.originUrl) throw new Error('dispatch: origin changed before draft PR creation.');
   if (!worker.isRecoveredPush) {
@@ -124,7 +166,31 @@ export function openWorkerPR([name]) {
     }
     requireExactHead(worker, worker.publishedHead);
   }
-  const pullRequest = existing?.url || command('gh', ['pr', 'create', '--repo', worker.repository, '--draft', '--base', worker.base, '--head', worker.branch, '--title', worker.title, '--body', ''], options);
-  recordPublication(worker, { publication: PUBLICATION.published, pullRequest });
-  return pullRequest;
+  return existing?.url || command('gh', ['pr', 'create', '--repo', worker.repository, '--draft', '--base', worker.base, '--head', worker.branch, '--title', worker.title, '--body', ''], options);
 }
+
+function verifiedRemote(worker) {
+  const head = remoteHead(worker);
+  if (!head) throw new Error('dispatch: the recorded PR branch is missing from origin. Inspect publication before pushing.');
+  return { head, pullRequest: verifyPublishedPR(worker, head) };
+}
+
+function pushFollowUp(worker) {
+  if (!accorPublicationPolicy(sandbox)) throw new Error('dispatch: use the current loaded push policy for this worker.');
+  if ((worker.publication && worker.publication !== PUBLICATION.published) || !worker.pullRequest) {
+    throw new Error('dispatch: no published PR is recorded. Use the first-publication procedure or ask the work center to inspect the branch.');
+  }
+  const target = { ...worker, originUrl: worker.originUrl ?? repositoryOrigin(worker.repository, worker.worktree) };
+  const git = gitFor(target);
+  checkCheckout(target, git);
+  const remote = verifiedRemote(target);
+  const head = git(['rev-parse', 'HEAD']);
+  git(['merge-base', '--is-ancestor', remote.head, head]);
+  if (worker.publishedHead) git(['merge-base', '--is-ancestor', worker.publishedHead, remote.head]);
+  if (head !== remote.head) pushExisting(target, head, remote.head);
+  requireExactHead(target, head);
+  git(['update-ref', `refs/remotes/origin/${worker.branch}`, head]);
+  return remote.pullRequest;
+}
+
+export const pushWorker = ([name]) => withPublicationLock(name, pushFollowUp);

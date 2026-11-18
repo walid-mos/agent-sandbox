@@ -11,6 +11,11 @@ export const github = [];
 export const githubState = { canCreatePR: true, failPRHead: undefined, pullRequests: [], pushAttempts: 0, afterPush: undefined, beforePush: undefined, readback: undefined };
 mock.module('../../session/run.mjs', { exports: { ...realRun, WITH_VAULT: '/unused', command(binary, args, options) {
   if (binary !== 'gh') {
+    const localOrigin = githubState.localOrigin;
+    if (binary === 'git' && localOrigin) {
+      if (options?.cwd === localOrigin.checkout && args[0] === 'remote' && args[1] === 'get-url') return localOrigin.url;
+      args = args.map(arg => arg === localOrigin.url ? localOrigin.remote : arg);
+    }
     if (binary === 'git' && args.includes('ls-remote') && args.includes(githubState.readback?.url)
       && githubState.pushAttempts >= githubState.readback.afterPush) {
       const { respond } = githubState.readback;
@@ -27,19 +32,20 @@ mock.module('../../session/run.mjs', { exports: { ...realRun, WITH_VAULT: '/unus
     return realCommand(binary, args, { ...options, env: { ...process.env, ...options?.env, HOME: gitHome } });
   }
   github.push(args);
+  if (args[0] === 'api' && githubState.respond) return JSON.stringify(githubState.respond(args));
   if (args[1] === 'create' && (!githubState.canCreatePR || args.includes(githubState.failPRHead))) throw new Error('GitHub temporarily unavailable');
   if (args[1] === 'list') return JSON.stringify(githubState.pullRequests);
   return 'https://github.invalid/proof/repository/pull/1';
 } } });
 export const { save, workers } = await import('../../session/workers.mjs');
 export const { humanStore } = await import('../../session/human-store.mjs');
-export const { workerScope, publishWorker, openWorkerPR } = await import('../../session/worker-publication.mjs');
+export const { workerScope, publishWorker, openWorkerPR, pushWorker } = await import('../../session/worker-publication.mjs');
 export const git = (cwd, ...args) => execFileSync('git', [
   '-c', 'user.name=probe', '-c', 'user.email=probe@invalid', '-c', 'commit.gpgsign=false', ...args,
 ], { cwd, env: { ...process.env, HOME: gitHome }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 let sequence = 0;
 
-export function fixture() {
+export function fixture({ publicationPolicy } = {}) {
   const folder = join(home, `run-${++sequence}`);
   mkdirSync(folder);
   const remote = join(folder, 'origin.git');
@@ -52,9 +58,9 @@ export function fixture() {
   git(checkout, 'remote', 'add', 'origin', remote);
   git(checkout, 'push', 'origin', 'main');
   git(checkout, 'checkout', '-b', 'feat/probe');
-  git(checkout, 'commit', '--allow-empty', '-m', 'feat: bootstrap');
+  if (!publicationPolicy) git(checkout, 'commit', '--allow-empty', '-m', 'feat: bootstrap');
   const worker = { name: `proof-${sequence}`, kind: 'repository', owner: 'proof', repository: 'proof/repository',
-    branch: 'feat/probe', base: 'main', title: 'feat: probe', worktree: checkout, originUrl: remote, publication: 'local' };
+    branch: 'feat/probe', base: 'main', title: 'feat: probe', worktree: checkout, originUrl: remote, publication: 'local', publicationPolicy };
   save(worker);
   return { worker, remote, checkout };
 }
