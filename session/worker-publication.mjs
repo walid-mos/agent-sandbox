@@ -56,6 +56,12 @@ function requireExactHead(worker, head) {
   if (remoteHead(worker) !== head) throw new Error('dispatch: remote readback did not prove the approved head. Stop and inspect the destination.');
 }
 
+function recordPushedBranch(worker, { head, isRecoveredPush }, git) {
+  git(['update-ref', `refs/remotes/origin/${worker.branch}`, head]);
+  git(['branch', `--set-upstream-to=origin/${worker.branch}`, worker.branch]);
+  recordPublication(worker, { publication: PUBLICATION.awaitingPr, publishedHead: head, isRecoveredPush });
+}
+
 async function recordRecoveredPush(worker, head, dialogId, store) {
   const git = args => command('git', args, { cwd: worker.worktree });
   const scope = await verifyConsumedDiscordPush(dialogId, AFFIRMATIVE_LABEL, store);
@@ -63,7 +69,7 @@ async function recordRecoveredPush(worker, head, dialogId, store) {
   if (git(['rev-parse', 'HEAD']) !== head) throw new Error('dispatch: head changed before recovery. Stop and inspect the destination.');
   requireRecoveryScope(worker, scope, head);
   requireExactHead(worker, head);
-  recordPublication(worker, { publication: PUBLICATION.awaitingPr, publishedHead: head, isRecoveredPush: true });
+  recordPushedBranch(worker, { head, isRecoveredPush: true }, git);
 }
 
 export function workerScope([name]) {
@@ -96,9 +102,7 @@ export async function publishWorker([name, dialogId, label], store = humanStore(
     }
     return openWorkerPR([name]);
   }
-  recordPublication(worker, { publication: PUBLICATION.awaitingPr, publishedHead: request.head });
-  git(['update-ref', `refs/remotes/origin/${worker.branch}`, request.head]);
-  git(['branch', `--set-upstream-to=origin/${worker.branch}`, worker.branch]);
+  recordPushedBranch(worker, request, git);
   return openWorkerPR([name]);
 }
 

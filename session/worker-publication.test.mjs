@@ -47,6 +47,11 @@ test('a different or additional push URL refuses publication before consuming ap
   assert.equal(git(otherOrigin, 'for-each-ref', '--format=%(objectname)', 'refs/heads'), '');
 });
 
+function assertUpstream(f, head) {
+  assert.equal(git(f.checkout, 'for-each-ref', '--format=%(upstream:short)', `refs/heads/${f.worker.branch}`), 'origin/feat/probe');
+  assert.equal(git(f.checkout, 'rev-parse', '@{upstream}'), head);
+}
+
 test('one checked receipt pushes the exact first head and opens its draft without a second push', async () => {
   const f = fixture();
   const request = workerScope([f.worker.name]);
@@ -55,6 +60,7 @@ test('one checked receipt pushes the exact first head and opens its draft withou
   const id = await approval(request.scope);
   await publishWorker([f.worker.name, id, 'Push once']);
   assert.equal(remoteHeads(f), head);
+  assertUpstream(f, head);
   assert.equal(humanStore().get(id).consumption.scope, request.scope);
   assert.equal(workers().find(worker => worker.name === f.worker.name).pullRequest, 'https://github.invalid/proof/repository/pull/1');
   await assert.rejects(publishWorker([f.worker.name, id, 'Push once']));
@@ -77,7 +83,12 @@ test('an uncertain push response recovers only after exact destination readback 
   const id = await approval(request.scope);
   const pushes = githubState.pushAttempts;
   const draftURL = 'https://github.invalid/proof/repository/pull/2';
-  githubState.afterPush = { url: f.remote, action: () => { githubState.afterPush = undefined; throw new Error('push acknowledgement was lost'); } };
+  git(f.checkout, 'branch', '--set-upstream-to=origin/main', f.worker.branch);
+  let consumed;
+  githubState.afterPush = { url: f.remote, action: () => {
+    consumed = humanStore().get(id).consumption;
+    throw new Error('push acknowledgement was lost');
+  } };
   githubState.pullRequests = [{ url: draftURL, isCrossRepository: false, baseRefName: f.worker.base,
     headRefName: f.worker.branch, isDraft: true, headRefOid: request.head }];
   try {
@@ -89,7 +100,9 @@ test('an uncertain push response recovers only after exact destination readback 
   assert.equal(remoteHeads(f), request.head);
   assert.equal(githubState.pushAttempts, pushes + 1);
   assert.equal(workers().find(worker => worker.name === f.worker.name).publication, 'published');
-  assert.equal(humanStore().get(id).consumption.scope, request.scope);
+  assert.equal(consumed.scope, request.scope);
+  assert.deepEqual(humanStore().get(id).consumption, consumed);
+  assertUpstream(f, request.head);
 });
 
 test('a later invocation recovers an already consumed receipt after exact remote readback', async () => {
@@ -111,6 +124,8 @@ test('a later invocation recovers an already consumed receipt after exact remote
   assert.equal(githubState.pushAttempts, pushes + 1);
   assert.equal(workers().find(worker => worker.name === f.worker.name).publication, 'published');
   assert.deepEqual(humanStore().get(id).consumption, consumed);
+  assert.equal(remoteHeads(f), request.head);
+  assertUpstream(f, request.head);
 });
 
 test('an uncertain push with a different destination ref stops for inspection', async () => {
