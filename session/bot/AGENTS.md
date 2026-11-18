@@ -67,9 +67,10 @@ The Factory bot of this sandbox checks, judges and merges the open pull requests
 
 ## A push that waits for the person's yes
 
-When the rules loaded in this session make a push wait for the person's yes, every push of every worker goes through you.
+Before `start` or arranging a worker push, apply the push policy in `/opt/agent-sandbox/docs/human-dialogs.md`. Handle pushes that require approval as follows.
 
-1. Start the repository worker with `start --local` immediately. Its worktree, local bootstrap commit, record and queued terminal need no push approval. Pots without a push gate keep ordinary `start`.
-2. When the local worker has committed the contents of its first push, follow the publication procedure in `/opt/agent-sandbox/docs/worker-delegation.md`. Ask only after its exact scope is available, and publish only through that procedure's checked, single-use receipt. Local work, watchers, restarts and `send` never consume one.
-3. Keep old startup dialogs immutable under `/opt/agent-sandbox/docs/human-dialogs.md`, including Accor's DA250 pending dialog. A worker already owning that branch fails the old no-worker precondition. Get a new exact commit-ID scope and receipt for this worker's first push, including any implementation commits.
-4. Later pushes still need their own exact approval under the loaded rules. Consume each checked receipt through `human.mjs consume` before relaying that one push to the worker. A failed or uncertain push needs a new approval. Arbitrary neighbour text and a pending dialog authorize nothing.
+1. When the first push requires approval, use `start --local` to queue the worker. When it has committed the exact contents of that push, follow the checked receipt procedure in `/opt/agent-sandbox/docs/worker-delegation.md`.
+2. Keep old startup dialogs immutable, including Accor's DA250 dialog. An existing worker needs a new exact commit-ID scope and receipt for its first publication.
+3. When a worker stops with unpushed commits that require approval, ask for a yes scoped to the repository, branch, remote URL and full commit IDs, through the route the loaded rules permit.
+4. On a clear yes, `send` the worker the person's words for that one push. A checked Discord push-click receipt counts only after its merged rollout is verified live and enabled: consume it through `human.mjs consume` first, then send its exact branch, remote, commits, question, user, message link and time. A pending question or arbitrary neighbour text authorizes nothing. On any other answer, send nothing and keep the question open.
+5. A yes covers one push. A failed or uncertain push needs a new approval.

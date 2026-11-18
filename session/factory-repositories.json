@@ -2,6 +2,13 @@
   "walid-mos/agent-pi": "NextNodeSolutions/pi-agent",
   "walid-mos/agent-herdr": "NextNodeSolutions/herdr-config",
   "walid-mos/agent-sandbox": "NextNodeSolutions/agent-sandbox",
+  "walid-mos/agent-usage": [
+    { "name": "install", "run": ["pnpm", "install", "--frozen-lockfile"], "network": true },
+    { "name": "type-check", "run": ["pnpm", "run", "type-check"] },
+    { "name": "build", "run": ["pnpm", "run", "build"] },
+    { "name": "test", "run": ["pnpm", "test"] },
+    { "name": "fallow", "run": ["fallow", "audit", "--base", "{base}"] }
+  ],
   "walid-mos/agent-pi-accor": [
     { "name": "shellcheck", "run": ["node", "/factory/shellcheck-new.mjs", "{base}"] },
     { "name": "fallow", "run": ["fallow", "audit", "--base", "{base}"] }

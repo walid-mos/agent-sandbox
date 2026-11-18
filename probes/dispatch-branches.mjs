@@ -9,6 +9,9 @@ const repository = fileURLToPath(new URL('..', import.meta.url));
 const fixture = mkdtempSync(join(tmpdir(), 'dispatch-branches-'));
 const session = join(fixture, 'session');
 const binaries = join(fixture, 'bin');
+const policyGuide = join(fixture, 'docs/human-dialogs.md');
+const clientRules = join(fixture, 'client-rules.md');
+const clientRuleText = 'Ask the person before every push.';
 const allowedRepository = 'accor-hotels/product-data-apps';
 const jiraBranch = 'feat/DA-250-freeze-campaign-establishments';
 const pullRequest = 'https://github.invalid/probe/pull/1';
@@ -20,8 +23,11 @@ const LAUNCH_REFUSAL = /^dispatch: give --title/;
 function prepare() {
   mkdirSync(session);
   mkdirSync(binaries);
+  mkdirSync(join(fixture, 'docs'));
   copyFileSync(join(repository, 'session/dispatch.mjs'), join(session, 'dispatch.mjs'));
-  writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "accor-hotels": "UNUSED_PROBE_TOKEN" }, bot: "Probe" }; export const owners = Object.keys(sandbox.owners); export const botId = sandbox.bot.toLowerCase();\n');
+  copyFileSync(join(repository, 'docs/human-dialogs.md'), policyGuide);
+  writeFileSync(clientRules, clientRuleText);
+  writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "accor-hotels": "UNUSED_PROBE_TOKEN" }, bot: "Probe", rules: process.env.PROBE_CLIENT_RULES, humanDiscord: { pushApprovalsEnabled: false } }; export const owners = Object.keys(sandbox.owners); export const botId = sandbox.bot.toLowerCase();\n');
   writeFileSync(join(fixture, 'copy-imports.mjs'), `
 import { appendFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';
@@ -63,7 +69,7 @@ if (binary === 'bash') console.log(${JSON.stringify(pullRequest)});
   for (const binary of ['git', 'gh', 'bash', 'hc']) symlinkSync(executable, join(binaries, binary));
 }
 
-function invoke(branch, target, { title, subject }, mode = 'start', origin = `https://github.com/${target}.git`) {
+function invoke(branch, target, { title, subject, rules }, mode = 'start', origin = `https://github.com/${target}.git`) {
   const home = mkdtempSync(join(fixture, 'home-'));
   const configuration = join(home, '.pi/agent/extensions/subagent');
   mkdirSync(configuration, { recursive: true });
@@ -75,7 +81,7 @@ function invoke(branch, target, { title, subject }, mode = 'start', origin = `ht
     ? ['task', '--title', title, '--scope', 'Read the supplied brief and write one report.', 'report', home, brief, join(home, 'result.md')]
     : ['start', ...(mode === 'local' ? ['--local'] : []), ...options, '--', target, branch, brief, 'develop'];
   const result = spawnSync(process.execPath, ['--import', join(fixture, 'copy-imports.mjs'), join(session, 'dispatch.mjs'), ...args], {
-    cwd: fixture, encoding: 'utf8', timeout: 10_000, env: { HOME: home, PATH: binaries, PROBE_ORIGIN: origin },
+    cwd: fixture, encoding: 'utf8', timeout: 10_000, env: { HOME: home, PATH: binaries, PROBE_ORIGIN: origin, PROBE_CLIENT_RULES: rules },
   });
   assert.ifError(result.error);
   const log = join(home, 'commands.jsonl');
@@ -101,6 +107,10 @@ function accepted(branch, values = launch) {
     ['bash', join(result.home, '.pi/agent/skills/worktree/scripts/draft-pr'), worktree, values.title, 'develop'],
   ]);
   assert.deepEqual(result.directories, [fixture, checkout, checkout, worktree, worktree]);
+  const brief = readFileSync(worker.brief, 'utf8');
+  assert.ok(brief.includes(policyGuide), 'the brief points workers to the push policy');
+  assert.equal(brief.includes(clientRules), Boolean(values.rules), 'the brief points to the client rules only when configured');
+  assert.ok(!brief.includes(clientRuleText), 'the brief leaves client policy text in its source file');
   const workers = join(result.home, '.config/agent-sandbox/workers');
   assert.equal(JSON.parse(readFileSync(join(workers, worker.name + '.json'), 'utf8')).branch, branch);
   assert.equal(readdirSync(join(workers, 'queue')).length, 1);
@@ -122,9 +132,12 @@ try {
   assert.equal(fork.status, 1, fork.stderr);
   assert.match(fork.stderr, /origin does not match/);
   assert.equal(fork.calls.some(args => args.includes('fetch') || args.includes('worktree') || args.includes('commit')), false);
-  const local = invoke(jiraBranch, allowedRepository, launch, 'local');
+  const local = invoke(jiraBranch, allowedRepository, { ...launch, rules: clientRules }, 'local');
   assert.equal(local.status, 0, local.stderr);
   const localWorker = JSON.parse(local.stdout);
+  const localBrief = readFileSync(localWorker.brief, 'utf8');
+  assert.ok(localBrief.includes(policyGuide) && localBrief.includes(clientRules), 'the local brief points to the push policy and configured client rules');
+  assert.ok(!localBrief.includes(clientRuleText), 'the local brief leaves client policy text in its source file');
   assert.equal(localWorker.publication, 'local');
   assert.equal(localWorker.pullRequest, undefined);
   assert.equal(local.calls.some(args => ['bash', 'hc'].includes(args[0]) || args.includes('push')), false);
@@ -136,6 +149,7 @@ try {
   assert.deepEqual(task.calls, [], 'non-repository launch has no Git, GitHub, PR or immediate terminal side effect');
   assert.equal(readdirSync(join(task.home, '.config/agent-sandbox/workers/queue')).length, 1);
   accepted(jiraBranch);
+  accepted(jiraBranch, { ...launch, rules: clientRules });
   accepted(jiraBranch, { title: '[DA-250] Freeze campaign establishments', subject: 'Start DA-250' });
   for (const prefix of ['feat', 'fix', 'chore', 'docs', 'refactor', 'test']) accepted(`${prefix}/worker-task-250`);
   for (const branch of ['', 'feat/', 'Feat/DA-250-task', 'feature/DA-250-task', 'main', '-feat/task', 'feat/task/extra',
@@ -154,7 +168,7 @@ try {
   const copied = new Set([join(session, 'dispatch.mjs'), join(session, 'sandbox.mjs'), ...recorded('copied')]);
   const loaded = new Set(recorded('loaded'));
   assert.deepEqual([...copied].sort(), [...loaded].sort(), 'copy exactly the active dispatch module graph');
-  console.log('ok   dispatch preserves Jira branch and develop base, commits the given bootstrap subject in the worktree, opens the draft PR with the given title in any repository format, refuses malformed refs, titles, subjects and unsupported repositories before side effects');
+  console.log('ok   dispatch preserves Jira branch and develop base, commits the given bootstrap subject in the worktree, opens the draft PR with the given title in any repository format, points default and client workers to their push policy with Discord push clicks disabled, refuses malformed refs, titles, subjects and unsupported repositories before side effects');
 } finally {
   rmSync(fixture, { recursive: true, force: true });
 }

@@ -11,6 +11,7 @@ const CREDENTIALS = [
   { provider: 'openrouter', path: '/providers', name: 'OPENROUTER_API_KEY', input: 'keys' },
   { provider: 'typesafe', path: '/providers', name: 'TYPESAFE_API_KEY', input: 'keys' },
   { provider: 'claude', path: '/clients/claude', name: 'CLAUDE_CODE_OAUTH_TOKEN', input: 'accounts' },
+  { provider: 'claude', path: '/clients/claude', name: 'CLAUDE_CODE_OAUTH_TOKEN_SECONDARY', input: 'accounts' },
 ];
 const COMMAND_SECONDS = 120;
 const INPUTS = {

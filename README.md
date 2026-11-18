@@ -186,6 +186,8 @@ For this checkout on a Mac, run `./bin/import-private OLD_CHECKOUT` from a clone
 
 ## Daily operations
 
+[Mac launch setup](docs/mac-launch.md) lets a pot propose a prompt for one Mac. That Mac verifies the operator's Discord click before starting Pi. The feature stays disabled until private configuration and setup on each Mac.
+
 Start Herdr once so it creates its configuration, then install the Pots pane and the login watchdog from the Mac checkout:
 
 ```sh
@@ -308,13 +310,13 @@ Bootstrap seeds the router. Seed it alone from the Mac checkout while the Mac's 
 ./bin/router-seed
 ```
 
-The Mac's Magpie groups own the concrete model choices. `router-seed` carries their members, order, efforts and rules to each pot, without keys or sign-ins. Rerun it when those definitions change on the Mac. [The sandbox defaults](session/models.mjs) name groups only. The deliberate direct-provider fallback and advisor choices live in [agent-pi](https://github.com/walid-mos/agent-pi), so they can work while Magpie is down.
+The Mac's Magpie groups own the concrete model choices. `router-seed` carries their members, order, efforts and rules to each pot, without keys or sign-ins. Rerun it when those definitions change on the Mac. [The sandbox defaults](session/models.mjs) name groups only. Every fallback, between Claude accounts and between model families, happens inside those groups: Pi calls Magpie and nothing else.
 
 [The restore step](session/router-restore) applies the seed, syncs credentials and makes two tiny answer requests for the default groups. To avoid a classifier call for the ping, it follows each default's first-member chain to the first rule-free `order` group whose remaining chain also has no rules. It derives the expected model from the restored configuration and compares it with Magpie's `X-Magpie-Model` response header. A fallback is a failure, even if it answers OK. Success names the default group, the group asked when different, and the serving model. Missing, empty, cyclic or unpredictable chains fail before either request.
 
-Credential production stays outside Magpie. The human stores the Claude setup token in Infisical, and the external Codex publisher stores its access-only publication there. [One table](session/router-credentials.mjs) names each provider, its vault location and its Magpie input. The sync asks the VM's vault broker for the entries of that table the sandbox lists under `secrets` or `onRequest`, the Codex publication included, and the Magpie commands it runs receive no GitHub token and no vault access.
+Credential production stays outside Magpie. The human stores two Claude setup tokens in Infisical, `CLAUDE_CODE_OAUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN_SECONDARY`, one per account, and the external Codex publisher stores its access-only publication there. [One table](session/router-credentials.mjs) names each provider, its vault location and its Magpie input. The sync asks the VM's vault broker for the entries of that table the sandbox lists under `secrets` or `onRequest`, the Codex publication included, and the Magpie commands it runs receive no GitHub token and no vault access.
 
-The consumer imports API keys with `magpie provider keys PROVIDER add -` and the Claude setup token with `magpie accounts import claude /dev/stdin --yes`. Values travel on stdin. Existing keys are skipped, and Magpie retains previous imported keys and setup-token accounts under its native routing rules. The sandbox does not generate or renew either subscription credential.
+The consumer imports API keys with `magpie provider keys PROVIDER add -` and each Claude setup token with `magpie accounts import claude /dev/stdin --yes`, so the router spreads Claude requests over both accounts. Values travel on stdin. Existing keys are skipped, and Magpie retains previous imported keys and setup-token accounts under its native routing rules. The sandbox does not generate or renew either subscription credential.
 
 For Codex, [the adapter](session/router-codex.mjs) validates the publication and atomically writes its private `auth.json` under `~/.local/state/agent-sandbox/codex`. Its ownership, symlink, account-ID and expiry checks prevent an invalid publication from replacing the file. Only the router sets `CODEX_HOME` to that directory. Magpie [documents that file-discovery interface](https://github.com/yetone/magpie/blob/v0.1.4340/docs/subsystems/providers-accounts.md), and its [reference](https://github.com/yetone/magpie/blob/v0.1.4340/docs/reference.md#signed-in-agents-as-providers) says it reads the agent's credentials each time. Acceptance of this access-only file without an ID token is verified behavior, rather than a documented minimum schema.
 
@@ -332,7 +334,7 @@ A pot's bot follows [the work center's instructions](session/bot), and the Maste
 
 For rules maintained in a private source, use [the client-rules import and approval commands](docs/client-rules.md). `vm-config` carries the approved snapshot through the trusted launcher to the existing read-only configuration mount. An unsigned source update alone cannot activate new rules.
 
-A sandbox for a client uses `rules` for the client's own instruction file, which can make every push wait for the person's yes. The yes is a rule that the bot and the worker follow, and the sandbox's token can push without it. The bot starts with `start --local`, so the worker can work in Herdr immediately. Its first push and draft PR wait for a new exact commit-ID approval consumed through the [publication procedure](docs/worker-delegation.md). Existing bootstrap-only dialogs keep their original scope. Later pushes each need their own approval.
+Both the work center and its workers follow the [push policy](docs/human-dialogs.md#when-to-ask-for-push-approval).
 
 The bot delegates every new background task through the visible terminal launcher. Repository tasks use `start`, with `--local` when publication must wait. Bounded read, planning and report tasks use `task`, without Git, a worktree or a PR. Read [visible delegated work](docs/worker-delegation.md) before using deferred publication or non-repository tasks. Existing gateway children finish through their existing path. To launch a repository worker by hand, create a brief or a message file inside the session, then run this from the Mac. The dispatcher identifies the repository explicitly when looking up its default branch.
 
