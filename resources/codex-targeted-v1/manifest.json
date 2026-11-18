@@ -488,7 +488,7 @@
       "bytes": 2575
     },
     "session/bootstrap": {
-      "sha256": "d7bac7211f42e72de41e8d5a46bf02809ec47baa5e06195c87c6217d8f9b8bb8",
+      "sha256": "f00de8b5380bd3f14f7b9b12d170554d833ad0c4464b39c3b3e88f10f2b6525d",
       "bytes": 7232
     },
     "session/bot-secrets-config.mjs": {
@@ -544,8 +544,8 @@
       "bytes": 2016
     },
     "session/codex-catalog.test.mjs": {
-      "sha256": "61c1c43d550a62465e9f78758e9efae240bae0b176e28bbfc68f11cf7562fddb",
-      "bytes": 1856
+      "sha256": "49f0f2260777dbfd432590161d659195539e5f51328ae95e5656a76e86d785a8",
+      "bytes": 2273
     },
     "session/codex-contract-names.mjs": {
       "sha256": "98c58a38684a3cd4509e39057b3f39317bd62e0d1c7619d5fb780a2132711d2e",
@@ -746,6 +746,10 @@
     "session/factory/responsibilities.md": {
       "sha256": "949a6297bdf4329878c7b1c1690905e3531878eebeaef8a3b40a1ec1c9666441",
       "bytes": 350
+    },
+    "session/fixtures/codex-rust-v0.169.1-models.json": {
+      "sha256": "3c367e5248f1959b17dfc90e029a32b80e818401492e580aba982c3b59e1afde",
+      "bytes": 1075
     },
     "session/gateway": {
       "sha256": "3adbe801e07903fc3bec2d462ff36ec805a7dc15b4d1a6d679765d7bf79260a1",

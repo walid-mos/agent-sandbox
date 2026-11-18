@@ -1,0 +1,26 @@
+{
+  "source": {
+    "repository": "openai/codex",
+    "tag": "rust-v0.169.1",
+    "commit": "c376cf7396eff83ce4c6ac61b9553df142e7a0be",
+    "path": "codex-rs/models-manager/models.json",
+    "sha256": "d50b6749506d97e5f334dbabcb666eb1689f423cf3e88cfabdcf3c536b873068"
+  },
+  "sourceModelCount": 14,
+  "models": [
+    {
+      "slug": "gpt-6.2-sol",
+      "visibility": "list",
+      "supported_in_api": true,
+      "minimal_client_version": "0.166.0",
+      "supported_reasoning_levels": [
+        { "effort": "low", "description": "Fast responses with lighter reasoning" },
+        { "effort": "medium", "description": "Balances speed and reasoning depth for everyday tasks" },
+        { "effort": "high", "description": "Greater reasoning depth for complex problems" },
+        { "effort": "xhigh", "description": "Extra high reasoning depth for complex problems" },
+        { "effort": "max", "description": "Maximum reasoning for the hardest problems" },
+        { "effort": "ultra", "description": "Maximum reasoning with automatic task delegation" }
+      ]
+    }
+  ]
+}
