@@ -5,7 +5,8 @@ import sys
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from guards import AREA, private_directory, read_json, require
+from guards import AREA, encode, private_directory, read_json, require
+from journal import create
 from sources import prove_files
 import os
 import tempfile
@@ -22,6 +23,13 @@ sys.path.insert(0, str(root / 'vm/lib'))
 import client_rules
 
 fault = json.loads((root / 'fixture-options.json').read_bytes())['storeFault']
+if fault == 'wait-before-write':
+    identity = {'pid': os.getpid(), 'start': Path('/proc/self/stat').read_text().rsplit(')', 1)[1].split()[19]}
+    create(root / 'store-process.json', encode(identity))
+    with (root / 'store-ready').open('wb', buffering=0) as ready:
+        ready.write(b'R')
+    with (root / 'store-release').open('rb', buffering=0) as release:
+        require(release.read(1) == b'G', 'fixture store gate closed')
 replace = client_rules.replace_file
 
 

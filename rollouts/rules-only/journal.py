@@ -1,7 +1,10 @@
+import fcntl
 import os
 from pathlib import Path
+import uuid
 
 from guards import Refused, digest, encode, private_directory, private_file, read_json, require
+from process_state import LIVE, identity, lease_identity, lease_is_held
 
 
 def fsync_directory(directory):
@@ -24,19 +27,38 @@ def create(path, content, mode=0o600):
         fsync_directory(path.parent)
 
 
+def create_ownership(marker, contract):
+    descriptor = os.open(marker, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        ownership = {'runId': contract['runId'], 'contractSha256': digest(encode(contract)),
+                     'journal': contract['journal'], 'uid': os.getuid(), 'owner': identity(os.getpid()),
+                     'lease': lease_identity(marker), 'nonce': uuid.uuid4().hex}
+        with os.fdopen(os.dup(descriptor), 'wb') as output:
+            output.write(encode(ownership))
+            output.flush()
+            os.fsync(output.fileno())
+        fsync_directory(marker.parent)
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 class Journal:
-    def __init__(self, contract, fault=''):
+    def __init__(self, contract, fault, termination):
         self.directory = Path(contract['journal'])
         self.fault = fault
+        self.termination = termination
+        self.current_step = ''
+        self.contract_hash = digest(encode(contract))
         parent = private_directory(self.directory.parent)
         self.marker = parent / (self.directory.name + '.ownership.json')
         require(not self.marker.exists() and not self.directory.exists() and not self.directory.is_symlink(),
                 'RECONCILE: attempt exists. Use inspect with its original contract. Never rerun.')
         require(Path(contract['runId']).name == contract['runId']
                 and contract['runId'] not in ('.', '..'), 'invalid run identity')
-        ownership = {'runId': contract['runId'], 'contractSha256': digest(encode(contract)),
-                     'journal': str(self.directory), 'uid': os.getuid()}
-        create(self.marker, encode(ownership))
+        self.owner_descriptor = create_ownership(self.marker, contract)
         self.directory.mkdir(mode=0o700)
         fsync_directory(parent)
         self.events = self.directory / 'events.jsonl'
@@ -51,8 +73,16 @@ class Journal:
             output.flush()
             os.fsync(output.fileno())
 
+    def close(self):
+        os.close(self.owner_descriptor)
+
     def step(self, name, action):
-        self.append(name, 'intent')
+        with self.termination.protect():
+            self.current_step = name
+            self.append(name, 'intent')
+            return self.perform(name, action)
+
+    def perform(self, name, action):
         try:
             self.inject(name, 'before')
             proof = action() or {}
@@ -79,8 +109,16 @@ def inspect_journal(contract):
     directory = Path(contract['journal'])
     private_directory(directory.parent)
     marker = read_json(private_file(directory.parent / (directory.name + '.ownership.json')))
-    require(marker == {'runId': contract['runId'], 'contractSha256': digest(encode(contract)),
-                       'journal': str(directory), 'uid': os.getuid()}, 'ownership does not match')
+    expected = {'runId': contract['runId'], 'contractSha256': digest(encode(contract)),
+                'journal': str(directory), 'uid': os.getuid()}
+    require(set(marker) == {*expected, 'owner', 'lease', 'nonce'}
+            and all(marker[key] == value for key, value in expected.items()), 'ownership does not match')
+    path = directory.parent / (directory.name + '.ownership.json')
+    is_live = lease_is_held(path, marker['lease']) or identity(marker['owner']['pid']) == marker['owner']
+    return read_events(directory, contract), LIVE if is_live else 'OWNER-ENDED'
+
+
+def read_events(directory, contract):
     if not directory.exists():
         return [{'step': 'initialization', 'status': 'intent'}]
     private_directory(directory)

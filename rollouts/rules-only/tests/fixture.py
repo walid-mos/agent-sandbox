@@ -114,7 +114,7 @@ class Fixture:
                         'outputSha256': digest(EXPECTED), 'outputBytes': len(EXPECTED), 'fault': '', 'storeFault': '',
                         'driftTarget': '', 'driftObservation': 0, 'pauseRead': 0}
 
-    def run(self, **updates):
+    def command(self, **updates):
         self.contract.update(updates)
         manifest = subprocess.run([sys.executable, '-I', str(AREA / 'run.py'), 'manifest'],
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -128,11 +128,12 @@ class Fixture:
             self.contract['ownerProofSha256'] = digest(self.proof.read_bytes())
         write_json(self.contract_path, self.contract)
         write_json(self.root / 'fixture-options.json', self.options)
-        return subprocess.run([sys.executable, '-I', str(AREA / 'run.py'), 'fixture',
-                               '--fixture-root', str(self.root), '--contract', str(self.contract_path),
-                               '--contract-sha256', digest(self.contract_path.read_bytes()),
-                               '--owner-proof', str(self.proof)],
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+        return [sys.executable, '-I', str(AREA / 'run.py'), 'fixture',
+                '--fixture-root', str(self.root), '--contract', str(self.contract_path),
+                '--contract-sha256', digest(self.contract_path.read_bytes()), '--owner-proof', str(self.proof)]
+
+    def run(self, **updates):
+        return subprocess.run(self.command(**updates), stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
 
     def records(self):
         return [json.loads(line) for line in (self.journal / 'events.jsonl').read_text().splitlines()]

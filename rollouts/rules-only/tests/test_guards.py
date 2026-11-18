@@ -15,8 +15,8 @@ class GuardTests(unittest.TestCase):
         result = fixture.run()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((fixture.directory / 'client-rules.md').stat().st_mode & 0o777, 0o444)
-        for path in fixture.journal.iterdir():
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        for path in fixture.journal.rglob('*'):
+            self.assertEqual(path.stat().st_mode & 0o777, 0o700 if path.is_dir() else 0o600)
         self.assertEqual(fixture.journal.stat().st_mode & 0o777, 0o700)
 
     def test_scope_hold_cutoff_and_pending_destinations_refuse_before_side_effects(self):
@@ -49,12 +49,12 @@ class GuardTests(unittest.TestCase):
         self.assertFalse(fixture.journal.exists())
         fixture.scratch.cleanup()
 
-    def test_all_observed_executions_are_local_git_or_the_pinned_store(self):
+    def test_all_observed_executions_are_git_pinned_store_or_supervisor(self):
         fixture = Fixture(self)
         self.assertEqual(fixture.run().returncode, 0)
         calls = [json.loads(line) for line in (fixture.root / 'fixture-audit.jsonl').read_text().splitlines()]
         self.assertGreater(len(calls), 10)
-        self.assertEqual({call['executable'] for call in calls}, {'git', 'pinned-store-config'})
+        self.assertEqual({call['executable'] for call in calls}, {'git', 'pinned-store-config', 'mutation-supervisor'})
         self.assertTrue(all(call['networkAllowed'] is False for call in calls))
 
     def test_hooks_shell_startup_and_inherited_git_commands_cannot_run(self):

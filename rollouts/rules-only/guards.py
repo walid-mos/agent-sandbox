@@ -89,25 +89,29 @@ class Commands:
         self.seconds = seconds
         self.deadline = time.monotonic() + seconds
         self.fixture_home = None
+        self.mutations = None
 
     def run(self, arguments, *, input_bytes=b'', mutation=False, extra=None):
-        timeout = None if mutation else min(COMMAND_SECONDS, self.deadline - time.monotonic())
-        require(mutation or timeout > 0, 'aggregate preflight deadline reached')
+        child_environment = {**environment(), **({'HOME': str(self.fixture_home)} if self.fixture_home else {}),
+                             **(extra or {})}
+        if mutation:
+            require(self.mutations is not None, 'durable mutation supervision required')
+            output = self.mutations.run(arguments, input_bytes, child_environment)
+            self.deadline = time.monotonic() + self.seconds
+            return output
+        timeout = min(COMMAND_SECONDS, self.deadline - time.monotonic())
+        require(timeout > 0, 'aggregate preflight deadline reached')
         process = subprocess.Popen(list(map(str, arguments)), stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   env={**environment(), **({'HOME': str(self.fixture_home)} if self.fixture_home else {}),
-                                        **(extra or {})}, start_new_session=True)
+                                   env=child_environment, start_new_session=True)
         try:
             output, _ = process.communicate(input_bytes, timeout=timeout)
         except subprocess.TimeoutExpired:
             stop_read_process(process)
             raise Refused('read-only command deadline reached') from None
         except BaseException:
-            if not mutation:
-                stop_read_process(process)
+            stop_read_process(process)
             raise
-        if mutation:
-            self.deadline = time.monotonic() + self.seconds
         require(process.returncode == 0 and len(output) <= MAX_BYTES,
                 'command failed, command output withheld')
         return output

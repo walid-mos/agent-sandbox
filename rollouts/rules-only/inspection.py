@@ -3,6 +3,8 @@ import platform
 
 from guards import AREA, Commands, digest, private_file, read_json, require
 from journal import inspect_journal
+from mutation_records import inspect_operations
+from process_state import ENDED, LIVE, UNKNOWN
 from preflight import path_proof
 from sources import prove_files
 from transport import FixtureTransport, Transport, fixture_scope
@@ -12,7 +14,12 @@ def inspect(options):
     path = private_file(options.contract)
     require(digest(path.read_bytes()) == options.contract_sha256, 'contract hash differs')
     contract = read_json(path)
-    records = inspect_journal(contract)
+    records, owner = inspect_journal(contract)
+    mutations = inspect_operations(Path(contract['journal']), contract)
+    blocked = continuation_status(records, owner, mutations)
+    if blocked:
+        return {'journal': records, 'owner': owner, 'mutations': mutations, 'observed': {},
+                'action': blocked + '. No target reads. Owner reconciliation required. No writes performed.'}
     private = Path(contract['privateCheckout'])
     directory = Path(contract['runtime']) / 'sandboxes/accor'
     paths = {'original': Path(contract['original']), 'canonical': private / 'rules/AGENTS.md',
@@ -33,8 +40,17 @@ def inspect(options):
     observed['privateBranch'] = branch
     if options.vm:
         observed['vm'] = inspect_vm(options, commands, contract, resources, directory)
-    return {'journal': records, 'observed': observed,
-            'action': 'owner reconciliation required, no writes performed'}
+    return {'journal': records, 'owner': owner, 'mutations': mutations, 'observed': observed,
+            'action': 'owner reconciliation required. No resume, retry, rollback, cleanup, or writes performed.'}
+
+
+def continuation_status(records, owner, mutations):
+    if owner == LIVE or any(operation['status'] == LIVE for operation in mutations):
+        return LIVE + ' continuation or journal owner'
+    latest = {record.get('step', ''): record['status'] for record in records}
+    if any(operation['status'] != ENDED or latest.get(operation['stage']) != 'confirmed' for operation in mutations):
+        return UNKNOWN + ' continuation. Local group completion does not prove detached or remote quiescence'
+    return ''
 
 
 def inspect_vm(options, commands, contract, resources, directory):

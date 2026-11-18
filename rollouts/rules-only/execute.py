@@ -11,6 +11,8 @@ from local_steps import (acknowledge, canonical_commit, capture_backups, create_
                          stage_acknowledgement, stage_canonical, stage_link, transfer,
                          write_canonical, write_pending, write_snapshot)
 from preflight import Preflight
+from mutation_process import MutationLauncher
+from termination import Termination
 from sources import plan_import, prove_files
 from transport import FixtureTransport, Transport, fixture_scope
 
@@ -73,19 +75,32 @@ def prepare(options, contract, resources):
 
 
 def execute(options, contract, resources):
+    with Termination() as termination:
+        return execute_attempt(options, contract, resources, termination)
+
+
+def execute_attempt(options, contract, resources, termination):
     journal_path = Path(contract['journal'])
     require(not journal_path.exists() and not journal_path.is_symlink()
             and not (journal_path.parent / (journal_path.name + '.ownership.json')).exists(),
             'RECONCILE: prior attempt exists. Use inspect with the retained contract. Never rerun.')
     plan, fault = prepare(options, contract, resources)
     with sandbox_lock(plan.directory):
-        return execute_locked(options, plan, fault)
+        return execute_locked(options, plan, fault, termination)
 
 
-def execute_locked(options, plan, fault):
-    contract = plan.contract
+def execute_locked(options, plan, fault, termination):
     guard(plan, options.owner_proof)
-    journal = Journal(contract, fault)
+    journal = Journal(plan.contract, fault, termination)
+    try:
+        plan.commands.mutations = MutationLauncher(journal, plan.commands.fixture_home)
+        return execute_journalled(options, plan, journal)
+    finally:
+        journal.close()
+
+
+def execute_journalled(options, plan, journal):
+    contract = plan.contract
     journal.step('capture-backups', lambda: capture_backups(plan, journal))
     guard(plan, options.owner_proof)
     with bounded_reads(contract['preflightSeconds']):

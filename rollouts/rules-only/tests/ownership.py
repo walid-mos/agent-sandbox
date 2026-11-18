@@ -78,6 +78,7 @@ def reconcile_receipt(receipt):
 
 class OwnedFixture:
     def __init__(self, case):
+        self.isHeld = False
         self.name = None
         self.receipt = None
         self.record = None
@@ -93,6 +94,6 @@ class OwnedFixture:
         write_record(root / 'fixture-owner.json', self.record)
 
     def cleanup(self):
-        if self.receipt is None or not self.receipt.exists():
+        if self.isHeld or self.receipt is None or not self.receipt.exists():
             return
         remove_owned(self.receipt, self.record)

@@ -60,7 +60,7 @@ class CheckpointTests(unittest.TestCase):
 
     def test_expired_contract_can_inspect_vm_without_mutation(self):
         fixture = Fixture(self)
-        fixture.options['fault'] = 'vm-transfer:crash-after'
+        fixture.options['fault'] = 'vm-confirmation:crash-before'
         self.assertEqual(fixture.run().returncode, 86)
         retained = (fixture.journal / 'events.jsonl').read_bytes()
         command = [sys.executable, '-I', str(AREA / 'run.py'), 'inspect', '--contract',
