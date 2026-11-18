@@ -4,6 +4,13 @@ export const DIALOG_ID = /^[a-f0-9]{32}$/;
 export const DIGEST = /^[a-f0-9]{64}$/;
 export const RELAYED_POLICIES = ['ordinary', 'push'];
 export const LOCAL_POLICY = 'local';
+// A Mac's launch gate checks this policy itself: no pot relays it, so policyOf keeps a dialog that names it local.
+export const LAUNCH_POLICY = 'launch';
+const OPERATOR_POLICIES = {
+  push: { enabled: 'pushApprovalsEnabled', off: 'human: Discord push approvals stay off until merged and verified live.', other: "human: this push needs the configured operator's own click." },
+  [LAUNCH_POLICY]: { enabled: 'macLaunchEnabled', off: 'human: Mac launches stay off until this Mac is set up and enabled.', other: "human: this launch needs the configured operator's own click." },
+};
+const operatorRule = policy => (Object.hasOwn(OPERATOR_POLICIES, policy) ? OPERATOR_POLICIES[policy] : undefined);
 export const policyOf = value => (RELAYED_POLICIES.includes(value) ? value : LOCAL_POLICY);
 const NAME = /^[\w-]+$/;
 const CAPABILITY = /^[\w-]{43,256}$/;
@@ -13,6 +20,7 @@ export const BROWSER_KEY = 'SECRET';
 export const SECRET_TTL_MS = 15 * 60 * 1000;
 export const VERSION = 1;
 export const MASTERMIND_POT = 'mastermind';
+export const DISCORD_MESSAGE_LIMIT = 2000;
 
 export const text = value => typeof value === 'string' && value.trim().length > 0;
 const unique = values => new Set(values).size === values.length;
@@ -21,9 +29,21 @@ export const isLabel = label => text(label) && !/[\r\n]/.test(label);
 /** An option is its label alone, or `{label, detail, recommended}`. */
 export const optionOf = option => (typeof option === 'string' ? { label: option } : option);
 
+function workerDialogSource(source) {
+  if (source?.type !== 'worker' || ![source.worker, source.session, source.call].every(text)) return undefined;
+  return { type: 'worker', worker: source.worker, session: source.session, call: source.call };
+}
+
+function botDialogSource(source) {
+  if (source?.type !== 'bot' || !text(source.message)) return undefined;
+  return { type: 'bot', message: source.message };
+}
+
 export function dialogSource(source) {
-  if (source?.type === 'worker' && [source.worker, source.session, source.call].every(text)) return { type: 'worker', worker: source.worker, session: source.session, call: source.call };
-  if (source?.type === 'bot' && text(source.message)) return { type: 'bot', message: source.message };
+  const worker = workerDialogSource(source);
+  if (worker) return worker;
+  const bot = botDialogSource(source);
+  if (bot) return bot;
   throw new Error('human: name the worker, session and call, or the bot message.');
 }
 
@@ -34,23 +54,45 @@ export function questionsOf(questions) {
   return normalized;
 }
 
-function questionOf(question) {
+function requireQuestionIdentity(question) {
   if (!text(question?.id) || !text(question.prompt)) throw new Error('human: each question needs an ID and prompt.');
+}
+
+function questionOptions(question) {
   const options = (question.options ?? []).map(optionOf);
-  if (!options.every(option => isLabel(option?.label)) || !unique(options.map(option => option.label))) {
-    throw new Error('human: options need distinct single-line labels.');
-  }
+  const hasValidLabels = options.every(option => isLabel(option?.label));
+  const hasUniqueLabels = unique(options.map(option => option.label));
+  if (!hasValidLabels || !hasUniqueLabels) throw new Error('human: options need distinct single-line labels.');
+  return options;
+}
+
+function questionOf(question) {
+  requireQuestionIdentity(question);
+  const options = questionOptions(question);
   return { id: question.id, prompt: question.prompt, multiple: question.multiple === true,
     options: options.map(({ label, detail, recommended }) => ({ label, detail: typeof detail === 'string' ? detail : '', recommended: recommended === true })) };
 }
 
+function isPotsFile(file) {
+  return typeof file === 'string' && /^[\w-]+\.env$/.test(file);
+}
+
+function isPotsKeyList(keys) {
+  return Array.isArray(keys) && keys.length > 0 && keys.every(key => KEY.test(key));
+}
+
 function potsTarget(target) {
-  if (!/^[\w-]+\.env$/.test(target.file) || !Array.isArray(target.keys) || !target.keys.length || !target.keys.every(key => KEY.test(key))) return undefined;
+  if (!isPotsFile(target.file) || !isPotsKeyList(target.keys)) return undefined;
   return { destination: 'pots', file: target.file, keys: [...new Set(target.keys)] };
 }
 
+function isInfisicalPath(path) {
+  return /^\/[^\r\n\0]*$/.test(path ?? '/');
+}
+
 function infisicalTarget(target) {
-  if (!NAME.test(target.projectId) || !NAME.test(target.environment) || !KEY.test(target.name) || !/^\/[^\r\n\0]*$/.test(target.path ?? '/')) return undefined;
+  const hasIdentity = NAME.test(target.projectId) && NAME.test(target.environment) && KEY.test(target.name);
+  if (!hasIdentity || !isInfisicalPath(target.path)) return undefined;
   return { destination: 'infisical', projectId: target.projectId, environment: target.environment,
     name: target.name, path: target.path ?? '/', replace: target.replace === true };
 }
@@ -94,13 +136,25 @@ export function answersOf(questions, answers) {
   return questions.map(question => answerOf(question, answers));
 }
 
+function requireAnswerShape(answer, labels) {
+  if (!answer || !Array.isArray(labels) || !unique(labels) || typeof answer.text !== 'string') throw new Error('human: invalid answer shape.');
+}
+
+function requireKnownLabels(question, labels) {
+  if (!labels.every(label => question.options.some(option => option.label === label))) throw new Error('human: unknown answer label.');
+}
+
+function requireAnswerCount(question, answer, labels) {
+  const count = labels.length + (answer.text.trim() ? 1 : 0);
+  if (count < 1 || (!question.multiple && count !== 1)) throw new Error('human: choose the permitted number of answers.');
+}
+
 function answerOf(question, answers) {
   const answer = onlyFor(question, answers, 'id');
   const labels = answer?.labels;
-  if (!answer || !Array.isArray(labels) || !unique(labels) || typeof answer.text !== 'string') throw new Error('human: invalid answer shape.');
-  if (!labels.every(label => question.options.some(option => option.label === label))) throw new Error('human: unknown answer label.');
-  const count = labels.length + (answer.text.trim() ? 1 : 0);
-  if (count < 1 || (!question.multiple && count !== 1)) throw new Error('human: choose the permitted number of answers.');
+  requireAnswerShape(answer, labels);
+  requireKnownLabels(question, labels);
+  requireAnswerCount(question, answer, labels);
   return { id: question.id, labels, text: answer.text };
 }
 
@@ -117,16 +171,32 @@ export function discordMessage(messageUrl) {
   return { guildId: link[1], channelId: link[2], messageId: link[3] };
 }
 
+function requireEnabledOperator(identity, rule) {
+  if (identity?.[rule.enabled] !== true || !SNOWFLAKE.test(identity.userId)) throw new Error(rule.off);
+}
+
 export function checkDiscordPolicy(policy, identity) {
-  if (policy !== 'push') return;
-  if (identity?.pushApprovalsEnabled !== true || !SNOWFLAKE.test(identity.userId)) throw new Error('human: Discord push approvals stay off until merged and verified live.');
+  const rule = operatorRule(policy);
+  if (!rule) return;
+  requireEnabledOperator(identity, rule);
+}
+
+function requireDiscordClickMetadata(evidence, message) {
+  if (!SNOWFLAKE.test(evidence?.userId) || message.guildId !== evidence.guildId || !Number.isFinite(Date.parse(evidence?.at))) {
+    throw new Error('human: Discord answer has no valid click metadata.');
+  }
+}
+
+function requireConfiguredOperator(evidence, identity, policy) {
+  const rule = operatorRule(policy);
+  if (rule && evidence.userId !== identity.userId) throw new Error(rule.other);
 }
 
 export function discordEvidence(evidence, identity, policy) {
   checkDiscordPolicy(policy, identity);
   const message = discordMessage(evidence?.messageUrl);
-  if (!SNOWFLAKE.test(evidence?.userId) || message.guildId !== evidence.guildId || !Number.isFinite(Date.parse(evidence?.at))) throw new Error('human: Discord answer has no valid click metadata.');
-  if (policy === 'push' && evidence.userId !== identity.userId) throw new Error("human: this push needs the configured operator's own click.");
+  requireDiscordClickMetadata(evidence, message);
+  requireConfiguredOperator(evidence, identity, policy);
   return { userId: evidence.userId, guildId: evidence.guildId, messageUrl: evidence.messageUrl, at: evidence.at };
 }
 

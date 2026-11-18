@@ -1,15 +1,17 @@
-import { discordMessage, MASTERMIND_POT, onlyFor, VERSION } from './human-contract.mjs';
+import { checkDiscordPolicy, discordMessage, MASTERMIND_POT, onlyFor, VERSION } from './human-contract.mjs';
 import { questionDigest } from './human-dialogs.mjs';
 import { DIALOG } from './door-messages.mjs';
 import { RECEIVED, SETTLED } from './door-requests.mjs';
 import { storedPacket } from './human-door-packets.mjs';
 import { humanStore } from './human-store.mjs';
+import { readHumanDiscord } from './sandbox.mjs';
 
 export async function registerPosted(posted, store = humanStore()) {
   if (posted?.type !== 'human.posted' || posted.version !== VERSION) throw new Error('human: invalid posted context.');
   return store.locked(({ get, save }) => {
     const dialog = get(posted.dialog);
     if (dialog?.kind !== 'question' || posted.request !== dialog.delivery?.id || posted.digest !== questionDigest(dialog)) throw new Error('human: posted context does not match the question request and scope.');
+    checkDiscordPolicy(dialog.policy, readHumanDiscord());
     if (!Array.isArray(posted.messages) || posted.messages.length !== dialog.questions.length) throw new Error('human: register one message per question.');
     const messages = dialog.questions.map(question => {
       const match = onlyFor(question, posted.messages, 'question');

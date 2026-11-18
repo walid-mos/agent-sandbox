@@ -1,22 +1,23 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, isAbsolute, join, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { find } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
-import { idleStackMinutes, maxWorkers } from './limits.mjs';
+import { maxWorkers } from './limits.mjs';
 import { MAX_MODEL } from './models.mjs';
 import { enqueue, queued } from './queue.mjs';
 import { command } from './run.mjs';
-import { botId, owners, sandbox } from './sandbox.mjs';
+import { botId, owners } from './sandbox.mjs';
+import { repositoryBrief, taskBrief } from './worker-brief.mjs';
+import { openWorkerPR, publishWorker, workerScope } from './worker-publication.mjs';
 import { acknowledgeResult } from './worker-results.mjs';
-import { clearStop, save, terminalName, WORKER_PREFIX, workers, writeBrief } from './workers.mjs';
+import { clearStop, PUBLICATION, save, terminalName, WORKER_PREFIX, workers, writeBrief } from './workers.mjs';
 
 const WORKSPACES = join(homedir(), 'Development');
 const DRAFT_PR = join(homedir(), '.pi/agent/skills/worktree/scripts/draft-pr');
-const CLEAN_PASS_GUIDE = join(dirname(fileURLToPath(import.meta.url)), 'clean-pass.md');
-const START_OPTIONS = { max: { type: 'boolean' }, for: { type: 'string' }, title: { type: 'string' }, subject: { type: 'string' } };
+const START_OPTIONS = { max: { type: 'boolean' }, for: { type: 'string' }, title: { type: 'string' }, subject: { type: 'string' }, local: { type: 'boolean' } };
+const TASK_OPTIONS = { max: START_OPTIONS.max, for: START_OPTIONS.for, title: START_OPTIONS.title, scope: { type: 'string' } };
 // Invisible and line-breaking characters are refused so the commit and title are exactly what the person read and approved.
 const ONE_VISIBLE_LINE = /^(?! )[\p{L}\p{M}\p{N}\p{P}\p{S} ]+(?<! )$/u;
 
@@ -33,22 +34,30 @@ function validateLaunchText(title, subject) {
   throw new Error('dispatch: give --title, the pull request title, and --subject, the empty bootstrap commit\'s subject, each in the repository\'s own format for that artefact, on one line of visible characters with no leading or trailing space.');
 }
 
-function workspace(repository, branch, base) {
+function repositoryOrigin(repository, checkout) {
+  const origin = command('git', ['remote', 'get-url', 'origin'], { cwd: checkout });
+  const urls = [`https://github.com/${repository}`, `git@github.com:${repository}`, `ssh://git@github.com/${repository}`];
+  if (!urls.some(url => origin === url || origin === `${url}.git`)) throw new Error(`dispatch: checkout origin does not match ${repository}. Restore it before starting a worker.`);
+  return origin;
+}
+
+function workspace(repository, branch, base, publication) {
   const checkout = join(WORKSPACES, repository);
   mkdirSync(join(checkout, '..'), { recursive: true });
   if (!existsSync(join(checkout, '.git'))) command('git', ['clone', '--quiet', `https://github.com/${repository}.git`, checkout]);
+  const originUrl = publication === PUBLICATION.local ? repositoryOrigin(repository, checkout) : undefined;
   const config = JSON.parse(readFileSync(join(homedir(), '.pi/agent/extensions/subagent/config.json'), 'utf8'));
   const worktree = join(checkout, config.worktreeBaseDir, repository.split('/')[1], branch.replaceAll('/', '-'));
   if (existsSync(worktree)) throw new Error('dispatch: worktree exists. Send to its worker or choose a new branch.');
   command('git', ['fetch', '--quiet', 'origin', base], { cwd: checkout });
   command('git', ['worktree', 'add', '-b', branch, worktree, `origin/${base}`], { cwd: checkout });
-  return worktree;
+  return { worktree, originUrl };
 }
 
-function servedRequest(requested) {
-  const served = requested && find(requested);
-  if (requested && (served?.direction !== 'received' || served.state !== 'open')) throw new Error('dispatch: --for must name an open incoming door request.');
-  return served;
+function checkServedRequest(requested) {
+  if (!requested) return;
+  const served = find(requested);
+  if (served?.direction !== 'received' || served.state !== 'open') throw new Error('dispatch: --for must name an open incoming door request.');
 }
 
 function ensureNewWorker(name) {
@@ -61,22 +70,55 @@ function start(arguments_) {
   const [repository, branch, briefFile, requestedBase] = positionals;
   validate(repository, branch);
   validateLaunchText(values.title, values.subject);
-  const served = servedRequest(values.for);
+  checkServedRequest(values.for);
   const name = terminalName(`${WORKER_PREFIX}${repository.split('/')[1]}-${branch}`, `${repository}/${branch}`);
   ensureNewWorker(name);
   const request = readFileSync(briefFile, 'utf8');
   const base = requestedBase ?? command('gh', ['api', `repos/${repository}`, '--jq', '.default_branch']);
-  const worktree = workspace(repository, branch, base);
+  const publication = values.local ? PUBLICATION.local : undefined;
+  const { worktree, originUrl } = workspace(repository, branch, base, publication);
   // draft-pr adds its own empty commit, with the title as subject, only to a branch without one, so this keeps the commit format apart.
   command('git', ['commit', '--quiet', '--allow-empty', '-m', values.subject], { cwd: worktree });
-  const pullRequest = command('bash', [DRAFT_PR, worktree, values.title, base], { cwd: worktree });
-  const brief = writeBrief(name, `${request}\n\nWork only in ${worktree}, branch ${branch}. Draft PR: ${pullRequest}. Use the installed Pi harness and its skills. This checkout already is this task's worktree; do not hand it off again. The only agents you start are the passes of the clean pass. This fresh checkout has no dependencies, so the repository's commit hooks do not run yet: before your first commit, install its dependencies as it documents and the rules loaded in this session allow, then check the empty commit that opened the pull request against its commit rules and report a mismatch instead of rewriting that pushed commit. Commit atomically, in the repository's own commit format. When no terminal runs in this worktree for ${idleStackMinutes} minutes, the Pots watcher stops its Compose projects with docker compose stop and keeps their volumes: start a stopped one again with docker compose start. Push this branch only as the rules loaded in this session allow. When a push waits for the person's yes, end your turn naming the branch, the remote and the waiting commits; ${sandbox.bot} brings the yes back as a message, and it covers that one push. Before your final response, read ${CLEAN_PASS_GUIDE}: run the clean pass when the task owes one, then mark the pull request ready or keep it in draft as it says. Report the PR, checks, commit, unpushed commits and uncommitted paths in your final response. The Pots watcher will relay your completion to ${sandbox.bot}.\n`);
-  const worker = { name, owner: botId, repository, branch, worktree, brief, pullRequest, request, servedRequest: values.for, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }) };
-  // The record comes first: the watcher drops a request that names no worker.
-  save(worker);
+  const pullRequest = values.local ? undefined : command('bash', [DRAFT_PR, worktree, values.title, base], { cwd: worktree });
+  const worker = { name, kind: 'repository', owner: botId, repository, branch, worktree, pullRequest, request, base,
+    title: values.title, subject: values.subject, servedRequest: values.for, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }),
+    ...(publication && { publication, originUrl }) };
+  queueWorker(worker, repositoryBrief(worker));
+}
+
+function queueWorker(worker, text) {
+  const brief = writeBrief(worker.name, text);
+  save({ ...worker, brief });
   const ahead = queued().length;
-  enqueue({ worker: name });
-  process.stdout.write(`${JSON.stringify({ ...worker, ahead, maxWorkers })}\n`);
+  enqueue({ worker: worker.name });
+  process.stdout.write(`${JSON.stringify({ ...worker, brief, ahead, maxWorkers })}\n`);
+}
+
+function taskDirectory(directory, resultFile) {
+  if (!isAbsolute(directory) || !isAbsolute(resultFile)) throw new Error('dispatch: task workdir and result-file must be absolute paths.');
+  const worktree = realpathSync(directory);
+  const resultParent = realpathSync(dirname(resultFile));
+  if (!(resultParent === worktree || resultParent.startsWith(worktree + sep)) || existsSync(resultFile)) {
+    throw new Error('dispatch: use a new result-file within the task workdir.');
+  }
+  return worktree;
+}
+
+function task(arguments_) {
+  const { values, positionals } = parseArgs({ args: arguments_, options: TASK_OPTIONS, allowPositionals: true });
+  const [id, directory, briefFile, resultFile] = positionals;
+  if (positionals.length !== 4 || !/^[a-zA-Z0-9-]+$/.test(id ?? '') || !ONE_VISIBLE_LINE.test(values.title ?? '') || !ONE_VISIBLE_LINE.test(values.scope ?? '')) {
+    throw new Error('dispatch: task needs --title, --scope, a task name, absolute workdir, brief-file and absolute result-file.');
+  }
+  const worktree = taskDirectory(directory, resultFile);
+  checkServedRequest(values.for);
+  const name = terminalName(`${WORKER_PREFIX}task-${id}`);
+  ensureNewWorker(name);
+  const request = readFileSync(briefFile, 'utf8').trim();
+  if (!request) throw new Error('dispatch: the task brief must describe its bounded result.');
+  const worker = { name, kind: 'task', title: values.title, scope: values.scope, resultFile, worktree, request,
+    owner: botId, servedRequest: values.for, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }) };
+  queueWorker(worker, taskBrief(worker));
 }
 
 // A worker whose terminal is gone, or that was stopped, comes back with its conversation to read the message, once a slot is free.
@@ -89,7 +131,9 @@ function send([name, messageFile]) {
   enqueue({ worker: name, message });
 }
 
-const OPERATIONS = { start, send, finish: acknowledgeResult };
-const USAGE = 'usage: dispatch start [--max] [--for REQUEST_ID] --title PR_TITLE --subject COMMIT_SUBJECT owner/repo type/branch brief-file [base] | dispatch send worker message-file | dispatch finish worker result-id';
+const OPERATIONS = { start, task, send, scope: args => process.stdout.write(`${JSON.stringify(workerScope(args))}\n`),
+  publish: async args => process.stdout.write(`${await publishWorker(args)}\n`),
+  'open-pr': args => process.stdout.write(`${openWorkerPR(args)}\n`), finish: acknowledgeResult };
+const USAGE = 'usage: dispatch start [--local] [--max] [--for REQUEST_ID] --title PR_TITLE --subject COMMIT_SUBJECT owner/repo type/branch brief-file [base] | task [--max] [--for REQUEST_ID] --title TITLE --scope SCOPE task-name workdir brief-file result-file | scope worker | publish worker dialog-id affirmative-label | open-pr worker | send worker message-file | finish worker result-id';
 
 main(import.meta, () => runOperation(OPERATIONS, USAGE));
