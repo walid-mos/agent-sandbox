@@ -35,18 +35,37 @@ export function verifyOffer(shown, notice, settings, now) {
   return { request, prompt, executionDigest: executionFingerprint(settings) };
 }
 
-export function verifyPress(event, offer, settings, now, action) {
-  const { request } = offer;
-  if (offer.executionDigest !== executionFingerprint(settings)) throw new Error('mac-launch: the execution scope changed. Ask for a new offer.');
+function requirePressContext(event, offer, settings) {
+  const isButton = event.type === 3 && event.data?.component_type === 2;
+  const isOffer = event.application_id === offer.applicationId && event.guild_id === settings.guildId
+    && event.channel_id === settings.channelId && event.message?.id === offer.messageId;
+  if (!isButton || !isOffer) throw new Error('mac-launch: the press does not name this unedited offer.');
+}
+
+function requireOfferMessage(event, offer, action) {
   const message = event.message;
-  const isContext = event.type === 3 && event.data?.component_type === 2 && event.application_id === offer.applicationId
-    && event.guild_id === settings.guildId && event.channel_id === settings.channelId && message?.id === offer.messageId;
-  const isMessage = message?.author?.id === offer.applicationId && !message.edited_timestamp && message.content === offer.content
-    && message.attachments?.length === 1 && ['id', 'filename', 'size'].every(key => message.attachments[0][key] === offer.attachment[key]);
-  if (!isContext || !isMessage || event.data.custom_id !== buttonId(request, action)) throw new Error('mac-launch: the press does not name this unedited offer.');
+  const isExactMessage = message?.author?.id === offer.applicationId && !message.edited_timestamp && message.content === offer.content;
+  const [attachment] = message?.attachments ?? [];
+  const isExactAttachment = message?.attachments?.length === 1 && ['id', 'filename', 'size'].every(key => attachment[key] === offer.attachment[key]);
+  if (!isExactMessage || !isExactAttachment || event.data.custom_id !== buttonId(offer.request, action)) {
+    throw new Error('mac-launch: the press does not name this unedited offer.');
+  }
+}
+
+function requireFreshPress(event, request, now) {
   if (!isSnowflake(event.id)) throw new Error('mac-launch: the press has no Discord timestamp.');
   const at = pressedAt(event.id);
   if (now < at - CLOCK_SKEW_MS || now - at > PRESS_MAX_AGE_MS || now >= request.expiresAt) throw new Error('mac-launch: this press is too old, from the future or expired.');
+  return at;
+}
+
+export function verifyPress(event, offer, settings, now, action) {
+  const { request } = offer;
+  if (offer.executionDigest !== executionFingerprint(settings)) throw new Error('mac-launch: the execution scope changed. Ask for a new offer.');
+  requirePressContext(event, offer, settings);
+  requireOfferMessage(event, offer, action);
+  const at = requireFreshPress(event, request, now);
+  const message = event.message;
   const evidence = discordEvidence({ userId: event.member?.user?.id, guildId: event.guild_id,
     messageUrl: discordMessageUrl({ guildId: event.guild_id, channelId: event.channel_id, messageId: message.id }), at: new Date(at).toISOString() }, settings.humanDiscord, LAUNCH_POLICY);
   return { launch: request.launch, digest: request.digest, target: request.target, pot: request.pot, interaction: event.id, executionDigest: offer.executionDigest, ...evidence };

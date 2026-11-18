@@ -26,14 +26,32 @@ export function sandboxProfile(settings, run, acts) {
     ...(endpoints.length ? [`(allow network-outbound ${endpoints.join(' ')})`] : [])].join('\n');
 }
 
-function credentialEnvironment(path, allowed) {
+function requireDelegationPath(path) {
   if (!below(DELEGATIONS_HOME, path)) throw new Error('mac-launch: a delegation must come from the dedicated delegation directory.');
-  let credentials;
-  try { credentials = JSON.parse(readSecret(path)); }
+}
+
+function readDelegation(path) {
+  try { return JSON.parse(readSecret(path)); }
   catch { throw new Error('mac-launch: delegation must be private valid JSON. No credential value was disclosed.'); }
-  if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials) || !Object.keys(credentials).length || Object.entries(credentials).some(([key, value]) => !allowed.includes(key) || typeof value !== 'string' || !value || value.includes('\0'))) {
+}
+
+function requireCredentialObject(credentials) {
+  if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials) || !Object.keys(credentials).length) {
     throw new Error('mac-launch: delegation contains an unsupported environment key or empty value.');
   }
+}
+
+function requireAllowedCredentialValues(credentials, allowed) {
+  const hasUnsupportedEntry = Object.entries(credentials).some(([key, value]) => !allowed.includes(key)
+    || typeof value !== 'string' || !value || value.includes('\0'));
+  if (hasUnsupportedEntry) throw new Error('mac-launch: delegation contains an unsupported environment key or empty value.');
+}
+
+function credentialEnvironment(path, allowed) {
+  requireDelegationPath(path);
+  const credentials = readDelegation(path);
+  requireCredentialObject(credentials);
+  requireAllowedCredentialValues(credentials, allowed);
   return credentials;
 }
 
@@ -50,14 +68,12 @@ export function executionEnvironment(settings, run, acts) {
     TERM: 'xterm-256color', LANG: 'en_US.UTF-8', PI_OFFLINE: '1', PI_SKIP_VERSION_CHECK: '1', PI_TELEMETRY: '0', ...model, ...Object.assign({}, ...grants) };
 }
 
-export function prepareRun(settings, id, acts) {
-  const run = runPaths(id);
-  protectedPath(RUNS_HOME);
-  mkdirSync(run.root, { mode: 0o755 });
-  writeFileSync(join(run.root, '.owner'), id, { flag: 'wx', mode: 0o600, flush: true });
+const RUN_HOME_FOLDERS = ['tmp', '.ssh', '.pi', '.pi/agent', '.config', '.local', '.local/share', '.local/state', '.cache'];
+
+function createRunHome(run) {
   mkdirSync(run.home, { mode: 0o700 });
   const owned = [run.home];
-  for (const folder of ['tmp', '.ssh', '.pi', '.pi/agent', '.config', '.local', '.local/share', '.local/state', '.cache']) {
+  for (const folder of RUN_HOME_FOLDERS) {
     const path = join(run.home, folder);
     mkdirSync(path, { mode: 0o700 });
     owned.push(path);
@@ -65,6 +81,10 @@ export function prepareRun(settings, id, acts) {
   const preferences = join(run.home, '.pi/agent/settings.json');
   writeFileSync(preferences, JSON.stringify({ defaultProjectTrust: 'never', shellPath: '/bin/sh' }), { flag: 'wx', mode: 0o600 });
   owned.push(preferences);
+  return owned;
+}
+
+function stageDelegatedFiles(settings, run, acts, owned) {
   const files = executionScope(settings, acts).grants.flatMap(grant => grant.files);
   if (new Set(files.map(file => file.destination)).size !== files.length) throw new Error('mac-launch: two capabilities delegate the same file.');
   for (const file of files) {
@@ -73,18 +93,41 @@ export function prepareRun(settings, id, acts) {
     writeFileSync(destination, contents, { flag: 'wx', mode: 0o600 });
     owned.push(destination);
   }
-  for (const path of owned.toReversed()) chownSync(path, settings.execution.uid, settings.execution.gid);
+}
+
+function assignRunOwnership(paths, execution) {
+  for (const path of paths.toReversed()) chownSync(path, execution.uid, execution.gid);
+}
+
+export function prepareRun(settings, id, acts) {
+  const run = runPaths(id);
+  protectedPath(RUNS_HOME);
+  mkdirSync(run.root, { mode: 0o755 });
+  writeFileSync(join(run.root, '.owner'), id, { flag: 'wx', mode: 0o600, flush: true });
+  const owned = createRunHome(run);
+  stageDelegatedFiles(settings, run, acts, owned);
+  assignRunOwnership(owned, settings.execution);
   chmodSync(run.root, 0o755);
   return run;
 }
 
+function requireRootTransition(execution) {
+  if (process.getuid() !== 0 || process.geteuid() !== 0 || execution.uid < MIN_EXECUTION_ID || execution.gid < MIN_EXECUTION_ID) {
+    throw new Error('mac-launch: only root may enter the separate execution identity.');
+  }
+}
+
+function requireExecutionTransition(execution) {
+  const hasOtherGroup = process.getgroups().some(gid => gid !== execution.gid);
+  const hasExactIdentity = process.getuid() === execution.uid && process.geteuid() === execution.uid
+    && process.getgid() === execution.gid && !hasOtherGroup;
+  if (!hasExactIdentity) throw new Error('mac-launch: execution identity transition failed. No child may start.');
+}
+
 export function dropExecutionIdentity(execution) {
-  if (process.getuid() !== 0 || process.geteuid() !== 0 || execution.uid < MIN_EXECUTION_ID || execution.gid < MIN_EXECUTION_ID) throw new Error('mac-launch: only root may enter the separate execution identity.');
+  requireRootTransition(execution);
   process.setgroups([]);
   process.setgid(execution.gid);
   process.setuid(execution.uid);
-  const hasOtherGroup = process.getgroups().some(gid => gid !== execution.gid);
-  if (process.getuid() !== execution.uid || process.geteuid() !== execution.uid || process.getgid() !== execution.gid || hasOtherGroup) {
-    throw new Error('mac-launch: execution identity transition failed. No child may start.');
-  }
+  requireExecutionTransition(execution);
 }

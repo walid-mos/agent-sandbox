@@ -16,7 +16,16 @@ export const TASK_KEYS = ['BOAT_API_KEY', 'BOAT_TOKEN', 'GITHUB_TOKEN', 'GH_TOKE
 const FORBIDDEN_ACTS = ['sign-tip', 'launch-gate', 'vm-up', 'restart-pot', 'credentials'];
 const SAFE_NAME = /^[a-z][a-z0-9-]{0,39}$/;
 
-export const below = (root, path) => typeof path === 'string' && isAbsolute(path) && path === normalize(path) && !/[\x00-\x1f\x7f]/.test(path) && relative(root, path) !== '' && !relative(root, path).startsWith('..') && !isAbsolute(relative(root, path));
+function isCanonicalAbsolutePath(path) {
+  return typeof path === 'string' && isAbsolute(path) && path === normalize(path) && !/[\x00-\x1f\x7f]/.test(path);
+}
+
+function isChildPath(root, path) {
+  const child = relative(root, path);
+  return child !== '' && !child.startsWith('..') && !isAbsolute(child);
+}
+
+export const below = (root, path) => isCanonicalAbsolutePath(path) && isChildPath(root, path);
 
 function networkAllowed(network) {
   return Array.isArray(network) && network.every(endpoint => isIP(endpoint.address) === 4
@@ -24,12 +33,25 @@ function networkAllowed(network) {
     && Number.isInteger(endpoint.port) && endpoint.port > 0 && endpoint.port <= 65535);
 }
 
-function checkedGrant(grant) {
-  const hasActs = Array.isArray(grant.acts) && grant.acts.length > 0 && grant.acts.every(act => isAct(act) && !FORBIDDEN_ACTS.includes(act));
-  const hasFiles = Array.isArray(grant.files) && grant.files.every(file => below(DELEGATIONS_HOME, file.source)
+const INVALID_GRANT = 'mac-launch: invalid delegated capability. Only scoped spend/publish credentials and selected SSH files are supported.';
+const INVALID_EXECUTION = 'mac-launch: restricted execution needs protected tools, selected work and an explicit dedicated model delegation.';
+
+function hasAllowedActs(acts) {
+  return Array.isArray(acts) && acts.length > 0 && acts.every(act => isAct(act) && !FORBIDDEN_ACTS.includes(act));
+}
+
+function hasAllowedFiles(files) {
+  return Array.isArray(files) && files.every(file => below(DELEGATIONS_HOME, file.source)
     && ['.ssh/config', '.ssh/id_ed25519', '.ssh/known_hosts'].includes(file.destination));
-  if (!SAFE_NAME.test(grant.name) || !hasActs || !hasFiles || !networkAllowed(grant.network)
-    || (grant.credential !== undefined && !below(DELEGATIONS_HOME, grant.credential))) throw new Error('mac-launch: invalid delegated capability. Only scoped spend/publish credentials and selected SSH files are supported.');
+}
+
+function hasAllowedCredential(credential) {
+  return credential === undefined || below(DELEGATIONS_HOME, credential);
+}
+
+function checkedGrant(grant) {
+  if (!SAFE_NAME.test(grant.name) || !hasAllowedActs(grant.acts) || !hasAllowedFiles(grant.files)
+    || !networkAllowed(grant.network) || !hasAllowedCredential(grant.credential)) throw new Error(INVALID_GRANT);
 }
 
 function checkIdentity(execution) {
@@ -37,18 +59,48 @@ function checkIdentity(execution) {
     || !/^_maclaunch[a-z0-9-]*$/.test(execution.user ?? '')) throw new Error('mac-launch: a separate restricted execution account is required.');
 }
 
+function hasModelProvider(model) {
+  return model?.resolver === 'system-dns' && Object.hasOwn(MODEL_KEYS, model.provider);
+}
+
+function hasModelName(model) {
+  return typeof model?.name === 'string' && /^[A-Za-z0-9._:/-]{1,120}$/.test(model.name);
+}
+
 function hasModelDelegation(model) {
-  return model && model.resolver === 'system-dns' && Object.hasOwn(MODEL_KEYS, model.provider) && typeof model.name === 'string' && /^[A-Za-z0-9._:/-]{1,120}$/.test(model.name)
-    && below(DELEGATIONS_HOME, model.credential) && networkAllowed(model.network) && model.network.length > 0;
+  return hasModelProvider(model) && hasModelName(model) && below(DELEGATIONS_HOME, model.credential)
+    && networkAllowed(model.network) && model.network.length > 0;
+}
+
+function requireExecutionTools(settings) {
+  if (!['node', 'pi', 'hc'].every(key => below(RUNTIME_HOME, settings.tools?.[key]))) throw new Error(INVALID_EXECUTION);
+}
+
+function requireExecutionDirectory(settings) {
+  if (!below(join(EXECUTION_HOME, 'work'), settings.directory)) throw new Error(INVALID_EXECUTION);
+}
+
+function requireModelDelegation(execution) {
+  if (!hasModelDelegation(execution.model)) throw new Error(INVALID_EXECUTION);
+}
+
+function requireGrantList(execution) {
+  if (!Array.isArray(execution.grants)) throw new Error(INVALID_EXECUTION);
+}
+
+function requireUniqueGrants(execution) {
+  if (new Set(execution.grants.map(grant => grant.name)).size !== execution.grants.length) throw new Error('mac-launch: capability names must be unique.');
 }
 
 export function checkedExecution(settings) {
   const execution = settings.execution;
   checkIdentity(execution);
-  const hasTools = ['node', 'pi', 'hc'].every(key => below(RUNTIME_HOME, settings.tools?.[key]));
-  if (!hasTools || !below(join(EXECUTION_HOME, 'work'), settings.directory) || !hasModelDelegation(execution.model) || !Array.isArray(execution.grants)) throw new Error('mac-launch: restricted execution needs protected tools, selected work and an explicit dedicated model delegation.');
+  requireExecutionTools(settings);
+  requireExecutionDirectory(settings);
+  requireModelDelegation(execution);
+  requireGrantList(execution);
   execution.grants.forEach(checkedGrant);
-  if (new Set(execution.grants.map(grant => grant.name)).size !== execution.grants.length) throw new Error('mac-launch: capability names must be unique.');
+  requireUniqueGrants(execution);
   return execution;
 }
 

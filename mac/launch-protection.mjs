@@ -53,20 +53,29 @@ function protectedTree(path) {
   checkNativeAcls(inspected);
 }
 
+const INVALID_REPORT = 'mac-launch: report must be a bounded regular file of the execution account.';
+
+function requireReportFile(stat, owner, limit) {
+  if (!stat.isFile() || stat.uid !== owner || stat.nlink !== 1 || stat.size > limit) throw new Error(INVALID_REPORT);
+}
+
+function readReport(descriptor, limit) {
+  const content = Buffer.alloc(limit + 1);
+  let length = 0;
+  while (length < content.length) {
+    const count = readSync(descriptor, content, length, content.length - length);
+    if (!count) break;
+    length += count;
+  }
+  if (length > limit) throw new Error('mac-launch: report exceeded its byte limit.');
+  return content.subarray(0, length).toString('utf8');
+}
+
 export function readBounded(path, owner, limit = REPORT_BYTES) {
   const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    const stat = fstatSync(descriptor);
-    if (!stat.isFile() || stat.uid !== owner || stat.nlink !== 1 || stat.size > limit) throw new Error('mac-launch: report must be a bounded regular file of the execution account.');
-    const content = Buffer.alloc(limit + 1);
-    let length = 0;
-    while (length < content.length) {
-      const count = readSync(descriptor, content, length, content.length - length);
-      if (!count) break;
-      length += count;
-    }
-    if (length > limit) throw new Error('mac-launch: report exceeded its byte limit.');
-    return content.subarray(0, length).toString('utf8');
+    requireReportFile(fstatSync(descriptor), owner, limit);
+    return readReport(descriptor, limit);
   } finally { closeSync(descriptor); }
 }
 
@@ -76,16 +85,39 @@ export function readSecret(path) {
   return readBounded(path, 0);
 }
 
-export function checkProtectedInstallation(settings) {
-  requireGate();
-  const execution = checkedExecution(settings);
-  for (const folder of [GATE_HOME, DELEGATIONS_HOME, CODE_HOME, RUNTIME_HOME, EXECUTION_HOME, RUNS_HOME]) protectedPath(folder);
+function requireProtectedDirectories() {
+  const folders = [GATE_HOME, DELEGATIONS_HOME, CODE_HOME, RUNTIME_HOME, EXECUTION_HOME, RUNS_HOME];
+  for (const folder of folders) protectedPath(folder);
+}
+
+function requirePrivateGateHomes() {
   for (const folder of [GATE_HOME, DELEGATIONS_HOME]) {
     if ((lstatSync(folder).mode & 0o777) !== 0o700) throw new Error('mac-launch: gate and delegation homes must be mode 0700.');
   }
+}
+
+function requireProtectedCode() {
   for (const path of [CODE_HOME, RUNTIME_HOME]) protectedTree(path);
+}
+
+function requireProtectedTools(settings) {
   for (const path of Object.values(settings.tools)) protectedPath(path);
+}
+
+function requireSelectedWork(settings, execution) {
   protectedPath(dirname(settings.directory));
   const work = lstatSync(settings.directory);
-  if (!work.isDirectory() || work.isSymbolicLink() || work.uid !== execution.uid || (work.mode & 0o777) !== 0o700) throw new Error('mac-launch: selected work must be a real execution-owned directory, mode 0700.');
+  if (!work.isDirectory() || work.isSymbolicLink() || work.uid !== execution.uid || (work.mode & 0o777) !== 0o700) {
+    throw new Error('mac-launch: selected work must be a real execution-owned directory, mode 0700.');
+  }
+}
+
+export function checkProtectedInstallation(settings) {
+  requireGate();
+  const execution = checkedExecution(settings);
+  requireProtectedDirectories();
+  requirePrivateGateHomes();
+  requireProtectedCode();
+  requireProtectedTools(settings);
+  requireSelectedWork(settings, execution);
 }

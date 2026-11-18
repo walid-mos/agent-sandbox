@@ -56,19 +56,24 @@ export function lockService(folder, processStartFor = processStart) {
   return release;
 }
 
+async function offerHistoricalMessage(service, config, applicationId, message) {
+  try { await service.notice({ ...message, guild_id: config.guildId }, applicationId); }
+  catch { warn('mac-launch: a historical notice was refused.'); }
+}
+
+async function offerRecentMessages(service, config, applicationId, messages) {
+  const recent = messages.filter(message => Date.now() - Date.parse(message.timestamp) < LAUNCH_TTL_MS);
+  for (const message of recent.reverse()) await offerHistoricalMessage(service, config, applicationId, message);
+  return recent.length === messages.length && messages.length === 100 ? messages.at(-1).id : undefined;
+}
+
 async function history(client, service, config, applicationId) {
   let before;
-  for (;;) {
+  do {
     const messages = await client.history(config.channelId, before);
     if (!messages.length) return;
-    const recent = messages.filter(message => Date.now() - Date.parse(message.timestamp) < LAUNCH_TTL_MS);
-    for (const message of recent.reverse()) {
-      try { await service.notice({ ...message, guild_id: config.guildId }, applicationId); }
-      catch { warn('mac-launch: a historical notice was refused.'); }
-    }
-    if (recent.length !== messages.length || messages.length < 100) return;
-    before = messages.at(-1).id;
-  }
+    before = await offerRecentMessages(service, config, applicationId, messages);
+  } while (before);
 }
 
 export async function serve() {

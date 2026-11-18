@@ -59,27 +59,46 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     store.forget(proposed.launch);
   }
 
-  async function offerNotice(message, applicationId, proposed, config) {
+  async function refreshKnownNotice(proposed) {
     const known = store.get(proposed.launch);
-    if (known) return refresh(known);
-    if (store.decision(proposed.launch)) return;
-    const shown = await pots.show(proposed.pot, proposed.launch);
-    try { boundRequest(shown, proposed, config); } catch { return; }
-    if (SOURCE_CLOSURES.includes(shown.state)) return closeUnoffered(shown, proposed);
-    let verified;
-    try { verified = verifyOffer(shown, proposed, config, clock()); }
-    catch (error) {
-      let bound;
-      try { bound = boundRequest(shown, proposed, config); } catch { return; }
-      const state = clock() >= bound.request.expiresAt ? EXPIRED : 'refused';
-      closeUnoffered(shown, proposed, { state, details: { detail: error.message } });
-      return;
-    }
-    const payload = offerMessage(verified, config, discordMessageUrl({ guildId: message.guild_id, channelId: message.channel_id, messageId: message.id }));
+    if (known) { await refresh(known); return true; }
+    return Boolean(store.decision(proposed.launch));
+  }
+
+  function boundNotice(shown, proposed, config) {
+    try { return boundRequest(shown, proposed, config); }
+    catch { return undefined; }
+  }
+
+  function refuseInvalidNotice(shown, proposed, config, error) {
+    const bound = boundNotice(shown, proposed, config);
+    if (!bound) return;
+    const state = clock() >= bound.request.expiresAt ? EXPIRED : 'refused';
+    closeUnoffered(shown, proposed, { state, details: { detail: error.message } });
+  }
+
+  function verifiedNotice(shown, proposed, config) {
+    try { return verifyOffer(shown, proposed, config, clock()); }
+    catch (error) { refuseInvalidNotice(shown, proposed, config, error); return undefined; }
+  }
+
+  async function postOffer(message, applicationId, config, verified) {
+    const messageUrl = discordMessageUrl({ guildId: message.guild_id, channelId: message.channel_id, messageId: message.id });
+    const payload = offerMessage(verified, config, messageUrl);
     const posted = await discord.post(config.channelId, payload, verified.prompt);
     const offer = { ...verified, content: payload.content, guildId: config.guildId, channelId: config.channelId, applicationId,
       messageId: posted.id, attachment: posted.attachments[0], state: OFFERED, pending: [] };
     saveState(offer, OFFERED);
+  }
+
+  async function offerNotice(message, applicationId, proposed, config) {
+    if (await refreshKnownNotice(proposed)) return;
+    const shown = await pots.show(proposed.pot, proposed.launch);
+    if (!boundNotice(shown, proposed, config)) return;
+    if (SOURCE_CLOSURES.includes(shown.state)) return closeUnoffered(shown, proposed);
+    const verified = verifiedNotice(shown, proposed, config);
+    if (!verified) return;
+    await postOffer(message, applicationId, config, verified);
   }
 
   async function refresh(offer) {
@@ -102,6 +121,22 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     catch (error) { await discord.tell(event, error.message); return undefined; }
   }
 
+  async function sourceAllowsStart(event, offer) {
+    let closure;
+    try { closure = await sourceClosure(offer); }
+    catch { await discord.tell(event, SOURCE_SILENT); return false; }
+    if (!closure) return true;
+    close(offer, closure.state, closure);
+    return false;
+  }
+
+  async function claimAndStart(event, offer, action) {
+    const claim = await checkedPress(event, offer, action);
+    if (!claim) return;
+    decide(offer, CLAIMED, claim);
+    await start(offer);
+  }
+
   async function press(event) {
     const button = pressedButton(event.data?.custom_id);
     if (!button) return;
@@ -110,14 +145,8 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
     const evidence = await checkedPress(event, offer, button.action);
     if (!evidence) return;
     if (button.action === BUTTON.refuse) { close(offer, 'refused', { evidence }); return; }
-    let closure;
-    try { closure = await sourceClosure(offer); }
-    catch { await discord.tell(event, SOURCE_SILENT); return; }
-    if (closure) { close(offer, closure.state, closure); return; }
-    const claim = await checkedPress(event, offer, button.action);
-    if (!claim) return;
-    decide(offer, CLAIMED, claim);
-    await start(offer);
+    if (!await sourceAllowsStart(event, offer)) return;
+    await claimAndStart(event, offer, button.action);
   }
 
   async function deliver(offer) {

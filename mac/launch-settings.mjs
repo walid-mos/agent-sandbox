@@ -11,15 +11,42 @@ import { protectedPath, readSecret, requireGate } from './launch-protection.mjs'
 
 const SETTINGS = join(GATE_HOME, 'settings.json');
 const TOKEN = join(GATE_HOME, 'discord-token');
+const INVALID_SETTINGS = 'mac-launch: settings contain invalid names, IDs or acts.';
 export const STATE_HOME = join(GATE_HOME, 'launches');
 
+function requireSettingsLists(settings) {
+  const lists = ['announcers', 'pots', 'refusedActs'];
+  if (!lists.every(key => Array.isArray(settings[key]))) throw new Error('mac-launch: settings need announcers, pots and refusedActs lists.');
+}
+
+function requireTargetLabel(settings) {
+  if (!isTarget(settings.name) || typeof settings.label !== 'string' || !/^[A-Za-z0-9 -]{1,50}$/.test(settings.label)) throw new Error(INVALID_SETTINGS);
+}
+
+function requirePots(settings) {
+  if (settings.pots.length === 0 || !settings.pots.every(isTarget)) throw new Error(INVALID_SETTINGS);
+}
+
+function requireAnnouncers(settings) {
+  if (settings.announcers.length === 0 || !settings.announcers.every(isSnowflake)) throw new Error(INVALID_SETTINGS);
+}
+
+function requireSettingIds(settings) {
+  const ids = [settings.guildId, settings.channelId, settings.humanDiscord?.userId];
+  if (!ids.every(isSnowflake)) throw new Error(INVALID_SETTINGS);
+}
+
+function requireRefusedActs(settings) {
+  if (!settings.refusedActs.every(isAct)) throw new Error(INVALID_SETTINGS);
+}
+
 function checkedSettings(settings) {
-  const hasLists = ['announcers', 'pots', 'refusedActs'].every(key => Array.isArray(settings[key]));
-  if (!hasLists) throw new Error('mac-launch: settings need announcers, pots and refusedActs lists.');
-  const hasNames = isTarget(settings.name) && typeof settings.label === 'string' && /^[A-Za-z0-9 -]{1,50}$/.test(settings.label)
-    && settings.pots.length > 0 && settings.pots.every(isTarget) && settings.announcers.length > 0 && settings.announcers.every(isSnowflake);
-  const hasIds = [settings.guildId, settings.channelId, settings.humanDiscord?.userId].every(isSnowflake);
-  if (!hasNames || !hasIds || !settings.refusedActs.every(isAct)) throw new Error('mac-launch: settings contain invalid names, IDs or acts.');
+  requireSettingsLists(settings);
+  requireTargetLabel(settings);
+  requirePots(settings);
+  requireAnnouncers(settings);
+  requireSettingIds(settings);
+  requireRefusedActs(settings);
   checkedExecution(settings);
   return settings;
 }

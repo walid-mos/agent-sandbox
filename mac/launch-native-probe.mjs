@@ -36,17 +36,34 @@ function started(pid) {
   catch { return undefined; }
 }
 
-function cleanup(owner) {
-  const run = runPaths(owner.id);
-  if (owner.child?.started && Number.isInteger(owner.child.pid) && started(owner.child.pid) === owner.child.started) process.kill(-owner.child.pid, 'SIGKILL');
-  if (existsSync(run.root)) {
-    protectedPath(run.root);
-    if (readFileSync(join(run.root, '.owner'), 'utf8') !== owner.id) throw new Error('mac-launch: native proof ownership changed.');
-    rmSync(run.root, { recursive: true });
-  }
+function stopOwnedChild(owner) {
+  const child = owner.child;
+  if (!child?.started || !Number.isInteger(child.pid) || started(child.pid) !== child.started) return;
+  process.kill(-child.pid, 'SIGKILL');
+}
+
+function removeOwnedRun(owner, run) {
+  if (!existsSync(run.root)) return;
+  protectedPath(run.root);
+  if (readFileSync(join(run.root, '.owner'), 'utf8') !== owner.id) throw new Error('mac-launch: native proof ownership changed.');
+  rmSync(run.root, { recursive: true });
+}
+
+function removeOwnedAuthority(owner) {
   const authority = join(GATE_HOME, `${owner.id}.native`);
   if (existsSync(authority) && readFileSync(authority, 'utf8') === owner.id) rmSync(authority);
+}
+
+function removeOwnedRecord(owner) {
   if (existsSync(RECORD) && readPrivate(RECORD).id === owner.id) rmSync(RECORD);
+}
+
+function cleanup(owner) {
+  const run = runPaths(owner.id);
+  stopOwnedChild(owner);
+  removeOwnedRun(owner, run);
+  removeOwnedAuthority(owner);
+  removeOwnedRecord(owner);
 }
 
 function child(settings, id) {
@@ -61,29 +78,50 @@ function child(settings, id) {
   process.exitCode = result.status === 0 ? 0 : 1;
 }
 
-async function prove(settings) {
-  if (existsSync(RECORD)) {
-    const previous = readPrivate(RECORD);
-    if (started(previous.pid) === previous.started) throw new Error('mac-launch: a native proof is still running.');
-    cleanup(previous);
-  }
+function cleanPreviousProof() {
+  if (!existsSync(RECORD)) return;
+  const previous = readPrivate(RECORD);
+  if (started(previous.pid) === previous.started) throw new Error('mac-launch: a native proof is still running.');
+  cleanup(previous);
+}
+
+function proofOwner() {
   const owner = { id: randomBytes(16).toString('hex'), pid: process.pid, started: started(process.pid) };
   if (!owner.started) throw new Error('mac-launch: native proof process identity is unavailable.');
+  return owner;
+}
+
+function proofCleanup(owner) {
   let isOwned = true;
-  const release = () => { if (isOwned) { cleanup(owner); isOwned = false; } };
-  process.once('exit', release);
+  const release = () => {
+    if (!isOwned) return;
+    cleanup(owner);
+    isOwned = false;
+  };
   const interrupt = () => process.exit(130);
+  process.once('exit', release);
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', interrupt);
+  return { release, interrupt };
+}
+
+async function launchNativeProbe(settings, owner) {
+  writePrivateJson(RECORD, owner);
+  writeFileSync(join(GATE_HOME, `${owner.id}.native`), owner.id, { flag: 'wx', mode: 0o600 });
+  prepareRun(settings, owner.id, []);
+  const child = spawn(settings.tools.node, [fileURLToPath(import.meta.url), 'child', owner.id], { env: gateEnvironment(), stdio: 'inherit', detached: true, timeout: 12_000, killSignal: 'SIGKILL' });
+  if (child.pid) owner.child = { pid: child.pid, started: started(child.pid) };
+  writePrivateJson(RECORD, owner);
+  const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+  process.exitCode = code === 0 ? 0 : 1;
+}
+
+async function prove(settings) {
+  cleanPreviousProof();
+  const owner = proofOwner();
+  const { release, interrupt } = proofCleanup(owner);
   try {
-    writePrivateJson(RECORD, owner);
-    writeFileSync(join(GATE_HOME, `${owner.id}.native`), owner.id, { flag: 'wx', mode: 0o600 });
-    prepareRun(settings, owner.id, []);
-    const process_ = spawn(settings.tools.node, [fileURLToPath(import.meta.url), 'child', owner.id], { env: gateEnvironment(), stdio: 'inherit', detached: true, timeout: 12_000, killSignal: 'SIGKILL' });
-    if (process_.pid) owner.child = { pid: process_.pid, started: started(process_.pid) };
-    writePrivateJson(RECORD, owner);
-    const code = await new Promise((resolve, reject) => { process_.once('error', reject); process_.once('close', resolve); });
-    process.exitCode = code === 0 ? 0 : 1;
+    await launchNativeProbe(settings, owner);
   } finally {
     release();
     process.removeListener('exit', release);

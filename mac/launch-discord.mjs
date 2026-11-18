@@ -7,14 +7,25 @@ const FATAL_CLOSES = [4004, 4010, 4011, 4012, 4013, 4014];
 const INTENTS = 1 | 512 | 32768;
 const BOT_FLAG_CONTENT = (1 << 18) | (1 << 19);
 const PRIVATE_REPLY = 1 << 6;
+const GATEWAY_OPCODE = { dispatch: 0, heartbeat: 1, reconnect: 7, invalidSession: 9, hello: 10, heartbeatAck: 11 };
+
+function requestHeaders(token, body) {
+  const authorization = { Authorization: `Bot ${token}` };
+  if (body instanceof FormData) return authorization;
+  return { ...authorization, 'Content-Type': 'application/json' };
+}
+
+function requestBody(body) {
+  if (body === undefined || body instanceof FormData) return body;
+  return JSON.stringify(body);
+}
 
 export function discordClient(token, { fetcher = fetch, connect = url => new WebSocket(url), timers = globalThis } = {}) {
   let serverTime;
   async function api(method, path, body) {
-    const form = body instanceof FormData;
     try {
       const response = await fetcher(`${API}${path}`, { method, redirect: 'error', signal: AbortSignal.timeout(REQUEST_MS),
-        headers: { Authorization: `Bot ${token}`, ...(form ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : form ? body : JSON.stringify(body) });
+        headers: requestHeaders(token, body), body: requestBody(body) });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       serverTime = Date.parse(response.headers?.get('date'));
       return response.status === 204 ? undefined : await response.json();
@@ -61,31 +72,45 @@ export function discordClient(token, { fetcher = fetch, connect = url => new Web
         reconnect = timers.setTimeout(open, RECONNECT_MS);
       });
     }
+    function handleHello(packet) {
+      heartbeat = timers.setInterval(beat, packet.d.heartbeat_interval);
+      send({ op: 2, d: { token, intents: INTENTS, properties: { os: 'darwin', browser: 'agent-sandbox', device: 'mac-launch' } } });
+    }
+    const handlers = new Map([
+      [GATEWAY_OPCODE.hello, handleHello],
+      [GATEWAY_OPCODE.heartbeatAck, () => { isAcknowledged = true; }],
+      [GATEWAY_OPCODE.heartbeat, sendHeartbeat],
+      [GATEWAY_OPCODE.reconnect, () => socket.close()],
+      [GATEWAY_OPCODE.invalidSession, () => socket.close()],
+      [GATEWAY_OPCODE.dispatch, packet => onEvent(packet.t, packet.d)],
+    ]);
     function receive(event) {
       try {
         const packet = JSON.parse(event.data);
         if (packet.s !== null && packet.s !== undefined) sequence = packet.s;
-        if (packet.op === 10) {
-          heartbeat = timers.setInterval(beat, packet.d.heartbeat_interval);
-          send({ op: 2, d: { token, intents: INTENTS, properties: { os: 'darwin', browser: 'agent-sandbox', device: 'mac-launch' } } });
-          return;
-        }
-        if (packet.op === 11) { isAcknowledged = true; return; }
-        if (packet.op === 1) { sendHeartbeat(); return; }
-        if ([7, 9].includes(packet.op)) { socket.close(); return; }
-        if (packet.op === 0) onEvent(packet.t, packet.d);
+        handlers.get(packet.op)?.(packet);
       } catch { warn('mac-launch: a gateway event could not be processed.'); }
     }
     open();
     return () => { isStopped = true; timers.clearTimeout(reconnect); timers.clearInterval(heartbeat); socket.close(); };
+  }
+  function requireBotIdentity(bot, application, channel, settings) {
+    if (!bot.bot || !(application.flags & BOT_FLAG_CONTENT) || channel.guild_id !== settings.guildId) {
+      throw new Error('mac-launch: bot identity, Message Content intent or launch server does not match.');
+    }
+  }
+  function requireSynchronizedTime() {
+    if (!Number.isFinite(serverTime) || Math.abs(Date.now() - serverTime) > CLOCK_SKEW_MS) {
+      throw new Error(`mac-launch: this Mac and Discord must agree on time within ${CLOCK_SKEW_MS / 1000} seconds.`);
+    }
   }
   async function check(settings) {
     const bot = await api('GET', '/users/@me');
     const application = await api('GET', '/oauth2/applications/@me');
     const channel = await api('GET', `/channels/${settings.channelId}`);
     await api('GET', `/guilds/${settings.guildId}/members/${settings.humanDiscord.userId}`);
-    if (!bot.bot || !(application.flags & BOT_FLAG_CONTENT) || channel.guild_id !== settings.guildId) throw new Error('mac-launch: bot identity, Message Content intent or launch server does not match.');
-    if (!Number.isFinite(serverTime) || Math.abs(Date.now() - serverTime) > CLOCK_SKEW_MS) throw new Error(`mac-launch: this Mac and Discord must agree on time within ${CLOCK_SKEW_MS / 1000} seconds.`);
+    requireBotIdentity(bot, application, channel, settings);
+    requireSynchronizedTime();
   }
   const history = (channel, before) => api('GET', `/channels/${channel}/messages?limit=100${before ? `&before=${before}` : ''}`);
   return { post, edit, acknowledge, tell, listen, check, history };

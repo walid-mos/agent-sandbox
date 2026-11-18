@@ -9,15 +9,29 @@ import { checkProtectedInstallation } from './launch-protection.mjs';
 import { loadSettings, STATE_HOME } from './launch-settings.mjs';
 import { gateStore } from './launch-store.mjs';
 
-export function piArguments(offer, settings, claim, session, now) {
-  executionScope(settings, offer.request.acts);
+function requireClaimScope(settings, claim) {
   if (claim?.executionDigest !== executionFingerprint(settings)) throw new Error('mac-launch: no claim covers this execution scope.');
-  checkDiscordPolicy(LAUNCH_POLICY, settings.humanDiscord);
+}
+
+function requireFreshClaim(settings, claim, now) {
   const age = now - claim?.decidedAt;
   const isClaim = claim?.state === CLAIMED && claim.userId === settings.humanDiscord.userId && age >= 0 && age <= CLAIM_MAX_AGE_MS;
   if (!isClaim) throw new Error('mac-launch: no fresh claim by the operator covers this launch. No Pi started.');
+}
+
+function requireClaimedRequest(request, claim) {
+  if (!['launch', 'pot', 'target', 'digest'].every(key => request[key] === claim[key])) {
+    throw new Error('mac-launch: the claim names another prompt, pot or Mac. No Pi started.');
+  }
+}
+
+export function piArguments(offer, settings, claim, session, now) {
+  executionScope(settings, offer.request.acts);
+  requireClaimScope(settings, claim);
+  checkDiscordPolicy(LAUNCH_POLICY, settings.humanDiscord);
+  requireFreshClaim(settings, claim, now);
   const { request, prompt } = verifyOffer(shownRequest(offer.request, offer.prompt, OPEN), offer.request, settings, claim.decidedAt);
-  if (!['launch', 'pot', 'target', 'digest'].every(key => request[key] === claim[key])) throw new Error('mac-launch: the claim names another prompt, pot or Mac. No Pi started.');
+  requireClaimedRequest(request, claim);
   const frame = `This prompt was approved for ${settings.label} from pot ${request.pot}. Declared acts: ${request.acts.join(', ') || 'none'}. Cost declared: ${request.cost || 'not stated'}. You run in a restricted execution account. Only the selected work and delegated capabilities are available. A new instruction from a pot requires a new approval. Your final reply returns to the pot as a report.`;
   return ['--session', session, '--append-system-prompt', frame, '--provider', settings.execution.model.provider, '--model', settings.execution.model.name,
     '--no-extensions', '--no-mcp', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--', prompt];

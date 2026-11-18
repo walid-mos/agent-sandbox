@@ -34,13 +34,23 @@ async function askAndTell(id, state, store) {
   print(asked(id, state));
 }
 
-async function request(arguments_) {
+function requestOptions(arguments_) {
   const { values, positionals: [file] } = parseArgs({ args: arguments_, options: REQUEST_OPTIONS, allowPositionals: true });
   if (!values.target || !values.title || !file) throw new Error(USAGE);
-  const store = launchStore();
-  if (values.replaces && shownLaunch(values.replaces, store).state !== OPEN) throw new Error(`mac-launch: launch ${values.replaces} is no longer open, so a new launch cannot replace it.`);
-  const opened = await openLaunch({ target: values.target, title: values.title, acts: values.acts ? values.acts.split(',') : [], cost: values.cost ?? '', prompt: readFileSync(file, 'utf8') },
-    { store, settings: launchSettings(sandbox), pot: ownName() });
+  return { values, file };
+}
+
+function requireReplaceableLaunch(values, store) {
+  if (values.replaces && shownLaunch(values.replaces, store).state !== OPEN) {
+    throw new Error(`mac-launch: launch ${values.replaces} is no longer open, so a new launch cannot replace it.`);
+  }
+}
+
+function launchDraft(values, file) {
+  return { target: values.target, title: values.title, acts: values.acts ? values.acts.split(',') : [], cost: values.cost ?? '', prompt: readFileSync(file, 'utf8') };
+}
+
+async function publishRequest(opened, values, store) {
   try {
     if (values.replaces) await askAndTell(values.replaces, 'superseded', store);
     await sendNotice(opened);
@@ -48,6 +58,14 @@ async function request(arguments_) {
     await store.locked(({ get, save }) => save({ ...get(opened.launch), state: 'failed' }), opened.launch);
     throw error;
   }
+}
+
+async function request(arguments_) {
+  const { values, file } = requestOptions(arguments_);
+  const store = launchStore();
+  requireReplaceableLaunch(values, store);
+  const opened = await openLaunch(launchDraft(values, file), { store, settings: launchSettings(sandbox), pot: ownName() });
+  await publishRequest(opened, values, store);
   print(opened);
 }
 
@@ -56,11 +74,26 @@ async function cancel([id]) {
   await askAndTell(id, 'cancelled', launchStore());
 }
 
-async function announce([id]) {
+function requireMastermind() {
   if (!isMastermind) throw new Error('mac-launch: only Mastermind announces a launch notice.');
+}
+
+function waitingRequest(id) {
   const received = findDoorRequest(id);
-  if (received?.direction !== RECEIVED || received.state !== WAITING || received.kind !== undefined) throw new Error('mac-launch: no ordinary request with this ID waits for a reply here.');
+  if (received?.direction !== RECEIVED || received.state !== WAITING || received.kind !== undefined) {
+    throw new Error('mac-launch: no ordinary request with this ID waits for a reply here.');
+  }
+  return received;
+}
+
+function requireOwnLaunch(received) {
   if (noticeOf(received.need).pot !== received.pot) throw new Error('mac-launch: a pot announces only its own launches.');
+}
+
+async function announce([id]) {
+  requireMastermind();
+  const received = waitingRequest(id);
+  requireOwnLaunch(received);
   await postNotice(received.need);
   command(DOOR_COMMAND, ['reply', id, '--text', 'Posted the launch notice in the launch channel. The Mac reports each next step to you itself.']);
 }

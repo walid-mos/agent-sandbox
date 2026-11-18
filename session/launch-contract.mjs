@@ -44,35 +44,87 @@ const BLANK = /[\p{Default_Ignorable_Code_Point}\p{Mn}\p{Me}]/gu;
 const namedActs = parts => Object.keys(ACTS).filter(act => ACTS[act].marks.test(parts.join('\n').replace(BLANK, '')));
 const isLine = value => typeof value === 'string' && value.length <= LINE_CHARACTERS && value === value.trim() && !UNSEEN.test(value) && !/[\n\t]/.test(value);
 
-function exactFields(candidate, type, fields) {
-  const isPacket = candidate && typeof candidate === 'object' && !Array.isArray(candidate) && candidate.type === type && candidate.version === VERSION;
-  if (!isPacket || Object.keys(candidate).some(key => !['type', 'version', ...fields].includes(key))) throw new Error(`mac-launch: this is not a ${type} packet of version ${VERSION}.`);
+function isPacket(candidate, type) {
+  return candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+    && candidate.type === type && candidate.version === VERSION;
 }
 
-function checkPrompt(prompt) {
+function hasOnlyPacketFields(candidate, fields) {
+  const allowed = ['type', 'version', ...fields];
+  return !Object.keys(candidate).some(key => !allowed.includes(key));
+}
+
+function exactFields(candidate, type, fields) {
+  if (!isPacket(candidate, type) || !hasOnlyPacketFields(candidate, fields)) {
+    throw new Error(`mac-launch: this is not a ${type} packet of version ${VERSION}.`);
+  }
+}
+
+function requirePromptText(prompt) {
   if (!text(prompt)) throw new Error('mac-launch: the prompt is empty. Write what the Mac agent must do.');
+}
+
+function requirePromptStartsAsText(prompt) {
   if (/^[@/]/.test(prompt)) throw new Error('mac-launch: Pi reads a leading @ as a file and a leading / as one of its own commands, so the run would not be the prompt shown. Start the prompt with a sentence.');
+}
+
+function requirePromptSize(prompt) {
   const size = Buffer.byteLength(prompt);
   if (size > PROMPT_BYTES) throw new Error(`mac-launch: the prompt is ${size} bytes and a launch takes ${PROMPT_BYTES}. Shorten it.`);
+}
+
+function requireVisiblePrompt(prompt) {
   const unseen = UNSEEN.exec(prompt);
   if (!unseen) return;
   const code = unseen[0].codePointAt(0).toString(16).toUpperCase().padStart(4, '0');
   throw new Error(`mac-launch: the prompt holds U+${code} at character ${unseen.index}, which a reader cannot see. Remove it.`);
 }
 
-function checkActs({ acts, title, cost }, prompt) {
-  if (!Array.isArray(acts) || !acts.every(isAct) || new Set(acts).size !== acts.length) throw new Error(`mac-launch: acts must be distinct names among ${Object.keys(ACTS).join(', ')}.`);
+function checkPrompt(prompt) {
+  requirePromptText(prompt);
+  requirePromptStartsAsText(prompt);
+  requirePromptSize(prompt);
+  requireVisiblePrompt(prompt);
+}
+
+function requireDeclaredActs(acts) {
+  if (!Array.isArray(acts) || !acts.every(isAct) || new Set(acts).size !== acts.length) {
+    throw new Error(`mac-launch: acts must be distinct names among ${Object.keys(ACTS).join(', ')}.`);
+  }
+}
+
+function requireNamedActs({ acts, title, cost }, prompt) {
   const undeclared = namedActs([title, cost, prompt]).filter(act => !acts.includes(act));
   if (undeclared.length) throw new Error(`mac-launch: the request names ${undeclared.join(', ')} and does not declare it. Declare each privileged act it asks for.`);
 }
 
-function checkRequest(request, prompt) {
-  const { launch, pot, target, title, digest, cost, createdAt, expiresAt } = request;
+function checkActs(request, prompt) {
+  requireDeclaredActs(request.acts);
+  requireNamedActs(request, prompt);
+}
+
+function requireRequestNames({ launch, pot, target }) {
   if (!DIALOG_ID.test(launch) || !isPotName(pot) || !isTarget(target)) throw new Error('mac-launch: a request names its launch, its pot and its target Mac.');
+}
+
+function requireRequestLines({ title, cost }) {
   if (!isLine(title) || !title || !isLine(cost)) throw new Error(`mac-launch: the title and the cost are each one visible line of at most ${LINE_CHARACTERS} characters, and the title is not empty.`);
+}
+
+function requireRequestLifetime({ createdAt, expiresAt }) {
   if (!Number.isSafeInteger(createdAt) || expiresAt !== createdAt + LAUNCH_TTL_MS) throw new Error('mac-launch: a request lives exactly its fixed time from its creation.');
-  checkPrompt(prompt);
+}
+
+function requirePromptDigest(digest, prompt) {
   if (!DIGEST.test(digest) || digest !== promptDigest(prompt)) throw new Error('mac-launch: the digest is not the SHA-256 of the prompt bytes.');
+}
+
+function checkRequest(request, prompt) {
+  requireRequestNames(request);
+  requireRequestLines(request);
+  requireRequestLifetime(request);
+  checkPrompt(prompt);
+  requirePromptDigest(request.digest, prompt);
   checkActs(request, prompt);
 }
 
@@ -97,13 +149,17 @@ export function fetchedRequest(shown) {
 export const launchNotice = ({ launch, pot, target }) => packet('mac.launch-notice', { launch, pot, target });
 export const noticeText = notice => `Post this Mac launch notice with node ${LAUNCH_SCRIPT} announce and this door request ID. Target ${notice.target}, pot ${notice.pot}.\n\n\`\`\`mac-launch\n${JSON.stringify(notice)}\n\`\`\``;
 
+function requireNoticeText(notice, content) {
+  const isNamed = DIALOG_ID.test(notice.launch) && isPotName(notice.pot) && isTarget(notice.target);
+  if (!isNamed || noticeText(launchNotice(notice)) !== content) throw new Error('mac-launch: a launch notice holds its fixed text and nothing else.');
+}
+
 export function noticeOf(content) {
   const block = NOTICE_BLOCK.exec(content ?? '');
   let notice;
   try { notice = JSON.parse(block?.[1]); } catch { throw new Error('mac-launch: this text holds no launch notice.'); }
   exactFields(notice, 'mac.launch-notice', NOTICE_FIELDS);
-  const isNamed = DIALOG_ID.test(notice.launch) && isPotName(notice.pot) && isTarget(notice.target);
-  if (!isNamed || noticeText(launchNotice(notice)) !== content) throw new Error('mac-launch: a launch notice holds its fixed text and nothing else.');
+  requireNoticeText(notice, content);
   return notice;
 }
 
@@ -111,12 +167,28 @@ export function launchStatus({ launch, target, digest, status, detail = '', mess
   return checkedStatus(packet('mac.launch-status', { launch, target, digest, status, detail: detail.slice(0, DETAIL_CHARACTERS), messageUrl, report: report?.slice(0, REPORT_CHARACTERS) }));
 }
 
+function requireStatusIdentity(status) {
+  const { launch, target, digest } = status;
+  if (!DIALOG_ID.test(launch) || !isTarget(target) || !DIGEST.test(digest) || !STATUSES.includes(status.status)) {
+    throw new Error('mac-launch: a status names its launch, target, digest and one known status, within its size limits.');
+  }
+}
+
+function requireStatusBounds(status) {
+  const { detail, report } = status;
+  const hasBoundedDetail = typeof detail === 'string' && detail.length <= DETAIL_CHARACTERS;
+  const hasBoundedReport = report === undefined || (typeof report === 'string' && report.length <= REPORT_CHARACTERS);
+  if (!hasBoundedDetail || !hasBoundedReport) throw new Error('mac-launch: a status names its launch, target, digest and one known status, within its size limits.');
+}
+
+function requireStatusMessage(status) {
+  if (status.messageUrl !== undefined) discordMessage(status.messageUrl);
+}
+
 export function checkedStatus(status) {
   exactFields(status, 'mac.launch-status', STATUS_FIELDS);
-  const { launch, target, digest, detail, messageUrl, report } = status;
-  const isNamed = DIALOG_ID.test(launch) && isTarget(target) && DIGEST.test(digest) && STATUSES.includes(status.status);
-  const isBounded = typeof detail === 'string' && detail.length <= DETAIL_CHARACTERS && (report === undefined || (typeof report === 'string' && report.length <= REPORT_CHARACTERS));
-  if (!isNamed || !isBounded) throw new Error('mac-launch: a status names its launch, target, digest and one known status, within its size limits.');
-  if (messageUrl !== undefined) discordMessage(messageUrl);
+  requireStatusIdentity(status);
+  requireStatusBounds(status);
+  requireStatusMessage(status);
   return status;
 }

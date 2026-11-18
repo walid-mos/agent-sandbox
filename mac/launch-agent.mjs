@@ -11,13 +11,27 @@ const PLIST = `/Library/LaunchDaemons/${LABEL}.plist`;
 const LOG = join(GATE_HOME, 'gate.log');
 const escape = value => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
-function plistValue(value, depth) {
-  const pad = '\t'.repeat(depth);
+function plistScalar(value, pad) {
   if (typeof value === 'boolean') return `${pad}<${value}/>`;
   if (Number.isInteger(value)) return `${pad}<integer>${value}</integer>`;
   if (typeof value === 'string') return `${pad}<string>${escape(value)}</string>`;
-  if (Array.isArray(value)) return [`${pad}<array>`, ...value.map(item => plistValue(item, depth + 1)), `${pad}</array>`].join('\n');
+  return undefined;
+}
+
+function plistArray(value, pad, depth) {
+  return [`${pad}<array>`, ...value.map(item => plistValue(item, depth + 1)), `${pad}</array>`].join('\n');
+}
+
+function plistDictionary(value, pad, depth) {
   return [`${pad}<dict>`, ...Object.keys(value).sort().flatMap(key => [`${pad}\t<key>${escape(key)}</key>`, plistValue(value[key], depth + 1)]), `${pad}</dict>`].join('\n');
+}
+
+function plistValue(value, depth) {
+  const pad = '\t'.repeat(depth);
+  const scalar = plistScalar(value, pad);
+  if (scalar !== undefined) return scalar;
+  if (Array.isArray(value)) return plistArray(value, pad, depth);
+  return plistDictionary(value, pad, depth);
 }
 
 function launchDaemonPlist(settings) {

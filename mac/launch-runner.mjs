@@ -50,23 +50,29 @@ export function herdrRunner(context) {
     let ended;
     try { ended = lastTurn(run.session, run.owner); }
     catch { return { status: 'failed', detail: 'Pi left an unsafe, unreadable or oversized session report.' }; }
-    if (ended) return ended;
-    if (isGone) return { status: 'failed', detail: 'The Herdr terminal is gone and Pi left no final reply.' };
-    if (terminal.state === 'finished') return { status: 'failed', detail: 'Pi stopped without a final reply.' };
-    return undefined;
+    return ended ?? missingFinalReport(isGone, terminal);
   }
   return { start, result };
 }
 
 const textOf = message => (message.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n').slice(0, REPORT_CHARACTERS);
 
+function missingFinalReport(isGone, terminal) {
+  if (isGone) return { status: 'failed', detail: 'The Herdr terminal is gone and Pi left no final reply.' };
+  if (terminal.state === 'finished') return { status: 'failed', detail: 'Pi stopped without a final reply.' };
+  return undefined;
+}
+
+function endedTurn(message) {
+  const text = textOf(message);
+  if (message.stopReason === 'stop') return text ? { status: 'finished', report: text } : { status: 'failed', detail: 'Pi ended its turn without a final text reply.' };
+  if (message.stopReason === undefined || message.stopReason === 'toolUse') return undefined;
+  return { status: 'failed', detail: message.errorMessage?.slice(0, LAST_ERROR_CHARACTERS) || text.slice(0, LAST_ERROR_CHARACTERS) || `Pi ended its turn with ${message.stopReason}.` };
+}
+
 function lastTurn(path, owner) {
   if (!existsSync(path)) return undefined;
   const messages = readBounded(path, owner).split('\n').filter(Boolean).flatMap(parsedLine);
-  const last = messages.findLast(entry => entry.type === 'message' && entry.message?.role === 'assistant')?.message;
-  if (!last) return undefined;
-  const text = textOf(last);
-  if (last.stopReason === 'stop') return text ? { status: 'finished', report: text } : { status: 'failed', detail: 'Pi ended its turn without a final text reply.' };
-  if (last.stopReason === undefined || last.stopReason === 'toolUse') return undefined;
-  return { status: 'failed', detail: last.errorMessage?.slice(0, LAST_ERROR_CHARACTERS) || text.slice(0, LAST_ERROR_CHARACTERS) || `Pi ended its turn with ${last.stopReason}.` };
+  const lastMessage = messages.findLast(entry => entry.type === 'message' && entry.message?.role === 'assistant')?.message;
+  return lastMessage ? endedTurn(lastMessage) : undefined;
 }
