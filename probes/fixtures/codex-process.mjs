@@ -11,7 +11,12 @@ const failure = fs.existsSync(path.join(directory, 'failure')) ? fs.readFileSync
 const [command, ...arguments_] = process.argv.slice(2);
 fs.appendFileSync(path.join(directory, 'calls'), command + '\\n');
 if (command === 'data') console.log('files: ' + directory);
-else if (command === 'model') console.log(arguments_[1].includes('deepseek') ? 'deepseek-v4.1-flash' : 'glm-5.3-flash');
+else if (command === 'model') {
+  const member = arguments_[1];
+  const upstream = member.includes('deepseek') ? 'deepseek-v4.1-flash' : 'glm-5.3-flash';
+  console.log(upstream + ' · what inco is asked for, for ' + member);
+  console.log(failure === 'wire-drift' ? '  · unsupported getter output' : '  · magpie and the agents still know it as ' + member + ' · --reset asks for that again');
+}
 else if (command === 'backup') fs.writeFileSync(arguments_.at(-1), 'fixture encrypted backup', { mode: 0o600 });
 else if (command === 'restore') {
   if (failure === 'restore') process.exit(7);
@@ -33,6 +38,13 @@ export function codexProcessFixture(t) {
   writeFileSync(join(directory, 'owner'), 'codex-process-fixture', { mode: 0o600 });
   writeFileSync(join(binaries, 'magpie'), MAGPIE);
   chmodSync(join(binaries, 'magpie'), 0o755);
+  const managedCodexHome = join(home, '.local/state/agent-sandbox/codex');
+  const nativeCodexHome = join(home, '.codex');
+  mkdirSync(managedCodexHome, { recursive: true, mode: 0o700 });
+  mkdirSync(nativeCodexHome, { recursive: true, mode: 0o700 });
+  for (const path of [join(directory, 'providers.json'), join(directory, 'logins.json'), join(managedCodexHome, 'auth.json'), join(nativeCodexHome, 'auth.json')]) {
+    writeFileSync(path, '{ "fixture": "owned" }\\n', { mode: 0o600 });
+  }
   const before = codexConfiguration();
   const candidate = codexConfiguration();
   candidate.providers.groups[1].members[0] = 'codex/gpt-6.2-sol:medium#original';

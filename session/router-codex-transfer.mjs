@@ -78,6 +78,6 @@ main(import.meta, () => runOperation({
   verify: ([expectedPath, routerApi, journalPath]) => validate(expectedPath, routerApi, journalPath),
   compare: ([expectedPath]) => {
     requireSameSnapshot(readPrivateJson(expectedPath), readRouterConfiguration());
-    process.stdout.write('CODEX_TARGETED_V1: configuration and credential bytes equal, Claude DEFERRED\n');
+    process.stdout.write('CODEX_TARGETED_V1: configuration equal, Claude DEFERRED\n');
   },
 }, 'usage: router-codex-transfer.mjs capture|restore API|verify EXPECTED API JOURNAL|compare EXPECTED'));

@@ -13,6 +13,5 @@ export function codexConfiguration() {
     },
     settings: { images: true, tools: true, modelWires: { 'inco/deepseek-v4.1-flash:fast': 'deepseek-v4.1-flash', 'inco/glm-5.3-flash:fast': 'glm-5.3-flash' } },
     wires: { 'inco/deepseek-v4.1-flash:fast': 'deepseek-v4.1-flash', 'inco/glm-5.3-flash:fast': 'glm-5.3-flash' },
-    credentials: { codex: { tokens: { access_token: 'fixture-only', account_id: 'fixture-id' } } },
   };
 }

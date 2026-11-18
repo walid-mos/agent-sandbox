@@ -2,7 +2,7 @@ import { lstatSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CodexJournal, durablePrivateFile } from './codex-journal.mjs';
 import { CODEX_CONTRACT, refuseCodex, requireSameSnapshot, upgradedSnapshot, validateSnapshot } from './router-codex-contract.mjs';
-import { magpieConfigurationCommand, readPrivateJson, readRouterConfiguration, requirePrivateFile } from './router-configuration.mjs';
+import { magpieConfigurationCommand, readLocalCredentialBytes, readPrivateJson, readRouterConfiguration, requireCredentialBytesEqual, requirePrivateFile } from './router-configuration.mjs';
 import { main } from './main.mjs';
 import { requireEqual } from './codex-validation.mjs';
 
@@ -19,6 +19,7 @@ function inspectFailedRestore(journal) {
 }
 
 export async function restoreCodexConfiguration({ seed, source, journalPath, passphrase }) {
+  const credentialBytes = readLocalCredentialBytes();
   const before = readRouterConfiguration();
   const expected = upgradedSnapshot(before);
   const sourceSnapshot = readPrivateJson(source);
@@ -37,8 +38,9 @@ export async function restoreCodexConfiguration({ seed, source, journalPath, pas
   try {
     await journal.step('restore-configuration', () =>
       magpieConfigurationCommand(['restore', '--no-agents', '--no-library', '--no-sign-ins', seed], { input: passphrase }), () => {
+      requireCredentialBytesEqual(credentialBytes, readLocalCredentialBytes());
       requireSameSnapshot(expected, readRouterConfiguration());
-      return { isConfigurationEqual: true, areCredentialBytesEqual: true };
+      return { isConfigurationEqual: true, areLocalCredentialBytesUnchanged: true };
     });
   } catch (error) {
     inspectFailedRestore(journal);

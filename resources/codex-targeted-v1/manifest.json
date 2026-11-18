@@ -356,12 +356,12 @@
       "bytes": 3373
     },
     "probes/fixtures/codex-configuration.mjs": {
-      "sha256": "95f69141e66359b61868a6d6e6b8635c942df0638ee597d5c92eb6706e1a03c0",
-      "bytes": 1177
+      "sha256": "5f016b628ec4efee7b9be39cc882793844e68b3dd770cc780a097076aa99abdc",
+      "bytes": 1077
     },
     "probes/fixtures/codex-process.mjs": {
-      "sha256": "a795afa57e3c8c2ff8796eb7849ba4264618ca5a5b05d7ce7acf4d79539b41c5",
-      "bytes": 2792
+      "sha256": "6c88f2cf8df1b0a0abc03e4173717e2e1b3864e3eebdf64827e6055e10c3d5aa",
+      "bytes": 3560
     },
     "probes/fixtures/discord-registration.mjs": {
       "sha256": "f891d0e28abf68607bdd3d9b7715931aaab1b01c17450fad76666739590142f9",
@@ -456,8 +456,8 @@
       "bytes": 605
     },
     "resources/codex-targeted-v1/README.md": {
-      "sha256": "74250ef36e1c2eca18d123461683231c46b669c9d8d52f1d967b7898fea8df74",
-      "bytes": 11155
+      "sha256": "c516019e61945266733911dbb5cc3c81b18983d2bc64e61fea964205b46ecca0",
+      "bytes": 11818
     },
     "resources/codex-targeted-v1/build-manifest.mjs": {
       "sha256": "850a4b1e92f88e52620a762b7409168b390f2acd7c39029cbe0527f8257d99f2",
@@ -539,6 +539,14 @@
       "sha256": "6944b730ecf433db5fac108915a0f73fb44b2d2db82df98e11249441e51fdbeb",
       "bytes": 3804
     },
+    "session/codex-catalog.mjs": {
+      "sha256": "e6e7d5ad73633a5e029bd8515a77642d0d49c7f878fc2d652f6c900d085e13e2",
+      "bytes": 2016
+    },
+    "session/codex-catalog.test.mjs": {
+      "sha256": "61c1c43d550a62465e9f78758e9efae240bae0b176e28bbfc68f11cf7562fddb",
+      "bytes": 1856
+    },
     "session/codex-contract-names.mjs": {
       "sha256": "98c58a38684a3cd4509e39057b3f39317bd62e0d1c7619d5fb780a2132711d2e",
       "bytes": 277
@@ -556,8 +564,8 @@
       "bytes": 1139
     },
     "session/codex-preflight.mjs": {
-      "sha256": "150d8880f1e0fb6746cb5badf3075cbb7b0fe0ccb61e46759baf1b7c4d732ce4",
-      "bytes": 3694
+      "sha256": "809c3993c3353524b0ac06930d3cf9b090989f37ba447925eda624d213e8a62d",
+      "bytes": 5307
     },
     "session/codex-recovery.mjs": {
       "sha256": "294508ff66bb00eb73f537893e3688c72d474b4587d4665607251894f3dba57a",
@@ -576,8 +584,8 @@
       "bytes": 3752
     },
     "session/codex-rollout.mjs": {
-      "sha256": "802d3a5444f7e25668c559f6b03f029bdb5329bf4fe3ded63202ccd37afde0f0",
-      "bytes": 7714
+      "sha256": "5749f4de567cc2d9f80119b1fa3f8743763938f82d0ce173ed7cca8084040b5e",
+      "bytes": 8117
     },
     "session/codex-validation.mjs": {
       "sha256": "8c66f650bf3ea358fd52760ee2eee1ba435788e8a571060c3da9401754db3bd2",
@@ -904,48 +912,56 @@
       "bytes": 192
     },
     "session/router-answers.mjs": {
-      "sha256": "9eba0dbaa2e16889dc49077726fb4c43c6d9c74b9296181ebb59f2ff2c6ffbbd",
-      "bytes": 4473
+      "sha256": "5cedaac929f1597593d3d3f6fa92eb389f1b7a11bfa2018acda4725af12e71dd",
+      "bytes": 4599
     },
     "session/router-answers.test.mjs": {
-      "sha256": "d0287087b6fd8f60a1cdcbb8a489396d9d096e7c626fc47a5db39bc8bd037e95",
-      "bytes": 7304
+      "sha256": "a66c04bdfc2634f85f8081c5083813e1beda57943685ead9b8db9f11a1c1c991",
+      "bytes": 9323
     },
     "session/router-codex-answers.mjs": {
-      "sha256": "57946a047221acd5927ab7aca65f17e725f92de809ab3fd8b41d042af2f4fada",
-      "bytes": 1554
+      "sha256": "76f48a6dcab790c4d1dec34c31e7541a93a3a469b4113819c932eafa2a14d1f0",
+      "bytes": 1953
     },
     "session/router-codex-contract.mjs": {
-      "sha256": "77a44f7e8b4c90af4f966e984db1dff4d8762d5445d9a66f3a0da21aa5355fd0",
-      "bytes": 3650
+      "sha256": "b12cd2231a26374e8da62c733be3326e67207f8a65135e6bcd5748c1fec7fb7c",
+      "bytes": 3863
     },
     "session/router-codex-contract.test.mjs": {
-      "sha256": "99279b5eb4dae30866e53acff9472f4d68add9ce08a2621720b1b53fe6e95f91",
-      "bytes": 2687
+      "sha256": "bf18565a647f6615662ba725e61e451d340b4d49d0e0c9f22e25313495abedf5",
+      "bytes": 3055
+    },
+    "session/router-codex-credentials.mjs": {
+      "sha256": "887c4a0254ff94c7e4fdf8f64ee18814bfed7f362f8e61b5f8f7d32ab3da0395",
+      "bytes": 274
     },
     "session/router-codex-restore.mjs": {
-      "sha256": "a5d240c67f67f3f8e031ee8c90d0d756e65fa5f36ce40b457cce82bad827004a",
-      "bytes": 2947
+      "sha256": "cf0db06c8eb81304a4efef3a2c5a8d315fcb4b0c92519732f9f18327c2746078",
+      "bytes": 3145
     },
     "session/router-codex-restore.test.mjs": {
-      "sha256": "f4e3b43fa98833d18ce943720283dc48ba5639951e8e98545783a051e6db59fe",
-      "bytes": 3794
+      "sha256": "aad94e7997ba0fffe009b02a81c4f299f320534f80d2dbc855f7a33fa71141ba",
+      "bytes": 4294
     },
     "session/router-codex-seed.mjs": {
-      "sha256": "376e93e7d13fcf0ea102c0f2075d00460109f4ee6c5f01b9846d0fd3c5198266",
-      "bytes": 2708
+      "sha256": "54a28c709f486703af140523ce8fde0fbed3ebab04ea8d436f5901d8a86e27c2",
+      "bytes": 2935
     },
     "session/router-codex-transfer.mjs": {
-      "sha256": "11e1ce6caa42ee59655e4bc5d6cd57cd4d1802ec17639cc2179b3bdc40049575",
-      "bytes": 4343
+      "sha256": "770d11518eb6fd030d820075f25bafa7e473743f6ad275b505f9a8b60d7f4395",
+      "bytes": 4322
     },
     "session/router-codex.mjs": {
       "sha256": "b6368b670480254ca6ebf1319caa311987654a72e2b4a5144b97effb4ed0671c",
       "bytes": 4158
     },
     "session/router-configuration.mjs": {
-      "sha256": "1863470e8f9c02b974be12f9c00395496571c7ef5a71627f2eb4898b64539ca7",
-      "bytes": 2741
+      "sha256": "1bf7d31304b8278b619ed740e0a1f7acdba2cd3cb315b8e990aa72968826b6e1",
+      "bytes": 4266
+    },
+    "session/router-configuration.test.mjs": {
+      "sha256": "9ebcf8fba2b867e7736744b95d3d68d61c33760519b73cf3a478f21b6f0dd3a8",
+      "bytes": 3007
     },
     "session/router-contract.test.mjs": {
       "sha256": "39c9c91e54571d43ef70d15cd7b6a67f2d80ca3ef80cb30ca22e425ece2ef39f",
@@ -964,8 +980,8 @@
       "bytes": 142
     },
     "session/router-wires.mjs": {
-      "sha256": "3b26166a83a200234079d2b1d90c763a875c38879bacc263f4da92adb1b736b1",
-      "bytes": 154
+      "sha256": "cf289146c8913483122c6050574414b7bcd1cbcfb225e8e81e31b5fb1b57834e",
+      "bytes": 725
     },
     "session/router.mjs": {
       "sha256": "8b547a454233d45e688ac108dff2d262475d266c6c1d8f02873b62d05a2f5d51",

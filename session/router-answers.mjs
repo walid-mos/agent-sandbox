@@ -47,7 +47,9 @@ export async function requestRouterAnswer(routerApi, plan) {
   try {
     const response = await fetch(`${routerApi}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: plan.account
+        ? { 'Content-Type': 'application/json', 'X-Magpie-Account': encodeURIComponent(plan.account) }
+        : { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: plan.target, messages: [{ role: 'user', content: QUESTION }], max_tokens: ANSWER_TOKENS, stream: false }),
       signal: AbortSignal.timeout(ANSWER_TIMEOUT_MS),
     });

@@ -18,7 +18,7 @@ function groupId(group) {
 export function validateSnapshot(snapshot) {
   requireObject(snapshot, 'unsupported configuration snapshot');
   requireEqual('agent-sandbox-codex-v1', snapshot.format, 'unsupported configuration format');
-  for (const field of ['providers', 'settings', 'credentials', 'wires']) requireObject(snapshot[field], 'incomplete configuration');
+  for (const field of ['providers', 'settings', 'wires']) requireObject(snapshot[field], 'incomplete configuration');
   const groups = snapshot.providers.groups;
   requireArray(groups, 'group definitions missing');
   requireEqual(groups.length, new Set(groups.map(groupId)).size, 'duplicate group definitions');
@@ -27,11 +27,14 @@ export function validateSnapshot(snapshot) {
 }
 
 function requireSelectedMember(member, prefix) {
-  const reason = 'unexpected Sol member, account selector or effort';
+  const reason = 'missing or malformed direct account selector';
   requireString(member, reason);
-  requireEqual(true, member.startsWith(prefix), reason);
-  const suffix = member.slice(prefix.length);
-  if (suffix && !/^#[^/\s#]+$/u.test(suffix)) throw refuseCodex(reason);
+  requireEqual(true, member.startsWith(prefix), 'unexpected Sol member or effort');
+  const separator = member.lastIndexOf('#');
+  if (separator <= 0 || member.slice(0, separator) !== prefix) throw refuseCodex(reason);
+  const selector = member.slice(separator + 1).trim();
+  if (!selector || selector.includes('/')) throw refuseCodex(reason);
+  return selector;
 }
 
 function solGroup(snapshot, id) {
@@ -64,14 +67,15 @@ export function codexPlan(snapshot) {
   const expert = solGroup(snapshot, 'expert').members[0];
   const prefix = `${NEW_SOL}:${EFFORTS.expert}`;
   const plans = routerAnswerPlans(snapshot.providers);
-  requireSelectedMember(expert, prefix);
+  const account = requireSelectedMember(expert, prefix);
   requireEqual(expert, plans[0].member, 'selected route is not the existing expert Sol member');
-  return { contract: CODEX_CONTRACT, target: expert, served: NEW_SOL, claude: 'DEFERRED' };
+  return { contract: CODEX_CONTRACT, target: prefix, account, served: NEW_SOL, claude: 'DEFERRED' };
 }
 
 export function planCodexUpgrade(before, candidate) {
+  const plan = codexPlan(candidate);
   requireSameSnapshot(upgradedSnapshot(before), candidate);
-  return codexPlan(candidate);
+  return plan;
 }
 
 main(import.meta, () => runOperation({

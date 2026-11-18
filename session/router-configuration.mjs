@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { STANDARD_WIRES } from './router-wires.mjs';
+import { normalizeStandardWire, STANDARD_WIRES } from './router-wires.mjs';
 import { basicEnvironment, RUNTIME_SETTINGS } from './environment.mjs';
 import { CODEX_HOME } from './router-codex.mjs';
 
@@ -34,6 +34,12 @@ export function magpieConfigurationCommand(arguments_, { deadline = Date.now() +
   }
 }
 
+function magpieDirectory() {
+  const directory = magpieConfigurationCommand(['data']).match(/^files: (.+)$/mu)?.[1];
+  if (!directory) throw privateFailure();
+  return directory;
+}
+
 function configurationFile(directory, name) {
   try {
     const path = join(directory, name);
@@ -45,24 +51,51 @@ function configurationFile(directory, name) {
   }
 }
 
-function credential(path) {
-  return existsSync(path) ? { present: true, contents: readPrivateJson(path) } : { present: false };
+function credentialFiles(paths) {
+  return Object.entries(paths).map(([name, path]) => {
+    try {
+      const stat = lstatSync(path);
+      if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o077)) throw privateFailure();
+      return [name, readFileSync(path)];
+    } catch { throw new Error('CODEX_TARGETED_V1: credential scope is incomplete or unsafe, refused. No credential values were printed.'); }
+  });
+}
+
+export function captureCredentialBytes({ magpieDirectory: directory, managedCodexHome, nativeCodexHome }) {
+  const paths = {
+    'magpie/logins.json': join(directory, 'logins.json'),
+    'managed-codex/auth.json': join(managedCodexHome, 'auth.json'),
+    'native-codex/auth.json': join(nativeCodexHome, 'auth.json'),
+  };
+  return new Map(credentialFiles(paths));
+}
+
+export function requireCredentialBytesEqual(before, after) {
+  if (!(before instanceof Map) || !(after instanceof Map) || before.size !== after.size) throw new Error('CODEX_TARGETED_V1: local credential state changed or is incomplete, refused.');
+  for (const [store, bytes] of before) {
+    if (!Buffer.isBuffer(bytes) || !Buffer.isBuffer(after.get(store)) || !bytes.equals(after.get(store))) {
+      throw new Error('CODEX_TARGETED_V1: local credential state changed or is incomplete, refused.');
+    }
+  }
+  return true;
+}
+
+export function readLocalCredentialBytes() {
+  const directory = magpieDirectory();
+  const nativeCodexHome = process.env.CODEX_HOME || join(homedir(), '.codex');
+  return captureCredentialBytes({ magpieDirectory: directory, managedCodexHome: CODEX_HOME, nativeCodexHome });
 }
 
 export function readRouterConfiguration() {
   const deadline = Date.now() + READ_COMMAND_MS;
   const directory = magpieConfigurationCommand(['data'], { deadline }).match(/^files: (.+)$/mu)?.[1];
   if (!directory) throw privateFailure();
-  const wires = Object.fromEntries(Object.keys(STANDARD_WIRES).map(member =>
-    [member, magpieConfigurationCommand(['model', 'wire', member], { deadline }).trim()]));
+  const wires = Object.fromEntries(Object.entries(STANDARD_WIRES).map(([member, expected]) =>
+    [member, normalizeStandardWire(magpieConfigurationCommand(['model', 'wire', member], { deadline }), member, expected)]));
   return {
     format: 'agent-sandbox-codex-v1',
     providers: configurationFile(directory, 'providers.json'),
     settings: configurationFile(directory, 'settings.json'),
     wires,
-    credentials: {
-      managedCodex: credential(join(CODEX_HOME, 'auth.json')),
-      nativeCodex: credential(join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'auth.json')),
-    },
   };
 }

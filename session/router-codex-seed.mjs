@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { CodexJournal, durablePrivateFile } from './codex-journal.mjs';
 import { main } from './main.mjs';
 import { CODEX_POTS, planCodexUpgrade, refuseCodex, requireSameSnapshot } from './router-codex-contract.mjs';
-import { magpieConfigurationCommand, readPrivateJson, readRouterConfiguration } from './router-configuration.mjs';
+import { magpieConfigurationCommand, readLocalCredentialBytes, readPrivateJson, readRouterConfiguration, requireCredentialBytesEqual } from './router-configuration.mjs';
 import { sealSnapshot } from './router-codex-transfer.mjs';
 
 const REPOSITORY = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -15,6 +15,7 @@ import { RESTORE_TRANSFER_MS } from './codex-limits.mjs';
 main(import.meta, async () => {
   const [beforePath, candidatePath, journalPath, routerApi] = process.argv.slice(2);
   if (!CODEX_POTS.includes(process.env.SANDBOX)) throw refuseCodex('unsupported target pot');
+  const credentialBytes = readLocalCredentialBytes();
   const source = readPrivateJson(candidatePath);
   planCodexUpgrade(readPrivateJson(beforePath), source);
   requireSameSnapshot(source, readRouterConfiguration());
@@ -25,8 +26,9 @@ main(import.meta, async () => {
   await journal.step('capture-seed', () =>
     magpieConfigurationCommand(['backup', '--no-keys', '--no-library', seed], { input: passphrase }), () => {
     requireSameSnapshot(source, readRouterConfiguration());
+    requireCredentialBytesEqual(credentialBytes, readLocalCredentialBytes());
     if (!statSync(seed).size) throw refuseCodex('empty seed backup');
-    return { isSourceUnchanged: true, isSeedCaptured: true };
+    return { isSourceUnchanged: true, isSeedCaptured: true, areLocalCredentialBytesUnchanged: true };
   });
   const key = randomBytes(32).toString('hex');
   const envelope = sealSnapshot({ runId: journal.runId, source, seed: readFileSync(seed).toString('base64'), passphrase }, key);

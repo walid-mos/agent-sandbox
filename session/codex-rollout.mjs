@@ -10,20 +10,22 @@ import { codexPreflight } from './codex-preflight.mjs';
 import { checkReviewedSource, CODEX_POTS, reviewAdmission, sha256, verifyResources } from './codex-review.mjs';
 import { codexAnswers } from './router-codex-answers.mjs';
 import { refuseCodex, requireSameSnapshot, upgradedSnapshot } from './router-codex-contract.mjs';
-import { magpieConfigurationCommand, readPrivateJson, readRouterConfiguration } from './router-configuration.mjs';
+import { magpieConfigurationCommand, readLocalCredentialBytes, readPrivateJson, readRouterConfiguration, requireCredentialBytesEqual } from './router-configuration.mjs';
 import { basicEnvironment, RUNTIME_SETTINGS } from './environment.mjs';
 import { requireOwnerHolds } from './codex-owner-holds.mjs';
 
 const REPOSITORY = join(dirname(fileURLToPath(import.meta.url)), '..');
 const COMMAND_MS = 300_000;
 async function backupMac(journal, snapshot) {
+  const credentialBytes = readLocalCredentialBytes();
   const passphrase = `${randomBytes(24).toString('hex')}\n`;
   const backup = join(journal.path, 'mac-before.magpie-backup');
   durablePrivateFile(join(journal.path, 'mac-backup-passphrase'), passphrase);
   await journal.step('mac-private-backup', () => magpieConfigurationCommand(['backup', '--no-library', backup], { input: passphrase }), () => {
+    requireCredentialBytesEqual(credentialBytes, readLocalCredentialBytes());
     requireSameSnapshot(snapshot, readRouterConfiguration());
     if (!statSync(backup).size) throw refuseCodex('private Mac backup missing');
-    return { isPrivateBackupPresent: true, isConfigurationUnchanged: true };
+    return { isPrivateBackupPresent: true, isConfigurationUnchanged: true, areLocalCredentialBytesUnchanged: true };
   });
 }
 
@@ -39,11 +41,13 @@ async function applyMacGroups(journal, before, candidate) {
   let expected = structuredClone(before);
   for (const id of ['deep', 'expert']) {
     const replacement = candidate.providers.groups.find(group => group.id === id);
+    const credentialBytes = readLocalCredentialBytes();
     const next = structuredClone(expected);
     next.providers.groups = next.providers.groups.map(group => group.id === id ? structuredClone(replacement) : group);
     await journal.step(`mac-group-${id}`, () => magpieConfigurationCommand(['group', 'set', id, `models=${replacement.members.join(',')}`]), () => {
+      requireCredentialBytesEqual(credentialBytes, readLocalCredentialBytes());
       requireSameSnapshot(next, readRouterConfiguration());
-      return { isOnlyReviewedGroupChanged: true };
+      return { isOnlyReviewedGroupChanged: true, areLocalCredentialBytesUnchanged: true };
     });
     expected = next;
   }

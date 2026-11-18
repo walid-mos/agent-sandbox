@@ -1,6 +1,6 @@
 import { requestRouterAnswer } from './router-answers.mjs';
 import { CODEX_CONTRACT, codexPlan, requireSameSnapshot } from './router-codex-contract.mjs';
-import { readPrivateJson, readRouterConfiguration } from './router-configuration.mjs';
+import { readLocalCredentialBytes, readPrivateJson, readRouterConfiguration, requireCredentialBytesEqual } from './router-configuration.mjs';
 import { main } from './main.mjs';
 import { requireEqual } from './codex-validation.mjs';
 
@@ -11,16 +11,20 @@ function requireExactCodexAnswer(result, plan) {
   requireEqual(plan.served, result.served, reason);
 }
 
-export async function* codexAnswers(snapshot, routerApi) {
+export async function* codexAnswers(snapshot, routerApi, captureCredentials = readLocalCredentialBytes) {
   const plan = codexPlan(snapshot);
+  const credentialBytes = captureCredentials();
   let result;
   try {
-    result = await requestRouterAnswer(routerApi, { group: CODEX_CONTRACT, target: plan.target, member: plan.target });
+    result = await requestRouterAnswer(routerApi, { group: CODEX_CONTRACT, target: plan.target, member: plan.target, account: plan.account });
   } catch {
+    requireCredentialBytesEqual(credentialBytes, captureCredentials());
     throw new Error(`${CODEX_CONTRACT}: direct Codex validation failed, outcome UNKNOWN. No retry. Claude DEFERRED.`);
   }
+  requireCredentialBytesEqual(credentialBytes, captureCredentials());
   requireExactCodexAnswer(result, plan);
   yield `${CODEX_CONTRACT}: direct Codex served ${plan.served}`;
+  yield `${CODEX_CONTRACT}: account constraint applied, served account unverified`;
   yield `${CODEX_CONTRACT}: Claude DEFERRED, group runtime and fallbacks untested`;
 }
 

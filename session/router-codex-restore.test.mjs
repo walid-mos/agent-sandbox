@@ -26,6 +26,16 @@ test('configuration-only public restore preserves credentials and standard wires
   assert.equal(readFileSync(join(fixture.directory, 'calls'), 'utf8').split('\n').filter(command => command === 'restore').length, 1);
 });
 
+test('changed Magpie wire getter refuses the public restore before backup or mutation', t => {
+  const fixture = codexProcessFixture(t);
+  writeFileSync(join(fixture.directory, 'failure'), 'wire-drift');
+  const result = restore(fixture);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Magpie wire getter format is unknown/u);
+  assert.equal(existsSync(fixture.journal), false);
+  assert.doesNotMatch(readFileSync(join(fixture.directory, 'calls'), 'utf8'), /backup|restore/u);
+});
+
 test('source binding drift refuses the public restore before backup or mutation', t => {
   const fixture = codexProcessFixture(t);
   fixture.candidate.providers.accountBindings.codex = '/replacement';
