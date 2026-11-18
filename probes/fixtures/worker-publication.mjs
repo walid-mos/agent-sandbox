@@ -34,7 +34,9 @@ mock.module('../../session/run.mjs', { exports: { ...realRun, WITH_VAULT: '/unus
 export const { save, workers } = await import('../../session/workers.mjs');
 export const { humanStore } = await import('../../session/human-store.mjs');
 export const { workerScope, publishWorker, openWorkerPR } = await import('../../session/worker-publication.mjs');
-export const git = (cwd, ...args) => execFileSync('git', args, { cwd, env: { ...process.env, HOME: gitHome }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+export const git = (cwd, ...args) => execFileSync('git', [
+  '-c', 'user.name=probe', '-c', 'user.email=probe@invalid', '-c', 'commit.gpgsign=false', ...args,
+], { cwd, env: { ...process.env, HOME: gitHome }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 let sequence = 0;
 
 export function fixture() {
