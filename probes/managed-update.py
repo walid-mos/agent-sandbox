@@ -22,7 +22,7 @@ def snapshot(root):
             for path in root.rglob('*')}
 
 
-class ManagedUpdate(unittest.TestCase):
+class ManagedFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         keys = tempfile.TemporaryDirectory(prefix='managed-update-keys.')
@@ -41,6 +41,9 @@ class ManagedUpdate(unittest.TestCase):
         invoke(['gpg', '--batch', '--quiet', '--passphrase', '', '--quick-generate-key',
                 'Other Fixture <other@example.invalid>', 'ed25519', 'sign', '1d'], cls.environment,
                stderr=subprocess.DEVNULL)
+        listing = invoke(['gpg', '--with-colons', '--list-keys', 'other@example.invalid'], cls.environment,
+                         stderr=subprocess.DEVNULL)
+        cls.other_fingerprint = next(line.split(':')[9] for line in listing.splitlines() if line.startswith('fpr:'))
 
     def setUp(self):
         scratch = tempfile.TemporaryDirectory(prefix='managed-update-fixture.')
@@ -76,9 +79,9 @@ class ManagedUpdate(unittest.TestCase):
     def stage_ref(self, revision):
         self.git(self.stage, 'update-ref', MAIN_REF, revision)
 
-    def run_preflight(self, revision=None, source='agent-sandbox', receiver=None):
+    def run_preflight(self, revision=None, source='agent-sandbox', receiver=None, options=()):
         result = subprocess.run([sys.executable, '-IB', str(ROOT / 'lib/managed_update.py'),
-                                 str(receiver or self.receiver), source, revision or self.desired],
+                                 str(receiver or self.receiver), source, revision or self.desired, *options],
                                 env=self.environment, text=True, capture_output=True)
         self.assertTrue(result.stdout, result.stderr)
         return result.returncode, json.loads(result.stdout)
@@ -90,6 +93,7 @@ class ManagedUpdate(unittest.TestCase):
         self.assertIsNone(receipt['verified'])
         return receipt
 
+class ManagedUpdate(ManagedFixture):
     def test_signed_candidate_emits_only_source_evidence_and_changes_no_bytes(self):
         (self.receiver / 'provisioned.json').write_text(json.dumps({'revision': self.installed}))
         before = snapshot(self.receiver)

@@ -147,9 +147,7 @@ def verify_signature(directory, revision, signers, failure):
         raise Blocked(failure) from None
 
 
-def verify_candidate(root, origin, installed, desired):
-    signers = root / 'trusted-signers.asc'
-    verify_signature(root / 'checkout', installed, signers, 'installed-signature-unverified')
+def staged_candidate(root, origin, installed, desired):
     stage = root / 'candidate.git'
     require_repository(stage, stage, origin)
     observed = read_git(stage, 'for-each-ref', '--format=%(refname) %(objectname) %(symref)', TRACKING_REF,
@@ -159,10 +157,17 @@ def verify_candidate(root, origin, installed, desired):
     require_exact_commit(stage, desired, 'candidate-not-commit')
     require_exact_commit(stage, installed, 'installed-base-unavailable')
     read_git(stage, 'merge-base', '--is-ancestor', installed, desired, failure='candidate-not-fast-forward')
+    return stage
+
+
+def verify_candidate(root, origin, installed, desired):
+    signers = root / 'trusted-signers.asc'
+    verify_signature(root / 'checkout', installed, signers, 'installed-signature-unverified')
+    stage = staged_candidate(root, origin, installed, desired)
     return {'revision': desired, 'signer': verify_signature(stage, desired, signers, 'candidate-signature-unverified')}
 
 
-def preflight(root, source, revision):
+def preflight(root, source, revision, verify=verify_candidate):
     desired = revision if SHA1.fullmatch(revision) else None
     receipt = {
         'source': source if source == SANDBOX or source in source_catalog() else None,
@@ -178,7 +183,7 @@ def preflight(root, source, revision):
         require_receiver(root, source)
         installed = checkout_revision(root / 'checkout', origin)
         receipt['checkout'] = installed
-        receipt['verified'] = verify_candidate(root, origin, installed, desired)
+        receipt['verified'] = verify(root, origin, installed, desired)
     except Blocked as problem:
         receipt['blocked'] = str(problem)
     except (OSError, Untrusted, UnicodeError):
@@ -186,18 +191,28 @@ def preflight(root, source, revision):
     return receipt
 
 
+def restrict_environment():
+    os.environ.clear()
+    os.environ.update(PATH=os.defpath, LC_ALL='C')
+
+
 def main():
     parser = argparse.ArgumentParser(description='Read an enrolled managed checkout and an already staged candidate. Emit one JSON preflight receipt.')
     parser.add_argument('receiver', type=Path, help='absolute path of the protected enrolled receiver')
     parser.add_argument('source', help='source catalog ID')
     parser.add_argument('revision', help='full staged commit SHA-1')
+    parser.add_argument('--factory', action='store_true', help='verify a signed Factory landing with scoped trust')
     arguments = parser.parse_args()
-    os.environ.clear()
-    os.environ.update(PATH=os.defpath, LC_ALL='C')
-    receipt = preflight(arguments.receiver, arguments.source, arguments.revision)
+    restrict_environment()
+    verifier = verify_candidate
+    if arguments.factory:
+        from factory_candidate import verify_publication
+        verifier = verify_publication
+    receipt = preflight(arguments.receiver, arguments.source, arguments.revision, verifier)
     print(json.dumps(receipt))
     return int(receipt['blocked'] is not None)
 
 
 if __name__ == '__main__':
+    sys.modules['managed_update'] = sys.modules[__name__]
     sys.exit(main())

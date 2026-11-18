@@ -81,5 +81,7 @@ PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 "$root/probe
 node "$root/probes/dispatch-branches.mjs"
 python3 -B "$root/probes/client-rules.py"
 python3 -B "$root/probes/client-rules-activation.py"
+python3 -B "$root/probes/managed-update.py"
+python3 -B "$root/probes/factory-receiver.py"
 git -C "$root" diff --check
 printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'
