@@ -14,7 +14,10 @@ from signed_commit import Untrusted, require_signed
 
 OBJECT_ID = re.compile(r"[0-9a-f]{40}")
 FINGERPRINT = re.compile(r"[0-9A-F]{40}")
-REQUEST_FIELDS = {"repository", "number", "head", "merged", "base"}
+LANDING_REF = "refs/heads/main"
+REQUEST_FIELDS = {"repository", "number", "generation", "ref", "head", "base", "tree"}
+MAX_SAFE_INTEGER = (1 << 53) - 1
+PROVENANCE_HEADER = "Factory landing v1"
 IDENTITY_NAME = "PR factory"
 IDENTITY_EMAIL = "factory@agent-sandbox.invalid"
 
@@ -50,19 +53,22 @@ class Signer:
             execute(["/usr/bin/git", *GIT_OPTIONS, "init", "--bare", str(self.store)])
 
     def git(self, *arguments, input=None, environment=ENVIRONMENT):
-        return execute(["/usr/bin/git", *GIT_OPTIONS, "--git-dir", str(self.store), *arguments], input=input, environment=environment).decode().strip()
+        return execute(["/usr/bin/git", "--no-replace-objects", *GIT_OPTIONS, "--git-dir", str(self.store), *arguments], input=input, environment=environment).decode().strip()
 
     def validate(self, request):
         if not isinstance(request, dict) or set(request) != REQUEST_FIELDS:
-            raise Refused("landing: expected repository, number, head, merged and base only.")
-        if request["repository"] != self.repository or type(request["number"]) is not int or request["number"] <= 0:
-            raise Refused("landing: wrong repository or pull request number.")
-        if not all(isinstance(request[name], str) and OBJECT_ID.fullmatch(request[name]) for name in ("head", "merged", "base")):
-            raise Refused("landing: expected full commit IDs.")
+            raise Refused("landing: expected repository, number, generation, ref, head, base and tree only.")
+        if request["repository"] != self.repository or request["ref"] != LANDING_REF:
+            raise Refused("landing: wrong repository or target ref.")
+        if not all(type(request[name]) is int and minimum <= request[name] <= MAX_SAFE_INTEGER
+                   for name, minimum in (("number", 1), ("generation", 0))):
+            raise Refused("landing: invalid pull request number or review generation.")
+        if not all(isinstance(request[name], str) and OBJECT_ID.fullmatch(request[name]) for name in ("head", "base", "tree")):
+            raise Refused("landing: expected full Git object IDs.")
 
     def fetch(self, request):
-        self.git("fetch", "--no-tags", self.origin, "+refs/heads/main:refs/heads/main", f"+refs/pull/{request['number']}/head:refs/heads/request")
-        remote = self.git("rev-parse", "refs/heads/main")
+        self.git("fetch", "--no-tags", self.origin, f"+{LANDING_REF}:{LANDING_REF}", f"+refs/pull/{request['number']}/head:refs/heads/request")
+        remote = self.git("rev-parse", LANDING_REF)
         if self.git("rev-parse", "refs/heads/request") != request["head"]:
             raise Refused("landing: the pull request head changed.")
         return remote
@@ -71,40 +77,27 @@ class Signer:
         return json.loads(self.receipt.read_text()) if self.receipt.exists() else {}
 
     def verify_release(self, request, previous):
-        merged, base, head = (request[name] for name in ("merged", "base", "head"))
-        if self.git("show", "--no-patch", "--format=%P", merged).split() != [base]:
-            raise Refused("landing: the squash must have exactly the last trusted tip as its parent.")
-        anchor = previous.get("commit")
-        if not anchor:
-            anchor = execute(["/usr/bin/git", *GIT_OPTIONS, "-c", f"safe.directory={self.clone}", "-C", str(self.clone), "rev-parse", "HEAD"]).decode().strip()
+        base, head, tree = (request[name] for name in ("base", "head", "tree"))
+        anchor = execute(["/usr/bin/git", *GIT_OPTIONS, "-c", f"safe.directory={self.clone}", "-C", str(self.clone), "rev-parse", "HEAD"]).decode().strip()
         self.git("merge-base", "--is-ancestor", anchor, base)
+        if previous:
+            self.git("merge-base", "--is-ancestor", previous["commit"], base)
         try:
             require_signed(self.store, base, self.trust)
         except Untrusted as error:
-            raise Refused("landing: the squash parent is not a trusted signed tip.") from error
+            raise Refused("landing: the checked base is not a trusted signed tip.") from error
         self.git("merge-base", "--is-ancestor", base, head)
-        if self.git("rev-parse", f"{merged}^{{tree}}") != self.git("rev-parse", f"{head}^{{tree}}"):
-            raise Refused("landing: the squash tree differs from the checked head.")
+        if self.git("rev-parse", f"{head}^{{tree}}") != tree:
+            raise Refused("landing: the proposed tree differs from the checked head.")
 
     def construct(self, request):
-        merged = request["merged"]
-        tree = self.git("rev-parse", f"{merged}^{{tree}}")
-        message = f"Factory landing for {self.repository}#{request['number']}\n\nHead: {request['head']}\nBase: {request['base']}\nSquash: {merged}\n"
+        message = f"{PROVENANCE_HEADER}\n\n{json.dumps(request, sort_keys=True, separators=(',', ':'))}\n"
         environment = {**ENVIRONMENT, "GNUPGHOME": str(self.home), "GIT_AUTHOR_NAME": IDENTITY_NAME, "GIT_AUTHOR_EMAIL": IDENTITY_EMAIL, "GIT_COMMITTER_NAME": IDENTITY_NAME, "GIT_COMMITTER_EMAIL": IDENTITY_EMAIL}
-        commit = self.git("-c", "gpg.format=openpgp", "-c", "gpg.program=/usr/bin/gpg", "commit-tree", tree, "-p", merged, f"-S{self.key}", input=message.encode(), environment=environment)
+        commit = self.git("-c", "gpg.format=openpgp", "-c", "gpg.program=/usr/bin/gpg", "commit-tree", request["tree"], "-p", request["base"], f"-S{self.key}", input=message.encode(), environment=environment)
         encoded = base64.b64encode(execute(["/usr/bin/git", *GIT_OPTIONS, "--git-dir", str(self.store), "cat-file", "commit", commit])).decode()
         return {"commit": commit, "object": encoded, "fingerprint": self.key, "request": request}
 
-    def sign(self, request):
-        self.validate(request)
-        remote = self.fetch(request)
-        previous = self.previous()
-        if previous.get("request") == request and remote in (request["merged"], previous["commit"]):
-            return previous
-        if remote != request["merged"]:
-            raise Refused("landing: main moved. Nothing was signed.")
-        self.verify_release(request, previous)
-        release = self.construct(request)
+    def save(self, release):
         pending = self.receipt.with_suffix(".next")
         with open(pending, "w", opener=lambda path, flags: os.open(path, flags | os.O_NOFOLLOW, 0o600)) as output:
             json.dump(release, output)
@@ -117,3 +110,14 @@ class Signer:
         finally:
             os.close(directory)
         return release
+
+    def sign(self, request):
+        self.validate(request)
+        remote = self.fetch(request)
+        previous = self.previous()
+        if previous.get("fingerprint") == self.key and previous.get("request") == request and remote in (request["base"], previous["commit"]):
+            return previous
+        if remote != request["base"]:
+            raise Refused("landing: the target moved from the checked base. Nothing was signed.")
+        self.verify_release(request, previous)
+        return self.save(self.construct(request))

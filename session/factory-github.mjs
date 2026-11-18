@@ -3,7 +3,7 @@ import { pullUrl } from './github-url.mjs';
 import { checkSteps } from './factory-repositories.mjs';
 import { command } from './run.mjs';
 import { owners } from './sandbox.mjs';
-import { requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
+import { landingRepository, requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
 
 export const FACTORY_TOPIC = 'factory';
 const REPOSITORY_LIMIT = '1000';
@@ -58,6 +58,7 @@ export function comment({ repository, number }, bodyFile) {
 
 // GitHub refuses the merge when the head moved since the verdict, or when the pull request went back to draft, so a merge never lands code the verdict did not cover.
 export function squashMerge({ repository, number, head }) {
+  if (repository === landingRepository) throw new Error('factory: the GitHub squash operation cannot bind the checked target and base. Use the signed publication path once its review record integration is ready.');
   const merge = spawnSync('gh', ['pr', 'merge', String(number), '--repo', repository, '--squash', '--match-head-commit', head], { encoding: 'utf8' });
   return `${merge.stdout ?? ''}${merge.stderr ?? ''}`.trim();
 }

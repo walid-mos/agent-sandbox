@@ -1,4 +1,6 @@
-# Factory landing: implemented
+# Factory landing design
+
+The description below records the original post-squash design. The draft follow-up replaces its publication operation because GitHub cannot check the target and base in the squash call. See [the release fixture and adoption limits](factory-release-fixture.md).
 
 Walid approved this design on 2026-11-17 16:18 UTC with the defaults below, and this branch implements the smallest path. Nothing is deployed until he signs and pushes a release: the signer, the isolated factory and the trust files then reach a pot at its next `vm-up`.
 
