@@ -66,13 +66,20 @@ class RunnerTests(unittest.TestCase):
         self.assert_refused_without_import(self.fixture.run())
 
     def test_recipe_and_original_hash_drift_refuse(self):
-        self.fixture.options['inputSha256'] = '0' * 64
-        self.assert_refused_without_import(self.fixture.run())
+        keys = ('inputSha256', 'recipeSha256', 'outputSha256', 'inputBytes', 'outputBytes')
+        for key in keys:
+            before = self.fixture.options[key]
+            self.fixture.options[key] = '0' * 64 if key.endswith('Sha256') else 0
+            self.assert_refused_without_import(self.fixture.run())
+            self.fixture.options[key] = before
 
     def test_production_has_no_fixture_override(self):
-        result = subprocess.run([sys.executable, '-I', str(AREA / 'run.py'), 'execute'],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        command = [sys.executable, '-I', str(AREA / 'run.py'), 'execute',
+                   '--contract', str(self.fixture.contract_path), '--contract-sha256', '0' * 64,
+                   '--owner-proof', str(self.fixture.proof), '--fixture-root', str(self.fixture.root)]
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b'unrecognized arguments: --fixture-root', result.stderr)
         self.assertFalse(self.fixture.journal.exists())
 
     def test_nonisolated_python_refuses_before_loading_resources(self):
