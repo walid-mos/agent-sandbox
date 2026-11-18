@@ -1,5 +1,4 @@
 import datetime as dt
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -10,31 +9,42 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'vm'))
+import usage_probe
+from usage_setup import provision
+
+REAL_SYSTEMD = '--systemd' in sys.argv
 DAY = '2026-11-17'
 NOW = dt.datetime(2026, 11, 18, 1, 15, tzinfo=dt.timezone.utc)
 ORIGIN = 'https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com'
 BUCKET = 'synthetic-usage'
 
 
-def load(name):
-    spec = importlib.util.spec_from_file_location(name, REPO / 'vm' / f'{name}.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def register_timer(root, action, unit):
+    if REAL_SYSTEMD:
+        subprocess.run(['systemctl', f'--root={root}', action, unit], check=True, capture_output=True)
+        return
+    units = root / 'etc/systemd/system'
+    wants = units / 'timers.target.wants'
+    wants.mkdir(exist_ok=True)
+    target = wants / unit
+    if action == 'disable':
+        target.unlink(missing_ok=True)
+        return
+    if action != 'enable' or not (units / unit).is_file():
+        raise AssertionError('Expected enable of an installed timer')
+    if not target.is_symlink():
+        target.symlink_to(units / unit)
 
 
 class Bootstrap(unittest.TestCase):
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory(prefix='usage-bootstrap-')))
-        self.probe = load('usage_probe')
-        self.provision = load('usage_setup')
         self.calls = []
         self.first = self.install('first')
 
     def install(self, name):
         root = self.root / name
-        self.provision.provision(root, lambda *command: subprocess.run(
-            ['systemctl', f'--root={root}', *command], check=True, capture_output=True))
+        provision(root, lambda action, unit: register_timer(root, action, unit))
         return root
 
     def host(self, root):
@@ -59,12 +69,12 @@ class Bootstrap(unittest.TestCase):
         })
 
     def publish(self, state, host, day, grant):
-        argv = self.probe.publisher_args(state, host, day, grant)
+        argv = usage_probe.publisher_args(state, host, day, grant)
         self.calls.append(argv)
         return {'hostId': host, 'day': day, 'sha256': 'a' * 64}
 
     def run_probe(self):
-        return self.probe.publish_pending(self.state(self.first), NOW, self.publish)
+        return usage_probe.publish_pending(self.state(self.first), NOW, self.publish)
 
     def timers(self, root):
         return sorted(path.name for path in (root / 'etc/systemd/system/timers.target.wants').glob('*.timer'))
@@ -80,6 +90,8 @@ class Bootstrap(unittest.TestCase):
         self.assertEqual(self.timers(second), ['pots-usage.timer'])
 
     def test_pot_owner_disables_vm_timer_and_blocks_manual_service_run(self):
+        self.enroll()
+        self.grant()
         marker = self.state(self.first) / 'schedule-owner'
         marker.write_text('pot\n')
         marker.chmod(0o600)
@@ -133,4 +145,4 @@ class Bootstrap(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest.main(argv=[argument for argument in sys.argv if argument != '--systemd'])
