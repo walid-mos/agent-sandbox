@@ -39,15 +39,15 @@ function processStart(pid) {
   try { return command('ps', ['-o', 'lstart=', '-p', `${pid}`]); } catch { return undefined; }
 }
 
-export function lockService(folder) {
+export function lockService(folder, processStartFor = processStart) {
   const path = join(folder, 'service.lock');
   if (existsSync(path)) {
     const previous = readPrivate(path);
-    const started = processStart(previous.pid);
+    const started = processStartFor(previous.pid);
     if (started && started === previous.started) throw new Error('mac-launch: a gate is already running.');
     rmSync(path);
   }
-  const owner = { pid: process.pid, started: processStart(process.pid) };
+  const owner = { pid: process.pid, started: processStartFor(process.pid) };
   writeFileSync(path, JSON.stringify(owner), { flag: 'wx', mode: 0o600 });
   const release = () => {
     if (existsSync(path) && readPrivate(path).pid === owner.pid) rmSync(path);

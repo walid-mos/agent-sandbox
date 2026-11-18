@@ -12,8 +12,9 @@ test('a lock whose PID now belongs to another process does not block the next ga
   const folder = ownedFolder(t);
   const lock = join(folder, 'service.lock');
   writeFileSync(lock, JSON.stringify({ pid: process.ppid, started: 'Thu Jan  1 00:00:00 1970' }), { mode: 0o600 });
-  const release = lockService(folder);
-  assert.throws(() => lockService(folder), /already running/);
+  const processStart = pid => pid === process.pid ? 'gate-start' : 'other-start';
+  const release = lockService(folder, processStart);
+  assert.throws(() => lockService(folder, processStart), /already running/);
   release();
   assert.equal(existsSync(lock), false);
 });
