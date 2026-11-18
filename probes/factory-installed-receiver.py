@@ -128,6 +128,15 @@ sys.exit(commands['main'](argv))
         self.assertEqual(self.outcome(self.unit('update'))[1]['loaded'], self.revision)
         self.assertEqual(self.starts(), [self.installed, self.revision, self.installed, self.revision])
 
+    def test_keeper_preserves_router_pin_maintenance_on_the_loaded_release(self):
+        self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
+        (self.root / 'router-outdated').touch()
+        result = self.unit('keeper')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / 'router-outdated').exists())
+        self.assertEqual((self.root / 'router-restarts').read_text().splitlines(), [self.installed])
+        self.assertEqual(self.starts(), [self.installed])
+
     def test_keeper_shares_the_lock_and_restarts_only_the_known_good_release(self):
         self.assertEqual(self.installed_command('initialize-receiver').returncode, 0)
         self.assertEqual(self.outcome(self.unit('update'))[1]['loaded'], self.revision)

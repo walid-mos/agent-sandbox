@@ -58,7 +58,9 @@ class VmReceiver(Receiver):
             except Blocked:
                 self.vm.require_idle()
                 self.vm.restart(checkout, revision, descriptor)
-            return self.vm.name()
+            container = self.vm.name()
+            self.vm.command(self.vm.launcher, 'maintain-router', container)
+            return container
 
 
 class VmSession:

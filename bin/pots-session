@@ -106,6 +106,14 @@ ensure() {
 	echo "$running"
 }
 
+maintain_router() {
+	container=$1
+	if ! session_exec "$container" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-current; then
+		session_exec "$container" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-only
+		restart_services "$container" pots-router
+	fi
+}
+
 health() {
 	name=$1 revision=$2
 	shift 2
@@ -137,6 +145,7 @@ case "${1:-}" in
 	name-all) sandbox_docker ps --filter "label=$POTS_SESSION_LABEL" --filter status=running --format '{{.Names}}' ;;
 	inventory) session_exec "$2" hc ls --all --json ;;
 	bot-status) session_exec "$2" pots status ;;
+	maintain-router) maintain_router "$2" ;;
 	health) shift; health "$@" ;;
 	stop) stop ;;
 	restart) hold_lock "$@"; stop && ensure ;;

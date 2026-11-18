@@ -22,6 +22,16 @@ def run_container(arguments):
 
 
 def exec_container(arguments):
+    outdated = root / 'router-outdated'
+    if arguments[-1] == '--router-current':
+        sys.exit(int(outdated.exists()))
+    if arguments[-1] == '--router-only':
+        outdated.unlink()
+        return
+    if arguments[-3:] == ['s6-svc', '-r', '/run/service/custom-svc-pots-router']:
+        with (root / 'router-restarts').open('a') as restarts:
+            restarts.write(f"{state['revision']}\n")
+        return
     if arguments[-2:] == ['pots', 'status']:
         activity = 'working' if (root / 'active-bot').exists() else 'idle'
         print(f'probe: Probe, fixture model, {activity}, fixture status')
