@@ -5,7 +5,7 @@ import stat
 import tempfile
 
 from factory_candidate import LANDING_REF, REVIEW_TAG_ROOT, verify_checkpoint
-from factory_squash import EVIDENCE_ROOT, SQUASH_TAG_ROOT, evidence_id, is_landing, verify_squash
+from factory_squash import EVIDENCE_ROOT, REVIEW_ROOT, SQUASH_TAG_ROOT, evidence_id, is_landing, verify_squash
 from managed_update import TRACKING_REF, Blocked, read_git, require_protected, require_repository, staged_candidate
 from source_refresh import BRANCH, git
 
@@ -32,7 +32,7 @@ def fetch_tip(root, origin, endpoint, protocol):
 
 
 def fetch_review(stage, endpoint, protocol, candidate, head):
-    destination = 'refs/factory/review'
+    destination = REVIEW_ROOT + candidate
     fetch_ref(stage, endpoint, protocol, REVIEW_TAG_ROOT + candidate, destination, 'factory-review-fetch-failed')
     direct = read_git(stage, 'rev-parse', '--verify', destination, failure='factory-review-ref-mismatch')
     if direct != head:
@@ -50,6 +50,9 @@ def materialize(root, origin, verified):
     revision = verified['revision']
     target = releases / revision
     if os.path.lexists(target):
+        if 'evidence' in verified:
+            require_repository(target, target / '.git', origin)
+            require_evidence_refs(target, verified)
         return
     with tempfile.TemporaryDirectory(dir=releases, prefix='.staging-') as temporary:
         checkout = Path(temporary) / 'checkout'
@@ -58,15 +61,25 @@ def materialize(root, origin, verified):
         fetch_ref(checkout, str(root / 'candidate.git'), 'file', TRACKING_REF, TRACKING_REF, 'release-fetch-failed')
         staging_git(checkout, 'checkout', '--quiet', '-B', BRANCH, revision, failure='release-checkout-failed')
         if 'evidence' in verified:
-            keep_evidence(checkout, root / 'candidate.git', revision, verified['evidence'])
+            keep_evidence(checkout, root / 'candidate.git', verified)
         checkout.replace(target)
 
 
-def keep_evidence(checkout, stage, revision, tag_id):
-    destination = EVIDENCE_ROOT + revision
-    fetch_ref(checkout, str(stage), 'file', destination, destination, 'release-fetch-failed')
-    if evidence_id(checkout, revision, 'release-fetch-failed') != tag_id:
-        raise Blocked('release-fetch-failed')
+def evidence_refs(verified):
+    revision = verified['revision']
+    return {EVIDENCE_ROOT + revision: verified['evidence'], REVIEW_ROOT + revision: verified['review']['head']}
+
+
+def require_evidence_refs(checkout, verified):
+    for ref, expected in evidence_refs(verified).items():
+        if read_git(checkout, 'rev-parse', '--verify', ref, failure='release-evidence-mismatch') != expected:
+            raise Blocked('release-evidence-mismatch')
+
+
+def keep_evidence(checkout, stage, verified):
+    for ref in evidence_refs(verified):
+        fetch_ref(checkout, str(stage), 'file', ref, ref, 'release-fetch-failed')
+    require_evidence_refs(checkout, verified)
 
 
 def verify_series(root, origin, installed, tip, endpoint, protocol):

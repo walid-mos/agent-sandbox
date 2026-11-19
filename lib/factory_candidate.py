@@ -41,11 +41,17 @@ def landing_request(stage, candidate, repository):
     return request
 
 
-def require_reviewed_tree(stage, candidate, request):
+def require_reviewed_head(stage, request):
     base, head, tree = (request[key] for key in ('base', 'head', 'tree'))
     require_exact_commit(stage, head, 'factory-review-object-missing')
     read_git(stage, 'merge-base', '--is-ancestor', base, head, failure='factory-head-not-reviewed-base')
-    if any(read_git(stage, 'rev-parse', f'{revision}^{{tree}}') != tree for revision in (head, candidate)):
+    if read_git(stage, 'rev-parse', f'{head}^{{tree}}') != tree:
+        raise Blocked('factory-tree-mismatch')
+
+
+def require_reviewed_tree(stage, candidate, request):
+    require_reviewed_head(stage, request)
+    if read_git(stage, 'rev-parse', f'{candidate}^{{tree}}') != request['tree']:
         raise Blocked('factory-tree-mismatch')
 
 

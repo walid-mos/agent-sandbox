@@ -10,6 +10,7 @@ import unittest
 
 probe = runpy.run_path(str(Path(__file__).with_name('factory-installed-receiver.py')))
 EXPORT = os.environ.get('FACTORY_RELEASE_SQUASH')
+RECOVERY_EXPORT = os.environ.get('FACTORY_RELEASE_SQUASH_RECOVERY')
 SOURCE_REF = 'refs/heads/main'
 EVIDENCE_ROOT = 'refs/tags/factory-release/'
 REVIEW_ROOT = 'refs/tags/factory-reviewed/'
@@ -17,19 +18,18 @@ ANCHOR = 'f086ad2c18ad33337f384905f3e60eae0973125c'
 TIP = '656dffe5a77cfa0df02a7c23c56cb98695c36331'
 
 
-@unittest.skipUnless(EXPORT, 'provide the disposable #30 native squash export')
-class ReceiverSquash(probe['InstalledFixture']):
+class SquashFixture(probe['InstalledFixture']):
     def prepare_export(self):
-        self.export = Path(EXPORT)
+        self.export = Path(self.archive)
         self.bundle = self.root / 'publisher.git'
         self.git(self.root, 'init', '-q', '--bare', str(self.bundle))
         self.git(self.bundle, 'fetch', '-q', '--no-tags', str(self.export / 'squashes.bundle'),
                  f'{SOURCE_REF}:{SOURCE_REF}', f'{EVIDENCE_ROOT}*:{EVIDENCE_ROOT}*', f'{REVIEW_ROOT}*:{REVIEW_ROOT}*')
         self.proof = json.loads((self.export / 'squashes.json').read_text())
-        self.installed = self.git(self.bundle, 'rev-parse', f'{ANCHOR}^{{commit}}')
+        self.installed = self.git(self.bundle, 'rev-parse', f'{self.anchor}^{{commit}}')
         self.revision = self.git(self.bundle, 'rev-parse', SOURCE_REF)
         self.checkpoints = [row['squash'] for row in self.proof['checkpoints']]
-        self.assertEqual((self.proof['anchor'], self.proof['tip'], self.revision), (self.installed, TIP, TIP))
+        self.assertEqual((self.proof['anchor'], self.proof['tip'], self.revision), (self.installed, self.tip, self.tip))
 
     def setUp(self):
         super().setUp()
@@ -40,6 +40,11 @@ class ReceiverSquash(probe['InstalledFixture']):
 
     def tag_object(self, squash):
         return self.git(self.bundle, 'rev-parse', EVIDENCE_ROOT + squash)
+
+
+@unittest.skipUnless(EXPORT, 'provide the disposable #30 native squash export')
+class ReceiverSquash(SquashFixture):
+    archive, anchor, tip = EXPORT, ANCHOR, TIP
 
     def append_uncertified(self, parent):
         tree = self.git(self.bundle, 'rev-parse', f'{parent}^{{tree}}')
@@ -162,6 +167,61 @@ class ReceiverSquash(probe['InstalledFixture']):
         self.git(self.bundle, 'update-ref', EVIDENCE_ROOT + raced, self.tag_object(last))
         self.assertEqual(self.poll()[1]['blocked'], 'factory-squash-mismatch')
         self.assertEqual(self.starts(), [self.installed])
+
+
+@unittest.skipUnless(RECOVERY_EXPORT, 'provide the disposable #30 squash recovery export')
+class ReceiverSquashRecovery(SquashFixture):
+    archive = RECOVERY_EXPORT
+    anchor = '56e8435a9ab17f33772b5d65041772267c289c08'
+    tip = '7a752948f8c4fb4e3b86c0c962a8f8c16ce5d2ab'
+
+    def test_missing_recovery_blocks_then_exact_evidence_allows_ordered_catch_up(self):
+        first, middle, last = self.checkpoints
+        tag = self.tag_object(middle)
+        ref = EVIDENCE_ROOT + middle
+        self.git(self.bundle, 'update-ref', '-d', ref)
+        code, state = self.poll()
+        self.assertEqual((code, state['blocked'], state['loaded']), (1, 'factory-evidence-fetch-failed', self.installed))
+        self.assertEqual(self.starts(), [self.installed])
+        self.git(self.bundle, 'update-ref', ref, tag)
+        (self.root / f'no-router-{last}').touch()
+        code, state = self.poll()
+        self.assertEqual((code, state['known_good'], state['loaded']), (1, middle, middle))
+        self.assertEqual(self.starts(), [self.installed, first, middle, last, middle])
+        self.assertEqual(self.outcome(self.installed_command('status-receiver'))[1]['loaded'], middle)
+        (self.root / f'no-router-{last}').unlink()
+        self.assertEqual(self.poll()[1]['loaded'], last)
+        self.assertEqual(self.starts(), [self.installed, first, middle, last, middle, last])
+
+    def test_gateway_refuses_to_switch_to_a_verified_squash(self):
+        (self.root / 'require-gateway-drain').touch()
+        code, state = self.poll()
+        self.assertEqual((code, state['blocked'], state['loaded']), (1, 'gateway-drain-unavailable', self.installed))
+        self.assertEqual(state['verified']['evidence'], self.proof['checkpoints'][0]['tagObject'])
+        self.assertEqual(self.starts(), [self.installed])
+
+    def test_keeper_and_status_require_saved_evidence_after_activation(self):
+        _first, middle, _last = self.checkpoints
+        self.git(self.bundle, 'update-ref', SOURCE_REF, middle)
+        code, state = self.poll()
+        self.assertEqual((code, state['loaded']), (0, middle))
+        expected = self.proof['checkpoints'][1]
+        self.assertEqual((state['verified']['review'], state['verified']['landed'], state['verified']['tree']),
+                         (expected['request'], expected['landed'], expected['landed']['tree']))
+        (self.root / 'container.json').unlink()
+        self.git(self.bundle, 'update-ref', '-d', EVIDENCE_ROOT + middle)
+        self.assertEqual(self.unit('keeper').returncode, 0)
+        checkout = self.receiver / 'releases' / middle
+        (self.root / 'container.json').unlink()
+        for namespace in ('refs/factory/release/', 'refs/factory/review/'):
+            with self.subTest(namespace=namespace):
+                ref = namespace + middle
+                object_id = self.git(checkout, 'rev-parse', ref)
+                self.git(checkout, 'update-ref', '-d', ref)
+                self.assertIsNone(self.outcome(self.installed_command('status-receiver'))[1]['loaded'])
+                self.assertIn('release-signature-unverified', self.unit('keeper').stderr)
+                self.git(checkout, 'update-ref', ref, object_id)
+        self.assertEqual(self.starts(), [self.installed, *self.checkpoints[:2], middle])
 
 
 if __name__ == '__main__':

@@ -168,7 +168,7 @@ class Receiver:
     def prepare_checkpoint(self, known_good, revision, checkpoint):
         if checkpoint is None:
             return verify_publication(self.root, self.origin, known_good, revision)
-        if checkpoint['review']['base'] != known_good or checkpoint['revision'] != revision:
+        if checkpoint.get('landed', checkpoint['review'])['base'] != known_good or checkpoint['revision'] != revision:
             raise Blocked('candidate-checkpoint-mismatch')
         materialize(self.root, self.origin, checkpoint)
         return checkpoint
