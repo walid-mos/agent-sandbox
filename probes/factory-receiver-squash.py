@@ -11,6 +11,7 @@ import unittest
 probe = runpy.run_path(str(Path(__file__).with_name('factory-installed-receiver.py')))
 EXPORT = os.environ.get('FACTORY_RELEASE_SQUASH')
 RECOVERY_EXPORT = os.environ.get('FACTORY_RELEASE_SQUASH_RECOVERY')
+ENTRY_EXPORT = os.environ.get('FACTORY_RELEASE_ENTRY')
 SOURCE_REF = 'refs/heads/main'
 EVIDENCE_ROOT = 'refs/tags/factory-release/'
 REVIEW_ROOT = 'refs/tags/factory-reviewed/'
@@ -178,14 +179,10 @@ class ReceiverSquash(SquashFixture):
         self.assertEqual(self.starts(), [self.installed])
 
 
-@unittest.skipUnless(RECOVERY_EXPORT, 'provide the disposable #30 squash recovery export')
-class ReceiverSquashRecovery(SquashFixture):
-    archive = RECOVERY_EXPORT
-    anchor = '56e8435a9ab17f33772b5d65041772267c289c08'
-    tip = '7a752948f8c4fb4e3b86c0c962a8f8c16ce5d2ab'
-
+class RecoveryCases:
     def test_missing_recovery_blocks_then_exact_evidence_allows_ordered_catch_up(self):
-        first, middle, last = self.checkpoints
+        *ordinary, middle, last = self.checkpoints
+        self.assertEqual(middle, self.recovered)
         tag = self.tag_object(middle)
         ref = EVIDENCE_ROOT + middle
         self.git(self.bundle, 'update-ref', '-d', ref)
@@ -196,11 +193,11 @@ class ReceiverSquashRecovery(SquashFixture):
         (self.root / f'no-router-{last}').touch()
         code, state = self.poll()
         self.assertEqual((code, state['known_good'], state['loaded']), (1, middle, middle))
-        self.assertEqual(self.starts(), [self.installed, first, middle, last, middle])
+        self.assertEqual(self.starts(), [self.installed, *ordinary, middle, last, middle])
         self.assertEqual(self.outcome(self.installed_command('status-receiver'))[1]['loaded'], middle)
         (self.root / f'no-router-{last}').unlink()
         self.assertEqual(self.poll()[1]['loaded'], last)
-        self.assertEqual(self.starts(), [self.installed, first, middle, last, middle, last])
+        self.assertEqual(self.starts(), [self.installed, *ordinary, middle, last, middle, last])
 
     def test_gateway_refuses_to_switch_to_a_verified_squash(self):
         (self.root / 'require-gateway-drain').touch()
@@ -210,11 +207,11 @@ class ReceiverSquashRecovery(SquashFixture):
         self.assertEqual(self.starts(), [self.installed])
 
     def test_keeper_and_status_require_saved_evidence_after_activation(self):
-        _first, middle, _last = self.checkpoints
+        middle = self.checkpoints[-2]
         self.git(self.bundle, 'update-ref', SOURCE_REF, middle)
         code, state = self.poll()
         self.assertEqual((code, state['loaded']), (0, middle))
-        expected = self.proof['checkpoints'][1]
+        expected = self.proof['checkpoints'][-2]
         self.assertEqual((state['verified']['review'], state['verified']['landed'], state['verified']['tree']),
                          (expected['request'], expected['landed'], expected['landed']['tree']))
         (self.root / 'container.json').unlink()
@@ -230,8 +227,21 @@ class ReceiverSquashRecovery(SquashFixture):
                 self.assertIsNone(self.outcome(self.installed_command('status-receiver'))[1]['loaded'])
                 self.assertIn('release-signature-unverified', self.unit('keeper').stderr)
                 self.git(checkout, 'update-ref', ref, object_id)
-        self.assertEqual(self.starts(), [self.installed, *self.checkpoints[:2], middle])
+        self.assertEqual(self.starts(), [self.installed, *self.checkpoints[:-1], middle])
 
+@unittest.skipUnless(RECOVERY_EXPORT, 'provide the disposable #30 squash recovery export')
+class ReceiverSquashRecovery(RecoveryCases, SquashFixture):
+    archive = RECOVERY_EXPORT
+    anchor = '56e8435a9ab17f33772b5d65041772267c289c08'
+    tip = '7a752948f8c4fb4e3b86c0c962a8f8c16ce5d2ab'
+    recovered = '4da30cf4d0ae103dfd4acb2177a9dca9714ce5d9'
+
+@unittest.skipUnless(ENTRY_EXPORT, 'provide the disposable #30 entry-point export')
+class ReceiverEntry(RecoveryCases, SquashFixture):
+    archive = ENTRY_EXPORT
+    anchor = '39278ca09224d0e3539fbfd2cb3ddc22bb3cbad4'
+    tip = '542823a09dee7e38f16d71426ce1dad3798ca755'
+    recovered = '4c7128480dd444ec3bb6aa40f8288f6c0f84a342'
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

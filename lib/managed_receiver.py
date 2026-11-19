@@ -78,6 +78,11 @@ class Receiver:
                                        'desired': None, 'verified': None, 'blocked': None})
 
     def restore(self, state, reason, descriptor):
+        if 'gateway_hold' in state:
+            raise Blocked('gateway-recovery-requires-vm-launcher')
+        return self.restore_release(state, reason, descriptor)
+
+    def restore_release(self, state, reason, descriptor):
         revision = state['known_good']
         saving = write_state(self.root, {**state, 'phase': 'restoring', 'blocked': reason,
                                         'filesystem': None, 'loaded': None})
@@ -89,7 +94,7 @@ class Receiver:
             failure = str(problem) if isinstance(problem, Blocked) else 'receiver-io-failed'
             return write_state(self.root, {**saving, 'recovery_failure': failure})
         saving.pop('recovery_failure', None)
-        return write_state(self.root, {**saving, 'phase': 'ready', 'filesystem': revision, 'loaded': revision})
+        return self.finish_release(saving, revision, descriptor)
 
     def poll(self, descriptor, endpoint=None, protocol='https'):
         state = read_state(self.root)
@@ -153,7 +158,13 @@ class Receiver:
         if read_git(target, 'rev-parse', f'{revision}^{{tree}}') != verified['tree']:
             raise Blocked('release-tree-mismatch')
         state = write_state(self.root, {**state, 'verified': verified})
-        self.call_runtime('idle', checkout, known_good, descriptor)
+        return self.activate(state, checkout, target, revision, descriptor)
+
+    def activate(self, state, checkout, target, revision, descriptor):
+        self.call_runtime('idle', checkout, state['known_good'], descriptor)
+        return self.switch_release(state, target, revision, descriptor)
+
+    def switch_release(self, state, target, revision, descriptor):
         changing = write_state(self.root, {**state, 'phase': 'switching', 'accepted': revision,
                                           'filesystem': None, 'loaded': None})
         try:
@@ -162,7 +173,10 @@ class Receiver:
         except (Blocked, OSError) as problem:
             reason = str(problem) if isinstance(problem, Blocked) else 'receiver-io-failed'
             return self.restore(changing, reason, descriptor)
-        return write_state(self.root, {**changing, 'phase': 'ready', 'known_good': revision,
+        return self.finish_release(changing, revision, descriptor)
+
+    def finish_release(self, state, revision, descriptor):
+        return write_state(self.root, {**state, 'phase': 'ready', 'known_good': revision,
                                        'filesystem': revision, 'loaded': revision})
 
     def prepare_checkpoint(self, known_good, revision, checkpoint):

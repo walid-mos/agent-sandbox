@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 import runpy
 import shlex
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 from threading import Thread
@@ -14,7 +14,6 @@ import unittest
 
 probe = runpy.run_path(str(Path(__file__).with_name('factory-producer-receiver.py')))
 ROOT = probe['ROOT']
-
 
 class InstalledFixture(probe['ProducerExportFixture']):
     def setUp(self):
@@ -96,31 +95,33 @@ class InstalledFixture(probe['ProducerExportFixture']):
         script = '''
 import os, runpy, signal, sys
 from pathlib import Path
-launcher, endpoint, fixture, binaries, *argv = sys.argv[1:]
+launcher, endpoint, fixture, binaries, gateway_fixture, *argv = sys.argv[1:]
 commands = runpy.run_path(launcher)
-from receiver_vm import VmReceiver
 import receiver_vm
 receiver_vm.HEALTH_SECONDS = 3 if (Path(fixture) / 'wait-for-router').exists() else 0
 factory = commands['vm_receiver'].__globals__
 environment = {**commands['run_environment'](), 'PATH': binaries + ':' + commands['TRUSTED_PATH'],
                'RECEIVER_VM_FIXTURE': fixture}
-class FixtureReceiver(VmReceiver):
+class FixtureReceiver(receiver_vm.VmReceiver):
     def require_gateway_drain(self):
         if (Path(fixture) / 'require-gateway-drain').exists():
             super().require_gateway_drain()
 
     def call_runtime(self, operation, checkout, revision, descriptor, arguments=()):
+        if operation == 'restart' and gateway is not None:
+            gateway.observe_restart()
         response = super().call_runtime(operation, checkout, revision, descriptor, arguments)
         if operation == 'restart' and (Path(fixture) / f'interrupt-{revision}').exists():
             os.kill(os.getpid(), signal.SIGKILL)
         return response
+gateway = runpy.run_path(gateway_fixture)['GatewayFixture'](Path(fixture)) if gateway_fixture else None
 factory['vm_receiver'] = lambda root: FixtureReceiver(root, commands['LAUNCH'], commands['BUNDLE'], environment,
-                                                     fetch_endpoint=(endpoint, 'file'))
+                                                     fetch_endpoint=(endpoint, 'file'), gateway=gateway)
 sys.exit(commands['main'](argv))
 '''
         return subprocess.run([sys.executable, '-IB', '-c', script, str(self.launcher), str(self.bundle),
-                               str(self.root), str(self.docker_bin), *arguments], env=self.environment,
-                              text=True, capture_output=True)
+                               str(self.root), str(self.docker_bin), getattr(self, 'gateway_fixture', ''), *arguments],
+                              env=self.environment, text=True, capture_output=True)
 
     def outcome(self, result):
         self.assertTrue(result.stdout, result.stderr)
@@ -128,7 +129,6 @@ sys.exit(commands['main'](argv))
 
     def starts(self):
         return (self.root / 'starts').read_text().splitlines()
-
 
 @unittest.skipUnless(probe['EXPORT'], 'provide a disposable #30 export')
 class InstalledReceiver(InstalledFixture):
@@ -244,7 +244,6 @@ class InstalledReceiver(InstalledFixture):
             self.assertFalse((self.root / 'container.json').exists())
         self.assertEqual(self.unit('keeper').returncode, 0)
         self.assertEqual(self.starts(), [self.installed, self.revision, self.revision])
-
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

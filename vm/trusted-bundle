@@ -10,6 +10,7 @@
 0644 lib/signed_tag.py
 0644 lib/receiver_state.py
 0644 lib/receiver_vm.py
+0644 lib/receiver_gateway.py
 0644 lib/sandbox.sh
 0644 lib/providers/local.sh
 0644 session/launch.env

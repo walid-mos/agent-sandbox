@@ -8,7 +8,11 @@ import tempfile
 from managed_update import Blocked, SHA1, require_protected
 
 PROTOCOL = 1
-PHASES = {'ready', 'switching', 'restoring'}
+QUIESCING = 'quiescing'
+RESUMING = 'resuming'
+GATEWAY_PHASES = {QUIESCING, RESUMING}
+PHASES = {'ready', 'switching', 'restoring'} | GATEWAY_PHASES
+GATEWAY_HOLD_LENGTH = 32
 CONTROL = 'control'
 STATUS = 'status.json'
 LOCK = 'admission.lock'
@@ -54,6 +58,12 @@ def read_state(root):
         raise Blocked('incompatible-receiver-status')
     if any(not isinstance(state.get(key), str) or not SHA1.fullmatch(state[key]) for key in ('accepted', 'known_good')):
         raise Blocked('invalid-receiver-status')
+    hold = state.get('gateway_hold')
+    if hold is None and state['phase'] not in GATEWAY_PHASES:
+        return state
+    if (state['phase'] == 'ready' or not isinstance(hold, str) or len(hold) != GATEWAY_HOLD_LENGTH
+            or any(character not in '0123456789abcdef' for character in hold)):
+        raise Blocked('invalid-gateway-hold')
     return state
 
 

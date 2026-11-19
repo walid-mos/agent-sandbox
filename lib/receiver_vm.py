@@ -7,6 +7,7 @@ import time
 
 from managed_receiver import Receiver
 from managed_update import Blocked, checkout_revision
+from receiver_gateway import GATEWAY_UNAVAILABLE, hold_gateway, recover_gateway, resume_gateway
 from receiver_state import CONTROL, PROTOCOL, STATUS, admission, read_state, write_state
 
 SERVICES = ('pots-gateway', 'pots-router', 'pots-watcher', 'pots-sources')
@@ -16,10 +17,11 @@ ROUTER_RESTART_PENDING = 'router-restart-pending'
 
 
 class VmReceiver(Receiver):
-    def __init__(self, root, launch, bundle, environment, *, fetch_endpoint=None):
+    def __init__(self, root, launch, bundle, environment, *, fetch_endpoint=None, gateway=None):
         super().__init__(root, launch['POTS_SOURCE_URL'])
         self.vm = VmSession(root, launch, bundle, environment)
         self.fetch_endpoint = fetch_endpoint
+        self.gateway = gateway
 
     def poll(self, descriptor):
         if self.fetch_endpoint is not None:
@@ -40,7 +42,17 @@ class VmReceiver(Receiver):
         raise Blocked('vm-dispatch-requires-session-admission')
 
     def require_gateway_drain(self):
-        raise Blocked('gateway-drain-unavailable')
+        raise Blocked(GATEWAY_UNAVAILABLE)
+
+    def activate(self, state, checkout, target, revision, descriptor):
+        if self.gateway is None:
+            return super().activate(state, checkout, target, revision, descriptor)
+        return hold_gateway(self, state, target, revision, descriptor)
+
+    def finish_release(self, state, revision, descriptor):
+        if 'gateway_hold' not in state:
+            return super().finish_release(state, revision, descriptor)
+        return resume_gateway(self, {**state, 'known_good': revision, 'filesystem': revision}, descriptor)
 
     def initialize(self, descriptor):
         if os.path.lexists(self.root / CONTROL / STATUS):
@@ -70,6 +82,8 @@ class VmReceiver(Receiver):
             return container
 
     def restore(self, state, reason, descriptor):
+        if 'gateway_hold' in state:
+            return recover_gateway(self, state, reason, descriptor)
         if state['phase'] != 'restoring' or reason != ROUTER_RESTART_PENDING:
             return super().restore(state, reason, descriptor)
         revision = state['known_good']
