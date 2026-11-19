@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { releaseRequest } from './factory-release.mjs';
 
 export const PENDING = 'squash-pending';
+export const SUPERSEDED_SQUASH = 'squash-superseded';
 const OBSERVED = 'squash-observed';
 const SIGNED = 'squash-signed';
 export const isPendingSquash = record => [PENDING, OBSERVED, SIGNED].includes(record?.stage);

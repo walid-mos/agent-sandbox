@@ -36,7 +36,8 @@ function signedGithub(args, facts) {
   if (args[0] === 'api' && args[1] === 'user') json(123);
   else if (args[0] === 'api' && args[1].includes('/pulls/')) {
     const isMerged = existsSync(file('merged'));
-    json({ number: facts.number, state: isMerged ? 'closed' : 'open', merged: isMerged, merge_commit_sha: facts.headRefOid,
+    const merged = existsSync(file('uncertain-merge-readback')) ? undefined : isMerged;
+    json({ number: facts.number, state: isMerged ? 'closed' : 'open', merged, merge_commit_sha: facts.headRefOid,
       base: { repo: { full_name: repository }, ref: facts.baseRefName }, head: { sha: facts.headRefOid } });
   } else if (args[0] === 'pr' && args[1] === 'comment') {
     if (facts.baseRefName !== 'main') {
@@ -49,7 +50,10 @@ function signedGithub(args, facts) {
       process.exit(1);
     }
   } else if (args[0] === 'api' && args[1].includes('/comments?')) json([[{ user: { id: 123 }, body: read('verdict-comment') }]]);
-  else if (args[0] === 'pr' && args[1] === 'merge') write('merged', true);
+  else if (args[0] === 'pr' && args[1] === 'merge') {
+    if (existsSync(file('refuse-merge'))) process.exit(1);
+    write('merged', true);
+  }
   else return { isHandled: false };
   return { isHandled: true };
 }

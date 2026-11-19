@@ -3,12 +3,12 @@ import { isLandingPull, landingRepository, LANDING_BRANCH, requireLandingAuthori
 import { askFactory } from './factory-channel.mjs';
 import { mergeReadback, pullFacts, requireActionable, requireReviewPolicy, squashMerge } from './factory-github.mjs';
 import { openJobs } from './factory-jobs.mjs';
-import { JOB_DIRECTORY, requireCurrent } from './factory-state.mjs';
+import { JOB_DIRECTORY } from './factory-state.mjs';
 import { landingGit, mergeBase } from './factory-mirror.mjs';
 import { withRecord } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { queueReport } from './factory-reports.mjs';
-import { beginSquashPublication, finishSquashPublication, isPendingSquash, PENDING } from './factory-squash-publication.mjs';
+import { beginSquashPublication, finishSquashPublication, isPendingSquash, PENDING, SUPERSEDED_SQUASH } from './factory-squash-publication.mjs';
 import { requireRecoveryReview, reviewSquashRecovery } from './factory-squash-recovery.mjs';
 
 function authority(record) {
@@ -19,13 +19,17 @@ function authority(record) {
     currentInputRevision: repository => hasChecks(repository) ? effectiveCheckRevision(repository) : undefined, recovery: reviewSquashRecovery };
 }
 
-function requireLandingReview(record) {
+function currentGeneration(record) {
   const jobs = openJobs(JOB_DIRECTORY);
   try {
-    requireCurrent(jobs, record);
+    return jobs.current(record);
   } finally {
     jobs.close();
   }
+}
+
+function requireLandingReview(record) {
+  if (currentGeneration(record) !== record.generation) throw new Error('factory: use the wake for the current review generation');
   requireActionable(record);
   if (record.inputRevision !== effectiveCheckRevision(record.repository)) throw new Error('factory: check inputs changed');
   if (record.baseTip !== record.mergeBase || mergeBase(record.repository, record.baseTip, record.head) !== record.baseTip) {
@@ -41,8 +45,12 @@ function continuePublication(record, save, adapters) {
         || facts.head !== request.head || facts.ref !== request.ref) {
       throw new Error('factory: the open PR no longer matches the saved merge intent.');
     }
+    if (currentGeneration(record) !== record.generation
+        || adapters.currentInputRevision(record.repository) !== record.inputRevision
+        || adapters.git.tip(request.ref) !== request.base) {
+      return save({ ...record, stage: SUPERSEDED_SQUASH });
+    }
     adapters.requireReady(record, request);
-    if (adapters.git.tip(request.ref) !== request.base) throw new Error('factory: the target moved before the pending squash could be sent.');
     squashMerge(record);
     return finishSquashPublication(record, save, adapters);
   }

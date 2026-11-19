@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { once } from 'node:events';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,7 +19,7 @@ const host = 'factory.example.com';
 const fixtureTimeout = 20_000;
 const teardown = new WeakMap();
 
-function waitFor(directory, name, signal) {
+function waitFor(directory, name, signal, isReady = existsSync) {
   return new Promise((resolve, reject) => {
     const watcher = watch(directory, check);
     function stop() {
@@ -28,7 +28,7 @@ function waitFor(directory, name, signal) {
     }
     function abort() { stop(); reject(signal.reason); }
     function check() {
-      if (!existsSync(join(directory, name))) return;
+      if (!isReady(join(directory, name))) return;
       stop();
       resolve();
     }
@@ -112,7 +112,10 @@ async function controller(t, root, directory, env, wakeSocket) {
   teardown.get(t).push(stop);
   await waitFor(root, 'intervals', t.signal);
   await waitFor(join(directory, '..'), 'execution', t.signal);
-  await waitFor(directory, 'events.sock', t.signal);
+  await waitFor(directory, 'events.sock', t.signal, path => (statSync(path, { throwIfNoEntry: false })?.mode & 0o777) === 0o600);
+  if (wakeSocket) {
+    await waitFor(directory, 'wake.sock', t.signal, path => (statSync(path, { throwIfNoEntry: false })?.mode & 0o777) === 0o660);
+  }
   return stop;
 }
 
@@ -319,6 +322,29 @@ test('changed inputs after squash record operator recovery once and stop signing
   assert.equal(readFileSync(calls, 'utf8'), 'landing\nreports\n');
   assert.equal(existsSync(join(root, 'published')), false);
   assert.deepEqual(JSON.parse(readFileSync(recordPath, 'utf8')), record);
+});
+
+test('a confirmed open stale squash intent yields to the current review', { timeout: fixtureTimeout }, t => {
+  const { root, cli, wake } = signedReview(t);
+  writeFileSync(join(root, 'refuse-merge'), '');
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /gh pr comment/);
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /merge readback/);
+  assert.equal(existsSync(join(root, 'merged')), false);
+  writeFileSync(join(root, 'image-id'), JSON.stringify('d'.repeat(64)));
+  const uncertain = join(root, 'uncertain-merge-readback');
+  writeFileSync(uncertain, '');
+  cli('reconcile');
+  assert.throws(() => cli('scan'), /merge readback/);
+  cli('run-job', '2');
+  assert.throws(() => cli('publish-job', '2'), /prior squash still needs readback/);
+  rmSync(uncertain);
+  cli('scan');
+  cli('publish-job', '2');
+  const wakes = readFileSync(join(root, 'wakes'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(wakes.at(-1).generation, 2);
+  assert.notEqual(wakes.at(-1).review, wake.review);
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /checked review changed/);
+  assert.equal(existsSync(join(root, 'landing')), false);
 });
 
 test('an ordinary verdict on the isolated repository holds the shared record lock', { timeout: fixtureTimeout }, t => {

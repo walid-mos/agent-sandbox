@@ -178,7 +178,7 @@ export function comment({ repository, number }, bodyFile) {
 export function mergeReadback({ repository, number }) {
   const pull = JSON.parse(gh(['api', `repos/${repository}/pulls/${number}`]));
   return { repository: pull.base?.repo?.full_name, number: pull.number, head: pull.head?.sha,
-    ref: `refs/heads/${pull.base?.ref}`, state: pull.merged === true && pull.state === 'closed' ? 'MERGED' : pull.state,
+    ref: `refs/heads/${pull.base?.ref}`, state: pull.merged === true && pull.state === 'closed' ? 'MERGED' : pull.merged === false && pull.state === 'open' ? 'open' : undefined,
     squash: pull.merge_commit_sha };
 }
 

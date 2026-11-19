@@ -4,6 +4,7 @@ import { askFactory } from './factory-channel.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 import { fileURLToPath } from 'node:url';
 import { pullKey, pullUrl, readRecord, usesSharedRecord, withRecord, writeRecord } from './factory-records.mjs';
+import { SUPERSEDED_SQUASH } from './factory-squash-publication.mjs';
 import { bindReview } from './factory-review.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 import { botId } from './sandbox.mjs';
@@ -43,7 +44,8 @@ export function handToFactory(record) {
     return usesSharedRecord(record) ? withRecord(record, (_, save) => save(record)) : writeRecord(record);
   }
   if (usesSharedRecord(record)) return deliverWakes(withRecord(record, (prior, save) => {
-    if (prior?.generation >= record.generation || prior?.squashPublication) return prior;
+    if (prior?.generation >= record.generation) return prior;
+    if (prior?.squashPublication && prior.stage !== SUPERSEDED_SQUASH) throw new Error('factory: a prior squash still needs readback');
     return save(queueFactoryWake(record));
   }));
   const saved = readRecord(record) ?? writeRecord(record);
@@ -80,7 +82,8 @@ export function deliverWakes(record) {
 export function reportToPrincipal(record, text) {
   if (usesSharedRecord(record)) {
     const saved = withRecord(record, (prior, save) => {
-      if (prior?.squashPublication || prior?.generation > record.generation) return prior;
+      if (prior?.generation > record.generation) return prior;
+      if (prior?.squashPublication && prior.stage !== SUPERSEDED_SQUASH) throw new Error('factory: a prior squash still needs readback');
       return save(queueReport(record, text));
     });
     return deliverWakes(saved);
