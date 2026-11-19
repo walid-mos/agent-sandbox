@@ -40,6 +40,6 @@ export function reportToPrincipal(record, text) {
 }
 
 export function reportStaleDraft(pull, id, owner) {
-  const text = `PR factory: ${pullUrl(pull)} is still a draft past its reminder threshold. Check the worker that owns it and follow up, or tell the person if no worker owns it.`;
+  const text = `PR factory: ${pullUrl(pull)} has been a draft for more than a day, and its description holds no valid BLOCKED UNTIL line. Send its worker this note, or tell the person when no worker owns it.`;
   command('pots', ['wake', '--bot', owner ?? botId, '--from', PRINCIPAL_SOURCE, '--id', id, '--note', text]);
 }
