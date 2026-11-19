@@ -35,10 +35,10 @@ function fakeGitHub(overrides = {}) {
     if (refusal) return { status: refusal, data: { message: 'Resource not accessible by personal access token' } };
     for (const [routeMethod, pattern, answer] of routes) {
       const match = routeMethod === method && pattern.exec(path);
-      if (match) {
-        const [status, data] = answer(body ?? match);
-        return { status, data };
-      }
+      if (!match) continue;
+      // A GET handler may read the route match, and an empty body is a valid answer.
+      const answered = method === 'GET' ? answer(match) : answer(body);
+      return { status: answered[0], data: answered[1] };
     }
     return { status: 500, data: { message: `unrouted ${method} ${path}` } };
   };
