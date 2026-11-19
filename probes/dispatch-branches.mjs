@@ -72,6 +72,8 @@ if (binary === 'gh' && args[0] === 'api') console.log('develop');
 if (binary === 'bash') console.log(${JSON.stringify(pullRequest)});
 `, { mode: 0o700 });
   for (const binary of ['git', 'gh', 'bash', 'hc']) symlinkSync(executable, join(binaries, binary));
+  const flock = execFileSync('sh', ['-c', 'command -v flock'], { encoding: 'utf8' }).trim();
+  symlinkSync(flock, join(binaries, 'flock'));
 }
 
 const realGit = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=probe', '-c', 'user.email=probe@invalid', '-c', 'commit.gpgsign=false',
@@ -121,6 +123,9 @@ function accepted(branch, values = launch) {
   assert.equal(worker.branch, branch);
   assert.equal(worker.repository, allowedRepository);
   assert.equal(worker.pullRequest, pullRequest);
+  assert.equal(worker.admission, 'memory');
+  assert.equal(worker.ahead, 0);
+  assert.equal(Object.hasOwn(worker, 'maxWorkers'), false);
   const checkout = join(result.home, 'Development', allowedRepository);
   const worktree = join(checkout, '.worktree/product-data-apps', branch.replaceAll('/', '-'));
   assert.deepEqual(result.calls, [
@@ -137,7 +142,7 @@ function accepted(branch, values = launch) {
   assert.ok(!brief.includes(clientRuleText), 'the brief leaves client policy text in its source file');
   const workers = join(result.home, '.config/agent-sandbox/workers');
   assert.equal(JSON.parse(readFileSync(join(workers, worker.name + '.json'), 'utf8')).branch, branch);
-  assert.equal(readdirSync(join(workers, 'queue')).length, 1);
+  assert.equal(readdirSync(join(workers, 'queue')).filter(file => file.endsWith('.json')).length, 1);
 }
 
 function refused(reason, branch, target = allowedRepository, values = launch) {
@@ -189,7 +194,7 @@ try {
   assert.equal(taskWorker.kind, 'task');
   assert.equal(taskWorker.repository, undefined);
   assert.deepEqual(task.calls, [], 'non-repository launch has no Git, GitHub, PR or immediate terminal side effect');
-  assert.equal(readdirSync(join(task.home, '.config/agent-sandbox/workers/queue')).length, 1);
+  assert.equal(readdirSync(join(task.home, '.config/agent-sandbox/workers/queue')).filter(file => file.endsWith('.json')).length, 1);
   accepted(jiraBranch);
   accepted(jiraBranch, { ...launch, rules: clientRules });
   accepted(jiraBranch, { title: '[DA-250] Freeze campaign establishments', subject: 'Start DA-250' });
