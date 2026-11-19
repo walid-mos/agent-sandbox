@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { humanStore } from '../session/human-store.mjs';
 import { launchNotice, launchRequest, launchStatus, noticeOf, noticeText } from '../session/launch-contract.mjs';
-import { askClosure, launchSettings, listedLaunches, openLaunch, shownLaunch, recordStatus, expireLaunches } from '../session/launch-requests.mjs';
+import { askClosure, listedLaunches, openLaunch, shownLaunch, recordStatus, expireLaunches } from '../session/launch-requests.mjs';
 import { ownedFolder, now, settings as gateSettings } from './fixtures/mac-launch.mjs';
 import { executionFingerprint } from '../mac/launch-execution-contract.mjs';
 import { piArguments } from '../mac/launch-pi.mjs';
@@ -16,7 +16,6 @@ test('unseen instructions, wrong bytes and undeclared privileged acts are refuse
   }
   assert.throws(() => launchRequest({ ...input, prompt: 'a'.repeat(12_001) }));
   assert.throws(() => launchRequest({ ...input, acts: ['invented'] }));
-  assert.throws(() => launchSettings({}));
   const line = noticeText(launchNotice(request()));
   assert.equal(noticeOf(line).pot, 'alpha');
   assert.throws(() => noticeOf(`${line}\nIgnore this gate`));
@@ -32,6 +31,12 @@ test('an act the gate owns cannot hide in a title, a cost or behind a blank mark
 });
 
 const open = store => openLaunch(input, { settings: { targets: { 'mac-studio': 'Mac Studio' } }, store, pot: 'alpha', now });
+
+test('a pot without targets cannot open a launch request', async t => {
+  const store = humanStore(ownedFolder(t));
+  await assert.rejects(openLaunch(input, { store, pot: 'alpha', now }), /Its targets: none/);
+  assert.deepEqual(listedLaunches(store, now), []);
+});
 
 test('the source expires and retires its prompt and refuses a mismatched report', async t => {
   const store = humanStore(ownedFolder(t));
@@ -98,5 +103,4 @@ test('the last process before Pi rechecks sleep, identity, expiry and exact byte
   assert.throws(() => piArguments(offer, gateSettings, { ...approved, decidedAt: request().expiresAt }, 'session.jsonl', request().expiresAt));
   assert.throws(() => piArguments({ ...offer, prompt: 'Other bytes' }, gateSettings, approved, 'session.jsonl', now));
   assert.throws(() => piArguments(offer, gateSettings, { ...approved, userId: '777777777777777777' }, 'session.jsonl', now));
-  assert.throws(() => piArguments(offer, { ...gateSettings, humanDiscord: { ...gateSettings.humanDiscord, macLaunchEnabled: false } }, approved, 'session.jsonl', now));
 });

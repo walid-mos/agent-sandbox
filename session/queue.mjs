@@ -22,7 +22,6 @@ function append(request) {
   // Publish the sequence first so an interrupted producer can leave a gap but cannot reuse an ID.
   writePrivateJson(SEQUENCE, next);
   writePrivateJson(join(QUEUE, file), request);
-  return files.length;
 }
 
 export const isRequestName = file => /^[a-zA-Z0-9.-]+\.json$/.test(`${file}`);

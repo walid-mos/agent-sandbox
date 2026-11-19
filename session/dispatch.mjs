@@ -7,7 +7,6 @@ import { withAdmission } from './admission.mjs';
 import { repositoryOrigin } from './repository-origin.mjs';
 import { find } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
-import { maxWorkers } from './limits.mjs';
 import { MAX_MODEL } from './models.mjs';
 import { enqueue } from './queue.mjs';
 import { command } from './run.mjs';
@@ -86,8 +85,8 @@ function start(arguments_) {
 function queueWorker(worker, text) {
   const brief = writeBrief(worker.name, text);
   save({ ...worker, brief });
-  const ahead = enqueue({ worker: worker.name });
-  process.stdout.write(`${JSON.stringify({ ...worker, brief, ahead, admission: 'memory', maxWorkers })}\n`);
+  enqueue({ worker: worker.name });
+  process.stdout.write(`${JSON.stringify({ ...worker, brief, admission: 'memory' })}\n`);
 }
 
 function taskDirectory(directory, resultFile) {
@@ -117,7 +116,6 @@ function task(arguments_) {
   queueWorker(worker, taskBrief(worker));
 }
 
-// A worker whose terminal is gone, or that was stopped, comes back with its conversation to read the message, once a slot is free.
 function send([name, messageFile]) {
   const worker = workers().find(candidate => candidate.name === name);
   if (!worker) throw new Error(`dispatch: no worker named ${name}. Use one of: ${workers().map(known => known.name).join(', ') || 'none started yet'}.`);

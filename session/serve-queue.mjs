@@ -105,8 +105,7 @@ function launchAges(records, terminals) {
 
 export function serveQueue(terminals, logFailure, admission) {
   const records = new Map(workers().map(worker => [worker.name, worker]));
-  const running = terminals.filter(terminal => records.has(terminal.name));
-  const view = { records, terminals, running: new Set(running.map(terminal => terminal.name)).size, ...launchAges(records, running), admission };
+  const view = { records, terminals, ...launchAges(records, terminals), admission };
   for (const request of queued()) {
     try {
       serve(request, view);

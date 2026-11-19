@@ -29,8 +29,6 @@ export function boundRequest(shown, notice, settings) {
 export function verifyOffer(shown, notice, settings, now) {
   const { request, prompt, state } = boundRequest(shown, notice, settings);
   if (state !== OPEN || now >= request.expiresAt || now < request.createdAt - CLOCK_SKEW_MS) throw new Error('mac-launch: this launch is closed, expired or from the future.');
-  const refused = request.acts.filter(act => settings.refusedActs.includes(act));
-  if (refused.length) throw new Error(`mac-launch: this Mac refuses ${refused.join(', ')}. Start that work manually.`);
   executionScope(settings, request.acts);
   return { request, prompt, executionDigest: executionFingerprint(settings) };
 }

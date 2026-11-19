@@ -59,7 +59,7 @@ after(() => {
   rmSync(scratch, { force: true, recursive: true });
 });
 
-export function arrange(names, options) {
+export function arrange(names) {
   const memory = { total: 8_126_464, available: 2_800_000, swapTotal: 2_097_152, swapFree: 62_915, some: '0.00', full: '0.00' };
   const failures = [];
   const metrics = new Map();
@@ -77,7 +77,7 @@ export function arrange(names, options) {
     if (memory.psiError) throw memory.psiError;
     return `some avg10=${memory.some} avg60=0.00 avg300=0.00 total=100\nfull avg10=${memory.full} avg60=0.00 avg300=0.00 total=5\n`;
   }
-  const restart = () => createWatcher({ readText, now: () => Date.now(), logFailure: (subject, error) => failures.push(`${subject}: ${error.message}`), ...options });
+  const restart = () => createWatcher({ readText, now: () => Date.now(), logFailure: (subject, error) => failures.push(`${subject}: ${error.message}`) });
   for (const name of names) {
     save({ name, owner: BOT, kind: 'task', worktree: join(scratch, name), brief: '/brief.md' });
     enqueue({ worker: name });
