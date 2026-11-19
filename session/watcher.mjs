@@ -52,7 +52,6 @@ function pass() {
     const queue = queued();
     const view = { terminals, now: Date.now(), queue, pending: new Set(queue.map(request => request.worker)) };
     const times = records.map(worker => logged(worker.name, () => inspectWorker(worker, view)));
-    // Inspection ends terminals, so the queue is served from a fresh list where their slots are free.
     const live = liveTerminals();
     serveQueue(live, logFailure);
     const idleStackDue = logged('idle stacks', () => stopIdleStacks(records.filter(worker => worker.kind !== 'task').map(worker => worker.worktree), live, logFailure));

@@ -26,7 +26,7 @@ The old startup contract remains at [Startup approval before a worker exists](hu
 
 Use `dispatch.mjs start --local` with the same repository, branch, brief, title, subject and optional base as ordinary `start`. It verifies that the existing checkout origin names the requested GitHub repository, then creates the worktree, local bootstrap commit, worker record and queued launch. It neither pushes nor opens a PR, and never consults or consumes a human dialog. Ordinary `start` keeps its existing immediate draft behavior for pots without a push gate. Choose `--local` whenever the loaded policy requires a push approval.
 
-The watcher serves both kinds of launch from the same queue and slot limit. Each has the existing `pots.worker`, `pots.owner`, `pots.launch`, `herdr.space` and `herdr.tab` labels and exact Pi session identity. A queued worker has no terminal until a slot is free. Herdr lists the labelled terminal after it starts. No existing gateway child is converted.
+The watcher serves both kinds of launch from the same queue. Each has the existing `pots.worker`, `pots.owner`, `pots.launch`, `herdr.space` and `herdr.tab` labels and exact Pi session identity. Herdr lists the labelled terminal after it starts. No existing gateway child is converted.
 
 ## Publish a local repository worker
 
@@ -59,7 +59,7 @@ The snapshot preserves a worker's kind and title before its terminal starts. A l
 
 Both kinds retain the existing lifecycle guards. The watcher saves the exact transcript and screen only after the settled final reply, completed goals, no pending work, no open human dialog and no unread helpers. The coordinator reads those files and the task's result file when present, then acknowledges the exact result ID with `dispatch.mjs finish`. Pi rechecks its live session and completion facts before closing. An idle badge alone is insufficient.
 
-`control.mjs stop-worker WORKER` marks and ends either kind without requiring a PR or Git. `dispatch.mjs send WORKER MESSAGE_FILE` clears the stop and queues a follow-up. The same recorded Pi session resumes when a slot is free. Automatic crash recovery remains bounded across watcher restarts. Idle Compose shutdown applies only to repository worktrees, never a task's arbitrary directory. Pots remains responsible for its workers' finish and cleanup, independently of Herdr views.
+`control.mjs stop-worker WORKER` marks and ends either kind without requiring a PR or Git. `dispatch.mjs send WORKER MESSAGE_FILE` clears the stop and queues a follow-up. The watcher resumes the recorded Pi session when it handles the follow-up. Automatic crash recovery remains bounded across watcher restarts. Idle Compose shutdown applies only to repository worktrees, never a task's arbitrary directory. Pots remains responsible for its workers' finish and cleanup, independently of Herdr views.
 
 ## Proof and rollout
 

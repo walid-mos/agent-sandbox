@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { DEFAULT_REFUSED_ACTS, isAct, isTarget } from '../session/launch-contract.mjs';
+import { isTarget } from '../session/launch-contract.mjs';
 import { isSnowflake } from '../session/human-contract.mjs';
 import { writePrivateJson } from '../session/private-json.mjs';
 import { readPrivate, privateDirectory } from './launch-store.mjs';
@@ -11,12 +11,11 @@ import { protectedPath, readSecret, requireGate } from './launch-protection.mjs'
 
 const SETTINGS = join(GATE_HOME, 'settings.json');
 const TOKEN = join(GATE_HOME, 'discord-token');
-const INVALID_SETTINGS = 'mac-launch: settings contain invalid names, IDs or acts.';
+const INVALID_SETTINGS = 'mac-launch: settings contain invalid names or IDs.';
 export const STATE_HOME = join(GATE_HOME, 'launches');
 
 function requireSettingsLists(settings) {
-  const lists = ['announcers', 'pots', 'refusedActs'];
-  if (!lists.every(key => Array.isArray(settings[key]))) throw new Error('mac-launch: settings need announcers, pots and refusedActs lists.');
+  if (!Array.isArray(settings.announcers) || !Array.isArray(settings.pots)) throw new Error('mac-launch: settings need announcers and pots lists.');
 }
 
 function requireTargetLabel(settings) {
@@ -36,17 +35,12 @@ function requireSettingIds(settings) {
   if (!ids.every(isSnowflake)) throw new Error(INVALID_SETTINGS);
 }
 
-function requireRefusedActs(settings) {
-  if (!settings.refusedActs.every(isAct)) throw new Error(INVALID_SETTINGS);
-}
-
 function checkedSettings(settings) {
   requireSettingsLists(settings);
   requireTargetLabel(settings);
   requirePots(settings);
   requireAnnouncers(settings);
   requireSettingIds(settings);
-  requireRefusedActs(settings);
   checkedExecution(settings);
   return settings;
 }
@@ -63,13 +57,7 @@ export function configure(source) {
   const settings = checkedSettings(readPrivate(source));
   protectedPath(GATE_HOME);
   privateDirectory(GATE_HOME);
-  writePrivateJson(SETTINGS, { ...settings, refusedActs: [...new Set([...DEFAULT_REFUSED_ACTS, ...settings.refusedActs])],
-    humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: false } });
-}
-
-export function setEnabled(isEnabled) {
-  const settings = loadSettings();
-  writePrivateJson(SETTINGS, { ...settings, humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: isEnabled } });
+  writePrivateJson(SETTINGS, settings);
 }
 
 export async function storeToken() {

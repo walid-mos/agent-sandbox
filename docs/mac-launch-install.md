@@ -2,7 +2,7 @@
 
 This page is an operator-reviewed installation contract for each Mac. Account creation, file grants, credentials and launchd changes happen only during a separately approved native installation. Source tests on Linux do not authorize or prove them.
 
-Read the [threat model and message contract](mac-launch.md) first. Keep activation disabled until every native check and the clicked proof succeeds. If the native sandbox or protected Herdr path is unavailable, stop with that exact limitation. Never substitute the operator account.
+Read the [threat model and message contract](mac-launch.md) first. Run the native checks before installing the daemon. Verify a click on a harmless prompt before relying on the installation. If the native sandbox or protected Herdr path is unavailable, stop with that exact limitation. Never substitute the operator account.
 
 ## Ownership and staging
 
@@ -37,8 +37,7 @@ Write a root-private JSON manifest and pass its filename to `configure`. These a
   "channelId": "LAUNCH_CHANNEL_ID",
   "announcers": ["MASTERMIND_BOT_ID"],
   "pots": ["mastermind", "accor"],
-  "humanDiscord": {"userId": "OPERATOR_ID", "macLaunchEnabled": false},
-  "refusedActs": ["sign-tip", "launch-gate"],
+  "humanDiscord": {"userId": "OPERATOR_ID"},
   "directory": "/Library/AgentSandbox/Execution/work/SELECTED_WORK",
   "tools": {
     "node": "/Library/AgentSandbox/Runtime/bin/node",
@@ -83,19 +82,19 @@ The gate's own Herdr configuration is separate. Under its private HOME and XDG p
 
 ## Native commands and proof
 
-Use the staged launcher as an explicitly authorized administrator. `configure ROOT_PRIVATE_MANIFEST` copies validated private settings and resets the enable switch. `token` reads the dedicated Discord token at a masked terminal prompt and saves it only in the gate home.
+Use the staged launcher as an explicitly authorized administrator. `configure ROOT_PRIVATE_MANIFEST` copies validated private settings. `token` reads the dedicated Discord token at a masked terminal prompt and saves it only in the gate home.
 
 `check` verifies protected staging, native ACLs, account identity, absence of sudo delegation and native sandbox behavior. Its disposable native fixture checks UID/groups, denied gate read/write, inability to regain root or use sudo, denied Keychain access, selected-directory access and scratch/report writing. It records ownership outside its run, cleans on exit and detects an interrupted proof on the next check. A failed native proof blocks activation and names its failed check or sandbox process.
 
 `check` also verifies the Discord application, intent, channel, operator membership and clock, protected runtime availability and each configured pot through the gate's own Herdr. It does not spend model tokens or prove provider connectivity, complete Pi startup, native GUI discovery or sleep/wake behavior.
 
-Only after that check and a separate installation approval use `enable` and `install`. The system daemon starts the same checks again before opening its gateway connection. The gate refuses missing settings, identity, sandbox or model delegation.
+After that check and separate installation approval, run `install` to make the launcher available. The daemon checks protected settings and native isolation before opening its gateway connection. The gate refuses missing settings, identity, sandbox or model delegation.
 
 For the clicked proof, have a selected pot request a harmless prompt with no privileged acts. Read the offer's exact prompt, identity, work path and capability/network list, then press its button yourself. Confirm one tracked `ml-` terminal, exact prompt execution and a final report on the requesting pot. Repeat the same press, cancel/replace an unclaimed request and test a stale press after sleep. They must not start another run.
 
-The protected Herdr context is separate from the operator's normal terminal list. `watch LAUNCH_ID`, invoked by the authorized operator/admin, validates the saved terminal's label and creation identity before `hc attach`. It allows watching and takeover of that restricted Pi. No general root command API or socket grant is exposed to the model. The terminal is not kept as a root recovery shell after the wrapper ends. Native app discovery and this cross-account interactive path still require an actual Mac check. If attachment cannot work safely, report that limitation and keep activation blocked.
+The protected Herdr context is separate from the operator's normal terminal list. `watch LAUNCH_ID`, invoked by the authorized operator/admin, validates the saved terminal's label and creation identity before `hc attach`. It allows watching and takeover of that restricted Pi. No general root command API or socket grant is exposed to the model. The terminal is not kept as a root recovery shell after the wrapper ends. Native app discovery and this cross-account interactive path still require an actual Mac check. If attachment cannot work safely, disable the daemon and report the limitation.
 
-To disable new launches, run `disable`, then `remove` under the same authorized administration. This leaves decisions and existing runs intact. It does not imply that a committed Pi was stopped. Revoke the Discord application token separately and remove its root-private token file only through the reviewed uninstall. Never reset decisions to make an old approval reusable.
+Run `disable` to disable and unload the daemon in launchd. Run `remove` to unload it and delete its plist. Both preserve decision and execution records. Revoke the Discord application token separately and remove its root-private token file only through the reviewed uninstall. Never reset decisions to make an old approval reusable.
 
 ## Mac Studio setup prompt
 
@@ -108,9 +107,9 @@ After my approval, apply only that reviewed installation plan. Set the manifest 
 
 Ask me to create a separate Discord application named Mac Studio launcher with Message Content intent and channel permissions to view, send, attach files and read history. Collect private IDs without publishing them. I enter its token in the staged launcher's masked token prompt. Other credentials use the setup session's masked secret flow and the reviewed dedicated delegation locations.
 
-Run configure with the reviewed root-private manifest, then check. Show every check result without a credential value. Stop on failure. Ask before enabling and installing the daemon. Shared Pots configuration and any pot restart require separate explicit approval, with paid work left undisturbed.
+Run configure with the reviewed root-private manifest, then check. Show every check result without a credential value. Stop on failure. Ask before installing the daemon. Shared Pots configuration and any pot restart require separate explicit approval, with paid work left undisturbed.
 
-Then ask a selected pot for a harmless prompt, have me read its offer and click, and verify the protected Herdr terminal, restricted UID, selected work, operator watching/takeover and final report. Check replay, unclaimed cancellation/replacement and a stale press. No gate, signing, VM-root or unsupported credential operation is authorized by this proof. Leave activation blocked if native sandbox, provider or protected Herdr interaction cannot be proved. Finish with the exact disable/remove commands for the staged launcher.
+Then ask a selected pot for a harmless prompt, have me read its offer and click, and verify the protected Herdr terminal, restricted UID, selected work, operator watching/takeover and final report. Check replay, unclaimed cancellation/replacement and a stale press. No gate, signing, VM-root or unsupported credential operation is authorized by this proof. Disable the daemon if native sandbox, provider or protected Herdr interaction cannot be proved. Finish with the exact disable/remove commands for the staged launcher.
 ```
 
 ## MacBook Pro setup prompt
@@ -124,11 +123,11 @@ After my approval, apply only that reviewed installation plan. Set the manifest 
 
 Ask me to create a distinct Discord application named MacBook Pro launcher with Message Content intent and channel permissions to view, send, attach files and read history. It must not reuse the Mac Studio application. Collect private IDs without publishing them. I enter its token in the staged launcher's masked token prompt. Other credentials use the setup session's masked secret flow and the reviewed dedicated delegation locations.
 
-Run configure with the reviewed root-private manifest, then check. Show every check result without a credential value. Stop on failure. Ask before enabling and installing the daemon. Shared Pots configuration and any pot restart require separate explicit approval, with paid work left undisturbed.
+Run configure with the reviewed root-private manifest, then check. Show every check result without a credential value. Stop on failure. Ask before installing the daemon. Shared Pots configuration and any pot restart require separate explicit approval, with paid work left undisturbed.
 
-Then ask a selected pot for a harmless prompt, have me read its offer and click, and verify the protected Herdr terminal, restricted UID, selected work, operator watching/takeover and final report. Check replay, unclaimed cancellation/replacement and a stale press after sleep. No gate, signing, VM-root or unsupported credential operation is authorized by this proof. Leave activation blocked if native sandbox, provider or protected Herdr interaction cannot be proved. Finish with the exact disable/remove commands for the staged launcher.
+Then ask a selected pot for a harmless prompt, have me read its offer and click, and verify the protected Herdr terminal, restricted UID, selected work, operator watching/takeover and final report. Check replay, unclaimed cancellation/replacement and a stale press after sleep. No gate, signing, VM-root or unsupported credential operation is authorized by this proof. Disable the daemon if native sandbox, provider or protected Herdr interaction cannot be proved. Finish with the exact disable/remove commands for the staged launcher.
 ```
 
 ## Shared Pots setup
 
-The Mac setup does not authorize changes to pots. During the separately approved phase, enable the private `macLaunch` settings for selected pots and Mastermind, apply them through `vm-config` and restart only the relevant sessions to load their expiry service. Preserve all other settings and wait while paid work is active. Already configured pots need no restart. The source task performs none of these actions.
+The Mac setup does not authorize changes to pots. During the separately approved phase, configure targets for the pots that can request Mac launches and set the launch channel on Mastermind. Apply those settings through `vm-config`. Preserve all other settings and wait while paid work is active.

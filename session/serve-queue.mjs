@@ -1,4 +1,3 @@
-import { maxWorkers } from './limits.mjs';
 import { dequeue, queued, updateRequest } from './queue.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId } from './sandbox.mjs';
@@ -31,7 +30,6 @@ function reportNotStarted(request, worker, error) {
   if (!request.message) dequeue(request);
 }
 
-/** Starts the worker a request names, and resolves to whether it took a slot. */
 function start(request, worker) {
   try {
     launch(worker, conversationOf(worker));
@@ -53,32 +51,26 @@ function workerForRequest(request, records) {
   return worker;
 }
 
-function startWaiting(request, worker, running) {
-  if (running.has(worker.name)) return;
-  if (running.size < maxWorkers && start(request, worker)) running.add(worker.name);
-}
-
 function deliverRequest(request, terminal, worker) {
   if (!request.message) return dequeue(request);
   deliver(request, terminal, worker);
 }
 
-function serve(request, { records, terminals, running }) {
+function serve(request, { records, terminals, started }) {
   const worker = workerForRequest(request, records);
   if (!worker) return;
   const terminal = terminalOf(worker, terminals);
   if (terminal) return deliverRequest(request, terminal, worker);
   if (terminals.some(candidate => candidate.name === worker.name)) throw new Error('dispatch: terminal ownership changed. Inspect it before sending.');
-  startWaiting(request, worker, running);
+  if (!started.has(worker.name) && start(request, worker)) started.add(worker.name);
 }
 
-/** Serves the requests in arrival order: a message reaches a worker that runs, and a waiting worker starts while a slot is free. */
 export function serveQueue(terminals, logFailure) {
   const records = new Map(workers().map(worker => [worker.name, worker]));
-  const running = new Set(terminals.map(terminal => terminal.name).filter(name => records.has(name)));
+  const started = new Set();
   for (const request of queued()) {
     try {
-      serve(request, { records, terminals, running });
+      serve(request, { records, terminals, started });
     } catch (error) {
       logFailure(request.worker, error);
     }
