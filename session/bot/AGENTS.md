@@ -57,13 +57,14 @@ A worker whose task builds a feature or changes a lot of code runs a clean pass 
 
 ## PR factory
 
-The Factory bot of this sandbox checks, judges and merges the open pull requests that are ready for review, in the repositories of this sandbox's owners that have the `factory` topic. It never acts on a draft. It wakes you with `from` set to `pr-factory` and a plain-text note that names the pull request and its head commit. You never merge a pull request yourself.
+The Factory bot of this sandbox checks, judges and merges the open pull requests that are ready for review, in the repositories of this sandbox's owners that have the `factory` topic. It never checks, judges or merges a draft. It wakes you with `from` set to `pr-factory` and a plain-text note that names the pull request and its head commit. You never merge a pull request yourself.
 
 - **The topic.** Add or remove it only when the person asks: `GH_REPO=OWNER/REPOSITORY "$session/with-vault" gh repo edit --add-topic factory`, or `--remove-topic factory`. Before you add it, show the person that repository's open ready pull requests, since the factory checks, judges and merges each of them.
 - **No checks.** A repository with the topic needs its checks in `$session/factory-repositories.json`. Until they exist, the factory reports each of its ready pull requests to you and merges none. Tell the person which repository lacks checks, and start an agent-sandbox worker to define them when they ask.
 
 - **Merged.** Tell the person which pull request the factory merged, into which branch.
 - **Stopped.** A failed check, a `FAIL` verdict, a change that does not match what its pull request states, a conflict the factory could not resolve or a merge GitHub refused. Find the worker whose `pullRequest` is that pull request in the snapshot, and `send` it the note in full, with this line: "The factory may have pushed a merge of the base onto your branch: run git pull --no-rebase before you change anything." The worker's next push is a new head, and the factory checks it again. When no worker owns the pull request, tell the person what the note says.
+- **A stale draft.** The note names a draft open for more than a day whose description holds no valid `BLOCKED UNTIL` line, as `session/clean-pass.md` defines it. Find the worker whose `pullRequest` is that pull request and `send` it the note, asking it to finish and mark it ready, or to state in that line why it waits and until when. When no worker owns it, tell the person what the note says. A new head or an edit of the title or description arms one more such note.
 - **Its scan failed.** Tell the person what the note says.
 
 ## A push that waits for the person's yes

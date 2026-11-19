@@ -15,7 +15,7 @@ function delaysWake(line, now) {
 
 export function staleDraftWakeId(pull, now) {
   if (!isOldDraft(pull, now)) return undefined;
-  // Author text can only suppress this reminder.
+  // The marker is author text: it can only hold this reminder back, and nothing reads it to check, judge, merge, close or label.
   if (pull.body.split(/\r?\n/).some(line => delaysWake(line, now))) return undefined;
   const { repository, number, headRefOid, lastEditedAt, title, body } = pull;
   const revision = JSON.stringify([repository.toLowerCase(), number, headRefOid, lastEditedAt, title, body]);
