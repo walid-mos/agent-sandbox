@@ -1,6 +1,6 @@
 # Factory landing design
 
-The description below records the original post-squash design. The draft follow-up replaces its publication operation because GitHub cannot check the target and base in the squash call. See [the release fixture and adoption limits](factory-release-fixture.md).
+This proposal records the original post-squash design. Its combined trust file and publication steps are superseded by the [release fixture and adoption limits](factory-release-fixture.md). The installed VM-root launcher and Mac updater use operator trust. A managed VM receiver owns enrollment of the separate Factory key for the configured repository and target.
 
 Walid approved this design on 2026-11-17 16:18 UTC with the defaults below, and this branch implements the smallest path. Nothing is deployed until he signs and pushes a release: the signer, the isolated factory and the trust files then reach a pot at its next `vm-up`.
 
@@ -24,7 +24,7 @@ No. These are facts, read on 2026-11-17.
 - **What a pot reads.** The [commit verifier](../lib/signed_commit.py) checks the tip with `gpgv` against a local file of public keys. It never asks GitHub, so a badge changes nothing for it.
 - **Rules on `main`.** None. A token with admin rights on `walid-mos/agent-sandbox` gets an empty ruleset list, no rule that applies to `main`, no classic branch protection, and zero rulesets and protection rules through GraphQL.
 
-The proposed design therefore does not need the GitHub step. A pot accepts a factory-signed commit once the factory's public key is in the file its launcher reads.
+The managed receiver verifies Factory evidence with its separately enrolled key. GitHub key registration does not enter that check.
 
 Two cases would call for it later. A "Require signed commits" rule on `main` makes GitHub refuse a pushed commit it cannot verify ([protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-signed-commits)), so the factory's landing commit would need a registered key. Walid may also want the badge. In both cases, register the key on a dedicated machine account. On his own account, the key's email would have to be one of his verified emails, and the factory's commits would show as his.
 
@@ -61,7 +61,7 @@ Two cases would call for it later. A "Require signed commits" rule on `main` mak
 
 Compromise of the approving automation remains delegated root-code authority. VM root and the trusted runtime remain trusted.
 
-## Smallest path (implemented)
+## Original post-squash design
 
 Four pieces close the missing rows. The verifier, the launcher and the Mac updater accept exactly what they accepted before.
 
@@ -70,7 +70,7 @@ Four pieces close the missing rows. The verifier, the launcher and the Mac updat
 3. **Factory outside the worker session.** The Factory bot runs in its own container, which root starts from the trusted clone. No worker runs there, and it accepts no message from the worker session. It reports to Principal one way.
 4. **Publication.** After its squash merge, the factory asks the signer for the landing commit and pushes it to `main` with an ordinary push. This needs no new GitHub credential and no GitHub setting.
 
-The Mac keeps trusting Walid's key only. The factory's public key reaches the VMs through a second file, which `vm-trust` adds to each VM's signers file. No pot can then change code the Mac runs, as today. The Mac checkout catches up at Walid's next signed commit.
+The current draft keeps the VM launcher and Mac updater on the operator's public keys. `vm-trust` installs the operator export. The managed VM receiver owns the separate Factory trust policy.
 
 What this path does not do:
 
@@ -93,7 +93,7 @@ Source changes, all implemented:
 | [`session/factory-runtime/`](../session/factory-runtime) | The container's image and entrypoint: its own toolchain, home, router, gateway and inner Docker. |
 | [`bin/factory-bootstrap`](../bin/factory-bootstrap) | Seals a router seed on the Mac and installs it outside the session. |
 | [`vm/setup.sh`](../vm/setup.sh) | Installs GnuPG and the three services with the other units. |
-| [`bin/vm-trust`](../bin/vm-trust) | Builds the VM's signers file from the operator file plus `factory-signers.asc`. The Mac updater keeps reading the operator file alone. |
+| [`bin/vm-trust`](../bin/vm-trust) | Installs the launcher bundle and operator public trust. Receiver enrollment belongs to the managed VM update policy. |
 | [`session/factory-channel`](../session/factory-channel), [`session/factory-publication.mjs`](../session/factory-publication.mjs), [`session/factory-mirror.mjs`](../session/factory-mirror.mjs) | After the squash merge, ask the signer, check the object's identity, push it without force and reconcile the tip. Merged, signed and published stay three facts. |
 | [`session/factory-authority.mjs`](../session/factory-authority.mjs), [`session/factory-scan.mjs`](../session/factory-scan.mjs), [`session/factory-verdict.mjs`](../session/factory-verdict.mjs), [`session/factory-bot.mjs`](../session/factory-bot.mjs) | The signing pot's session factory stops, and host-code publication needs the signer socket. |
 | [`bin/render-config`](../bin/render-config) | Refuses a session bind that would reach the key home, the landing state, a factory state or either socket. |
@@ -116,17 +116,14 @@ Recommend the second. No secret ever moves, and the public key arrives over the 
 
 ## Walid's one-time steps
 
-Every command runs on the Mac, in his agent-sandbox checkout. `NAME` is the signing pot's name, the pot whose bot `POTS_SIGNING_FACTORY_BOT` names in [`session/launch.env`](../session/launch.env). Every command below exists in this branch.
+These proposed steps run from the operator's Mac checkout after cutover is approved. `NAME` is the signing pot named by `POTS_SIGNING_FACTORY_BOT` in [`session/launch.env`](../session/launch.env).
 
 1. Review this pull request. Sign and push its release to `main` himself, as he does today, then run `SANDBOX=NAME ./bin/vm-up` once for each pot. That installs the three services. The signer starts and holds no key; the isolated factory prints that it is waiting and its unit retries it every minute.
 2. Create the key in the signing pot's VM: `SANDBOX=NAME ./bin/landing-key create`. It prints the 40-character fingerprint. Note it.
 3. Export the public half: `SANDBOX=NAME ./bin/landing-key export > ~/.config/agent-sandbox/factory-signers.asc`.
 4. Check it. `gpg --show-keys --with-fingerprint ~/.config/agent-sandbox/factory-signers.asc` shows one key with that fingerprint, and `python3 -I lib/signed_commit.py signers ~/.config/agent-sandbox/factory-signers.asc` answers that it holds public keys only.
 5. Seed the isolated factory's model router: `SANDBOX=NAME ./bin/factory-bootstrap`. It seals a router seed without keys, without the library and without sign-ins, and installs it outside the session. Running it twice is refused, so a rotation needs its own reviewed step.
-6. Install trust on every pot: `SANDBOX=NAME ./bin/vm-up`, once per pot. Each run copies the operator file plus `factory-signers.asc` into that VM's `/etc/agent-sandbox/trusted-signers.asc`, restarts the signer and lets the factory start. A pot that was off gets them at its next `vm-up`.
-7. From this point the signing pot's session factory stops: its scan prints that the factory runs outside the worker session, and the isolated container scans the same owners. After the factory's next merge, confirm the landing. `SANDBOX=NAME ./bin/vm-exec sudo python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py verify` prints the fingerprint that signed the commit the VM runs, which must be the one from step 2. `SANDBOX=NAME ./bin/vm-exec sudo git -C /opt/agent-sandbox rev-parse HEAD` must print the commit that `git ls-remote origin refs/heads/main` prints.
-
-There is nothing to do on GitHub. To stop trusting the factory, he signs a tip himself, deletes `factory-signers.asc` and runs `vm-up` for each pot. The launcher then refuses a tip that only the factory signed, and removing a tip the factory already landed on a pot that has not updated yet needs his own signed commit on top.
+6. Receiver enrollment and runtime cutover depend on the [release format and adoption decision](factory-release-fixture.md#publication-and-adoption-limits). The VM-root launcher continues to verify operator-signed source. Keep `factory-signers.asc` separate for the managed receiver.
 
 ## What was checked
 

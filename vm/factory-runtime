@@ -9,7 +9,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from factory_root import ENVIRONMENT, GIT_OPTIONS, execute, fingerprints, gpg, private_directory
+from factory_root import ENVIRONMENT, GIT_OPTIONS, execute, private_directory
 from factory_state import FACTORY_SEED, FACTORY_STATE
 from factory_socket import Refused
 from landing import created_key
@@ -112,11 +112,6 @@ def ready():
     identity = created_key(Path(LAUNCH["POTS_LANDING_KEY_HOME"]))
     if not identity or not FACTORY_SEED.is_dir():
         print("factory: waiting for the operator's factory-bootstrap, landing-key and vm-up steps.", flush=True)
-        return False
-    with tempfile.TemporaryDirectory(prefix="gnupg-", dir=FACTORY_STATE) as scratch:
-        trusted = fingerprints(gpg(scratch, "--with-colons", "--show-keys", LAUNCH["POTS_TRUSTED_SIGNERS"]))
-    if identity not in trusted:
-        print("factory: the operator must install the factory public trust with vm-up before publication starts.", flush=True)
         return False
     return True
 

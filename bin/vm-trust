@@ -4,7 +4,6 @@ set -eu
 [ "$POTS_TRANSPORT" = provider ] || refuse_inside_vm vm-trust
 
 SIGNERS="$POTS_RUNTIME/trusted-signers.asc"
-FACTORY_SIGNERS="$POTS_RUNTIME/factory-signers.asc"
 LAUNCHER_FILES="lib/trusted_source.py lib/launch.py lib/signed_commit.py lib/source_refresh.py session/launch.env"
 
 install_in_vm() {
@@ -12,15 +11,8 @@ install_in_vm() {
 }
 
 [ -f "$SIGNERS" ] || { echo "vm-trust: $SIGNERS is missing. Export the operator's public signing key: gpg --export --armor KEY_ID > $SIGNERS" >&2; exit 1; }
-combined=$(mktemp)
-trap 'rm -f "$combined"' EXIT INT TERM
-for signers in "$SIGNERS" "$FACTORY_SIGNERS"; do
-	[ -f "$signers" ] || continue
-	python3 -I "$POTS_REPO/lib/signed_commit.py" signers "$signers" > /dev/null
-	cat "$signers" >> "$combined"
-	printf '\n' >> "$combined"
-done
+python3 -I "$POTS_REPO/lib/signed_commit.py" signers "$SIGNERS" > /dev/null
 for file in $LAUNCHER_FILES; do
 	install_in_vm "$POTS_TRUSTED_SOURCE/$file" "$POTS_REPO/$file"
 done
-install_in_vm "$POTS_TRUSTED_SIGNERS" "$combined"
+install_in_vm "$POTS_TRUSTED_SIGNERS" "$SIGNERS"

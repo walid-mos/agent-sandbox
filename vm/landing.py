@@ -44,7 +44,7 @@ class Signer:
         self.receipt = self.state / "release.json"
         self.origin = LAUNCH["POTS_SOURCE_URL"]
         self.repository = LAUNCH["POTS_LANDING_REPOSITORY"]
-        self.trust = Path(LAUNCH["POTS_TRUSTED_SIGNERS"])
+        self.operator_trust = Path(LAUNCH["POTS_TRUSTED_SIGNERS"])
         self.clone = Path(LAUNCH["POTS_SESSION_REPOSITORY"])
         private_directory(self.home)
         private_directory(self.state)
@@ -82,13 +82,18 @@ class Signer:
         self.git("merge-base", "--is-ancestor", anchor, base)
         if previous:
             self.require_forward_base(previous, base)
-        try:
-            require_signed(self.store, base, self.trust)
-        except Untrusted as error:
-            raise Refused("landing: the checked base is not a trusted signed tip.") from error
+        self.require_trusted_base(base, previous)
         self.git("merge-base", "--is-ancestor", base, head)
         if self.git("rev-parse", f"{head}^{{tree}}") != tree:
             raise Refused("landing: the proposed tree differs from the checked head.")
+
+    def require_trusted_base(self, base, previous):
+        if base == previous.get("commit") and self.key == previous.get("fingerprint"):
+            return
+        try:
+            require_signed(self.store, base, self.operator_trust)
+        except Untrusted as error:
+            raise Refused("landing: the checked base is not a trusted signed tip.") from error
 
     def require_forward_base(self, previous, base):
         previous_base = previous["request"]["base"]

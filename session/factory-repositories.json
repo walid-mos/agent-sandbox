@@ -16,6 +16,7 @@
   "NextNodeSolutions/agent-sandbox": [
     { "name": "check", "run": ["./bin/check"] },
     { "name": "landing", "run": ["python3", "-I", "probes/landing-policy.py"], "network": true },
+    { "name": "landing-trust", "run": ["python3", "-I", "probes/landing-trust.py"], "network": true },
     { "name": "shellcheck", "run": ["node", "/factory/shellcheck-new.mjs", "{base}"] },
     { "name": "fallow", "run": ["fallow", "audit", "--base", "{base}"] }
   ],

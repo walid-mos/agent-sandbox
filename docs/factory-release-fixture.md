@@ -65,6 +65,8 @@ If the owner selects two-parent releases, the first parent still gives the previ
 
 ## Publication and adoption limits
 
+The installed VM-root launcher and the Mac updater use operator keys. The VM trust installer copies the operator export and leaves the Factory public file for the managed receiver. The producer can extend an operator-signed base or the exact candidate in its own saved receipt. The receiver must enroll the Factory key separately for the configured repository and ref.
+
 The producer builds a signed commit with the checked base as its only parent and the checked head's tree. The remote compares that exact base on the explicitly named target ref in the push. The producer checks live PR readiness, target and source head before signing and pushing. Git cannot compare live GitHub PR metadata inside that ref update. A later retarget or head edit cannot substitute another target or tree into the push. A direct squash push also does not establish that GitHub marked the PR merged.
 
 The producer saves the signed object in the shared review record before any push. A retry can publish from the same base after rechecking the live PR, or acknowledge the exact candidate already at the target. Any other tip stops the retry. The protected signer keeps the identical receipt across restarts.

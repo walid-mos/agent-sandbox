@@ -87,7 +87,9 @@ class LandingPolicy(unittest.TestCase):
         for relative in ("vm", "lib"):
             shutil.copytree(REPOSITORY / relative, source / relative, ignore=shutil.ignore_patterns("__pycache__"))
         trust = self.root / "public.asc"
-        trust.write_text(self.public_key(self.operator, self.operator_key) + self.public_key(self.factory, self.factory_key))
+        trust.write_text(self.public_key(self.operator, self.operator_key))
+        self.factory_public = self.root / "factory-public.asc"
+        self.factory_public.write_text(self.public_key(self.factory, self.factory_key))
         settings = {"POTS_LANDING_KEY_HOME": str(self.factory), "POTS_LANDING_STATE": str(self.root / "state"), "POTS_SOURCE_URL": f"http://127.0.0.1:{self.server.server_port}/remote.git", "POTS_LANDING_REPOSITORY": "probe/factory", "POTS_TRUSTED_SIGNERS": str(trust), "POTS_SESSION_REPOSITORY": str(self.clone)}
         (source / "session").mkdir()
         (source / "session/launch.env").write_text("".join(f"{name}={value}\n" for name, value in settings.items()))
@@ -101,7 +103,7 @@ class LandingPolicy(unittest.TestCase):
         release = self.signer.sign(self.request)
         self.assertEqual(self.signer.git("show", "--no-patch", "--format=%P", release["commit"]), self.base)
         self.assertEqual(self.signer.git("show", "--no-patch", "--format=%T", release["commit"]), self.tree)
-        self.assertEqual(self.module.require_signed(self.signer.store, release["commit"], self.signer.trust), self.factory_key)
+        self.assertEqual(self.module.require_signed(self.signer.store, release["commit"], self.factory_public), self.factory_key)
         self.assertEqual(release["fingerprint"], self.factory_key)
         subject, _, provenance = self.signer.git("show", "--no-patch", "--format=%B", release["commit"]).partition("\n\n")
         self.assertEqual(subject, "Factory landing v1")
@@ -197,7 +199,7 @@ def export_release(fixture, revision, output):
     result = run_release(fixture, revision, "complete")
     record = result["published"]
     release = record["release"]
-    assert fixture.module.require_signed(fixture.remote, release["commit"], fixture.signer.trust) == fixture.factory_key
+    assert fixture.module.require_signed(fixture.remote, release["commit"], fixture.factory_public) == fixture.factory_key
     output.mkdir()
     run("git", "--git-dir", str(fixture.remote), "bundle", "create", str(output / "candidate.bundle"), release["request"]["ref"],
         f"refs/pull/{release['request']['number']}/head")
