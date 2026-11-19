@@ -31,7 +31,7 @@ Mastermind delegates through the supported local bot channel:
 pots chat --bot discord-admin --message 'Inspect the server and carry out this administration request: REQUEST'
 ```
 
-The reply is the bot's terminal answer. Mastermind posts it as [the hand-off](#reply-hand-off-and-message-identity) says, or renders the exact returned approval message. The bot has no Discord channel and creates no parallel chat transport. Both bots use the existing router group. The original request's French words ask for channels, threads and users. The selected operations and relay design implement the coordinator's accepted interpretation. The North Star drafts provide proposed guidance only.
+The reply is the bot's terminal answer. Mastermind posts it as [the hand-off](#reply-hand-off-and-message-identity) says, or renders the exact returned approval message. The bot has no Discord channel and creates no parallel chat transport. Both bots use the existing router group. Mastermind can also use this account for [automatic threads in opted-in channels](discord-auto-threads.md). The original request's French words ask for channels, threads and users. The selected operations and relay design implement the coordinator's accepted interpretation. The North Star drafts provide proposed guidance only.
 
 The bot uses `node /opt/agent-sandbox/session/discord-admin.mjs actions` for the authoritative action and payload vocabulary. Modes taking JSON read it on stdin:
 

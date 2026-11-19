@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CHANNEL } from './discord-admin-operations.mjs';
-import { protectionOf } from './discord-admin-protection.mjs';
+import { protectedChannels, protectionOf } from './discord-admin-protection.mjs';
 import { northStarProtection, routeProtection } from './discord-admin-metadata.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 
@@ -40,7 +40,7 @@ function channelCache(path, guildId) {
   return cache;
 }
 
-export async function discoverProtection({ api, config, primaryHome, stateDirectory }) {
+async function discoverOwnership({ api, config, primaryHome, stateDirectory }) {
   const routes = owningMap(join(primaryHome, 'workspace/discord/routes.json'));
   const northStars = owningMap(join(primaryHome, 'workspace/discord/north-star-threads.json'));
   const routing = routeProtection(routes);
@@ -55,5 +55,15 @@ export async function discoverProtection({ api, config, primaryHome, stateDirect
   const protection = protectionOf({ guildId, roles, botId: bot.id,
     channelIds: [...Object.values(potChannels), ...routing.channelIds, ...northStar.channelIds], threadIds: [...routing.threadIds, ...northStar.threadIds] });
   writePrivateJson(cachePath, { guildId, potChannels });
-  return protection;
+  return { channels, protection, botId: bot.id };
+}
+
+export async function discoverProtection(options) {
+  return (await discoverOwnership(options)).protection;
+}
+
+export async function discoverThreadOwnership(options) {
+  const { channels, protection, botId } = await discoverOwnership(options);
+  const tracked = await protectedChannels(channels, protection, options.api);
+  return { ...tracked.protection, botId };
 }

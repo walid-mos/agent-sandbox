@@ -19,8 +19,28 @@ export function requireProtection(protection, guildId) {
   }
 }
 
-export function withThreadParents(protection, channels) {
+function withThreadParents(protection, channels) {
   const ids = protectedIds(protection);
   const parents = channels.filter(channel => ids.includes(channel.id) && isThread(channel)).map(channel => channel.parent_id);
   return { ...protection, channelIds: unique([...protection.channelIds, ...parents]) };
+}
+
+export async function guildChannel(id, guildId, api) {
+  const channel = await api('GET', `/channels/${id}`);
+  if (!channel || channel.guild_id !== guildId) throw new Error('discord-admin: channel does not belong to the configured guild.');
+  return channel;
+}
+
+async function trackedChannel(id, guildId, api) {
+  try { return await guildChannel(id, guildId, api); }
+  catch (error) {
+    if (error.discordCode !== 10003) throw error;
+  }
+}
+
+export async function protectedChannels(channels, protection, api) {
+  const missing = unique(protectedIds(protection)).filter(id => !channels.some(channel => channel.id === id));
+  const resolved = await Promise.all(missing.map(id => trackedChannel(id, protection.guildId, api)));
+  const tracked = [...channels, ...resolved.filter(Boolean)];
+  return { channels: tracked, protection: withThreadParents(protection, tracked) };
 }
