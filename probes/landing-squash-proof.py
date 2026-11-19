@@ -6,6 +6,7 @@ import runpy
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 SERIES = runpy.run_path(str(Path(__file__).with_name('landing-series.py')))
 POLICY = SERIES['POLICY']
@@ -44,13 +45,20 @@ def sign_checkpoint(fixture, request, facts):
     return fixture.git('rev-parse', TAG_REF + squash)
 
 
-def publish_checkpoint(fixture, request, squash, signed):
+def publish_checkpoint(fixture, receipt):
+    squash, signed, reviewed = receipt['squash'], receipt['tagObject'], receipt['request']['head']
     tag, head = TAG_REF + squash, HEAD_REF + squash
+    remote = str(fixture.remote)
+    expected = {f'{signed}\t{tag}', f'{reviewed}\t{head}'}
+    observed = set(fixture.git('ls-remote', '--refs', remote, tag, head).splitlines())
+    if observed == expected:
+        return
+    if observed:
+        raise ValueError('release refs are partial or conflicting')
     fixture.git('push', '--quiet', '--atomic', f'--force-with-lease={tag}:', f'--force-with-lease={head}:',
-                str(fixture.remote), f'{signed}:{tag}', f"{request['head']}:{head}")
-    for ref, expected in ((tag, signed), (head, request['head'])):
-        if fixture.git('ls-remote', '--refs', str(fixture.remote), ref) != f'{expected}\t{ref}':
-            raise ValueError('publication readback mismatch')
+                remote, f'{signed}:{tag}', f'{reviewed}:{head}')
+    if set(fixture.git('ls-remote', '--refs', remote, tag, head).splitlines()) != expected:
+        raise ValueError('publication readback mismatch')
 
 
 def create_squash(fixture, request, live_base):
@@ -65,20 +73,23 @@ def next_checkpoint(fixture, request):
     fixture.git('update-ref', request['ref'], request['base'])
     facts = create_squash(fixture, request, request['base'])
     squash = facts['squash']
-    with test.assertRaisesRegex(ValueError, 'PR readback'):
-        sign_checkpoint(fixture, request, {**facts, 'state': 'OPEN'})
-    with test.assertRaisesRegex(ValueError, 'PR readback'):
-        sign_checkpoint(fixture, request, {**facts, 'ref': 'refs/heads/other'})
+    for change in ({'state': 'OPEN'}, {'ref': 'refs/heads/other'}, {'number': request['number'] + 1},
+                   {'repository': 'other/repository'}, {'head': request['base']}):
+        with test.assertRaisesRegex(ValueError, 'PR readback'):
+            sign_checkpoint(fixture, request, {**facts, **change})
     with test.assertRaisesRegex(ValueError, 'checked base or tree'):
         sign_checkpoint(fixture, {**request, 'base': request['head']}, facts)
     with test.assertRaisesRegex(ValueError, 'checked base or tree'):
         sign_checkpoint(fixture, {**request, 'tree': fixture.git('rev-parse', f"{request['base']}^{{tree}}")}, facts)
     signed = sign_checkpoint(fixture, request, facts)
-    publish_checkpoint(fixture, request, squash, signed)
-    saved = fixture.git('rev-parse', TAG_REF + squash)
-    test.assertEqual(saved, signed)
-    publish_checkpoint(fixture, request, squash, saved)
-    return {'request': request, 'squash': squash, 'tagObject': signed}
+    receipt = {'request': request, 'squash': squash, 'tagObject': signed}
+    saved = fixture.root / f'{squash}.json'
+    saved.write_text(json.dumps(receipt))
+    publish_checkpoint(fixture, receipt)
+    with mock.patch.object(fixture, 'git', wraps=fixture.git) as git:
+        publish_checkpoint(fixture, json.loads(saved.read_text()))
+        test.assertFalse(any(call.args[0] == 'push' for call in git.call_args_list))
+    return receipt
 
 
 def reject_raced_squash(fixture):
@@ -151,6 +162,8 @@ def verify_bundle(store, output, proof, env):
         raise ValueError('incomplete squash chain')
     base = anchor
     for squash, row in zip(chain, proof['checkpoints'], strict=True):
+        if git('rev-parse', TAG_REF + squash) != row['tagObject']:
+            raise ValueError('signed tag ID differs from the export receipt')
         verify_checkpoint(git, env, row['request'], squash, base)
         base = squash
     middle = proof['checkpoints'][1]
