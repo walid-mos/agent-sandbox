@@ -1,19 +1,21 @@
 import assert from 'node:assert/strict';
+import { posix } from 'node:path';
 import { test } from 'node:test';
-import { arrange, hc, RETRY_MS } from '../probes/fixtures/worker-watcher.mjs';
+import { arrange, hc, queued, RETRY_MS } from '../probes/fixtures/worker-watcher.mjs';
 
 const CGROUP = '/cgroup mount';
 const ANCESTOR = `${CGROUP}/ancestor`;
 const LEAF = `${ANCESTOR}/session`;
 const MiB = 1024 ** 2;
 const MOUNTINFO = '/proc/self/mountinfo';
+const MEMBERSHIP = '/proc/self/cgroup';
 const MOUNT = String.raw`27 21 0:25 / /cgroup\040mount rw - cgroup2 cgroup rw` + '\n';
 const psi = (some, full) => `some avg10=${some}\nfull avg10=${full}\n`;
 
 function arrangeCgroup() {
   const fixture = arrange(['waiting']);
   const { metrics } = fixture;
-  metrics.set('/proc/self/cgroup', '0::/ancestor/session\n');
+  metrics.set(MEMBERSHIP, '0::/ancestor/session\n');
   metrics.set(MOUNTINFO, MOUNT);
   for (const scope of [CGROUP, ANCESTOR, LEAF]) {
     metrics.set(`${scope}/memory.high`, 'max');
@@ -21,6 +23,61 @@ function arrangeCgroup() {
     metrics.set(`${scope}/memory.pressure`, psi(0, 0));
   }
   return fixture;
+}
+
+test('root membership stays inside the mount and resumes when its pressure clears', ({ mock }) => {
+  const dirname = posix.dirname;
+  let rootVisits = 0;
+  mock.method(posix, 'dirname', path => {
+    if (path === '/' && ++rootVisits > 1) throw new Error('cgroup walk escaped the mount');
+    return dirname(path);
+  });
+  const { pass, metrics, failures } = arrangeCgroup();
+  metrics.set(MEMBERSHIP, '0::/\n');
+  metrics.set(`${CGROUP}/memory.pressure`, psi(5, 1));
+  pass();
+  assert.deepEqual(hc.attempts, []);
+  assert.match(failures[0], /cgroup memory pressure stalls/);
+  metrics.set(`${CGROUP}/memory.pressure`, psi(0, 0));
+  mock.timers.tick(RETRY_MS);
+  assert.deepEqual(hc.attempts, ['waiting']);
+});
+
+for (const field of ['memory.max', 'memory.high']) {
+  test(`${field} set to zero pauses an empty group until the limit is lifted`, ({ mock: { timers } }) => {
+    const { pass, metrics } = arrangeCgroup();
+    metrics.set(`${LEAF}/${field}`, '0');
+    metrics.set(`${LEAF}/memory.current`, '0');
+    pass();
+    assert.deepEqual(hc.attempts, []);
+    assert.deepEqual(queued().map(({ worker }) => worker), ['waiting']);
+    metrics.set(`${LEAF}/${field}`, 'max');
+    timers.tick(RETRY_MS);
+    assert.deepEqual(hc.attempts, ['waiting']);
+  });
+}
+
+for (const oldPressure of [psi(0, 0), Object.assign(new Error('old cgroup removed'), { code: 'ENOENT' })]) {
+  const state = oldPressure instanceof Error ? 'disappears' : 'is still readable';
+  test(`a membership change invalidates the sample when old PSI ${state}`, ({ mock: { timers } }) => {
+    const { pass, metrics } = arrangeCgroup();
+    metrics.set(`${ANCESTOR}/memory.pressure`, () => {
+      metrics.set(MEMBERSHIP, '0::/limited\n');
+      return oldPressure;
+    });
+    const limited = `${CGROUP}/limited`;
+    metrics.set(`${limited}/memory.high`, String(1024 * MiB));
+    metrics.set(`${limited}/memory.max`, 'max');
+    metrics.set(`${limited}/memory.current`, String(1023 * MiB));
+    pass();
+    assert.deepEqual(hc.attempts, []);
+    assert.deepEqual(queued().map(({ worker }) => worker), ['waiting']);
+    timers.tick(RETRY_MS);
+    assert.deepEqual(hc.attempts, []);
+    metrics.set(`${limited}/memory.current`, '0');
+    timers.tick(RETRY_MS);
+    assert.deepEqual(hc.attempts, ['waiting']);
+  });
 }
 
 test('a tight ancestor memory.high pauses until the timed sample sees reclaimable headroom', ({ mock: { timers } }) => {

@@ -48,9 +48,9 @@ function mountFor(text) {
 }
 
 function groupTrace(group, mount) {
-  const scopes = [posix.join(mount, group)];
-  while (scopes.at(-1) !== mount) scopes.push(posix.dirname(scopes.at(-1)));
-  return scopes;
+  const scopes = [mount];
+  for (const part of group.split('/').filter(Boolean)) scopes.push(posix.join(scopes.at(-1), part));
+  return scopes.reverse();
 }
 
 function bytes(text, path) {
@@ -60,35 +60,40 @@ function bytes(text, path) {
 }
 
 function noMemoryController(readText, scope, parent) {
-  if (parent) return !readText(`${parent}/cgroup.subtree_control`).trim().split(/\s+/).includes('memory');
-  if (optionalMetric(readText, `${scope}/cgroup.type`) === undefined) return true;
-  return !readText(`${scope}/cgroup.controllers`).trim().split(/\s+/).includes('memory');
+  if (parent) return !readText(posix.join(parent, 'cgroup.subtree_control')).trim().split(/\s+/).includes('memory');
+  if (optionalMetric(readText, posix.join(scope, 'cgroup.type')) === undefined) return true;
+  return !readText(posix.join(scope, 'cgroup.controllers')).trim().split(/\s+/).includes('memory');
 }
 
 function limitsAt(readText, scope, parent) {
-  const paths = ['memory.high', 'memory.max'].map(field => `${scope}/${field}`);
+  const paths = ['memory.high', 'memory.max'].map(field => posix.join(scope, field));
   const readings = paths.map(path => optionalMetric(readText, path));
   if (readings.every(value => value === undefined) && noMemoryController(readText, scope, parent)) return Infinity;
   return Math.min(...readings.map((value, index) => value?.trim() === 'max' ? Infinity : bytes(value, paths[index])));
 }
 
 function inactiveFileAt(readText, scope) {
-  const path = `${scope}/memory.stat`;
+  const path = posix.join(scope, 'memory.stat');
   const text = optionalMetric(readText, path);
   if (text === undefined) return 0;
   const line = text.split('\n').find(row => /^inactive_file\b/.test(row));
   return line === undefined ? 0 : bytes(/^inactive_file[ \t]+(.+)$/.exec(line)?.[1], path);
 }
 
+function sampleGroup(readText, scope, parent) {
+  const limit = limitsAt(readText, scope, parent);
+  const currentPath = posix.join(scope, 'memory.current');
+  const current = Number.isFinite(limit) ? bytes(readText(currentPath), currentPath) : 0;
+  const reclaimable = Number.isFinite(limit) ? Math.min(current, inactiveFileAt(readText, scope)) : 0;
+  const pressurePath = posix.join(scope, 'memory.pressure');
+  const pressure = optionalMetric(readText, pressurePath);
+  return { limit, available: limit - (current - reclaimable), pressurePath, pressure };
+}
+
 export function readGroupMemory(readText) {
   const group = groupOf(readText(MEMBERSHIP));
-  if (group === undefined) return [];
-  const mount = mountFor(readText(MOUNTS));
-  const scopes = groupTrace(group, mount);
-  return scopes.map((scope, index) => {
-    const limit = limitsAt(readText, scope, scopes[index + 1]);
-    const current = Number.isFinite(limit) ? bytes(readText(`${scope}/memory.current`), `${scope}/memory.current`) : 0;
-    const reclaimable = Number.isFinite(limit) ? Math.min(current, inactiveFileAt(readText, scope)) : 0;
-    return { limit, available: limit - (current - reclaimable), pressurePath: `${scope}/memory.pressure` };
-  });
+  const scopes = group === undefined ? [] : groupTrace(group, mountFor(readText(MOUNTS)));
+  const samples = scopes.map((scope, index) => sampleGroup(readText, scope, scopes[index + 1]));
+  if (group !== groupOf(readText(MEMBERSHIP))) throw new Error(`${MEMBERSHIP}: cgroup membership changed during the memory sample`);
+  return samples;
 }

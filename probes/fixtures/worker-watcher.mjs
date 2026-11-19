@@ -65,7 +65,8 @@ export function arrange(names, options) {
   const metrics = new Map();
   function readText(path) {
     if (metrics.has(path)) {
-      const value = metrics.get(path);
+      const reading = metrics.get(path);
+      const value = typeof reading === 'function' ? reading() : reading;
       if (value instanceof Error) throw value;
       return value;
     }

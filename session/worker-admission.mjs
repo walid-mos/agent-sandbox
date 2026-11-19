@@ -27,8 +27,7 @@ function stallPercent(text, path, kind) {
   return percent;
 }
 
-function isStalled(readText, path) {
-  const pressure = optionalMetric(readText, path);
+function isStalled(pressure, path) {
   if (pressure === undefined) return false;
   const some = stallPercent(pressure, path, 'some');
   const full = stallPercent(pressure, path, 'full');
@@ -41,13 +40,13 @@ function guestMemoryBlock(readText) {
   const available = memoryAmount(meminfo, 'MemAvailable');
   if (total === 0 || available > total) throw new Error(`${MEMINFO}: inconsistent MemTotal and MemAvailable`);
   if (available < Math.max(MIN_AVAILABLE_KIB, total * MIN_AVAILABLE_SHARE)) return 'low available memory';
-  return isStalled(readText, MEMORY_PSI) ? 'memory pressure stalls' : undefined;
+  return isStalled(optionalMetric(readText, MEMORY_PSI), MEMORY_PSI) ? 'memory pressure stalls' : undefined;
 }
 
 function groupMemoryBlock(readText) {
-  for (const { limit, available, pressurePath } of readGroupMemory(readText)) {
-    if (available < limit * MIN_AVAILABLE_SHARE) return `${pressurePath}: low cgroup memory headroom`;
-    if (isStalled(readText, pressurePath)) return `${pressurePath}: cgroup memory pressure stalls`;
+  for (const { limit, available, pressurePath, pressure } of readGroupMemory(readText)) {
+    if (limit === 0 || available < limit * MIN_AVAILABLE_SHARE) return `${pressurePath}: low cgroup memory headroom`;
+    if (isStalled(pressure, pressurePath)) return `${pressurePath}: cgroup memory pressure stalls`;
   }
   return undefined;
 }
