@@ -179,14 +179,14 @@ def load_signer(source):
     return module
 
 
-def run_release(fixture, shared_revision, scenario, *, merge_commit=None):
+def run_release(fixture, shared_revision, scenario, *, merge_commit=None, request=None):
     policy = Path(__file__).resolve()
     shared = fixture.root / "review-source"
     if not shared.exists():
         shared.mkdir()
         for name in ("factory-records.mjs", "factory-review.mjs", "private-json.mjs"):
             (shared / name).write_text(run("git", "-C", str(REPOSITORY), "show", f"{shared_revision}:session/{name}") + "\n")
-    (fixture.root / "request.json").write_text(json.dumps(fixture.request))
+    (fixture.root / "request.json").write_text(json.dumps(fixture.request if request is None else request))
     node = shutil.which("node")
     if node is None:
         raise RuntimeError("landing release fixture needs Node.js on PATH.")

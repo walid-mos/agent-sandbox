@@ -13,6 +13,34 @@ const { repository, number, generation, base, head } = proof;
 const checked = { repository, number, generation, base: 'main', branch: 'fixture-source', mergeBase: base, head,
   stage: 'checked', checks: [{ name: 'fixture-check', isPassed: true }] };
 const git = releaseGit(clone, remote);
+
+function recordRecovery() {
+  const read = (...args) => execFileSync('git', ['-C', clone, ...args], { encoding: 'utf8' }).trim();
+  const checks = [
+    { name: 'landed-diff', isPassed: read('diff', '--check', base, head) === '' },
+    { name: 'landed-content', isPassed: read('show', `${head}:change`) === 'checked content'
+        && read('show', `${head}:base-change`) === 'intervening checked content' },
+  ];
+  const subject = { ...checked, checks, tree: read('rev-parse', `${head}^{tree}`) };
+  assert.equal(read('show', '-s', '--format=%P', head), base);
+  withRecord(subject, (prior, save) => {
+    assert.equal(prior, undefined);
+    save(subject);
+  });
+  const reviewId = bindReview(subject);
+  const review = withRecord(subject, (_, save) => {
+    const current = requireReview(reviewId);
+    const verdict = current.checks.every(result => result.isPassed) ? 'PASS' : 'FAIL';
+    return save({ ...current, stage: 'judged', verdict });
+  });
+  process.stdout.write(JSON.stringify({ reviewId, review }));
+}
+
+if (scenario === 'squash-recovery') {
+  recordRecovery();
+  process.exit(0);
+}
+
 const sign = request => JSON.parse(execFileSync('python3', ['-B', policy, '--sign', source], { input: JSON.stringify(request) }));
 let live = { state: 'OPEN', isDraft: false, baseRefName: 'main', baseRefOid: base, headRefOid: head };
 const requireReady = (record, request) => {
