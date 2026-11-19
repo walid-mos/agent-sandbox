@@ -9,6 +9,21 @@ export const FACTORY_TOPIC = 'factory';
 const REPOSITORY_LIMIT = '1000';
 const LIST_FIELDS = 'number,headRefOid,headRefName,baseRefName,isDraft,mergeable';
 const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeCommit';
+const DRAFT_LIST_QUERY = `query($owner: String!, $name: String!, $endCursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(first: 100, after: $endCursor, states: OPEN) {
+      nodes { number isDraft createdAt }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+const DRAFT_FACTS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number state isDraft isCrossRepository createdAt lastEditedAt title body headRefName headRefOid
+    }
+  }
+}`;
 
 const gh = (arguments_, options) => command('gh', arguments_, options);
 const hasFactoryTopic = topicNames => topicNames.includes(FACTORY_TOPIC);
@@ -34,6 +49,22 @@ function openPulls(repository) {
 export const readyPulls = repository => openPulls(repository).filter(pull => !pull.isDraft);
 
 export const draftPulls = repository => openPulls(repository).filter(pull => pull.isDraft);
+
+function queryPulls(repository, query, ...flags) {
+  const [owner, name] = repository.split('/');
+  return JSON.parse(gh(['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, ...flags],
+    { env: { ...process.env, GH_REPO: repository } }));
+}
+
+export function draftCandidates(repository) {
+  return queryPulls(repository, DRAFT_LIST_QUERY, '--paginate', '--slurp')
+    .flatMap(page => page.data.repository.pullRequests.nodes);
+}
+
+export function draftFacts(repository, number) {
+  const result = queryPulls(repository, DRAFT_FACTS_QUERY, '-F', `number=${number}`);
+  return { ...result.data.repository.pullRequest, repository };
+}
 
 export function pullFacts({ repository, number }) {
   return JSON.parse(gh(['pr', 'view', String(number), '--repo', repository, '--json', VIEW_FIELDS]));
