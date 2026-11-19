@@ -24,7 +24,7 @@ WRITABLE_BY_OTHERS = stat.S_IWGRP | stat.S_IWOTH
 ROOT = 0
 # Git refuses a clone another user owns; the ownership walk has already proven this one root-owned.
 CLONE_GIT_OPTIONS = ("-c", f"safe.directory={CLONE}")
-USAGE = 'usage: trusted_source.py scheduled|keep|initialize-receiver|status-receiver|bootstrap [--branch BRANCH]|update [--branch BRANCH]|run SCRIPT [ARGUMENT...]|verify'
+USAGE = 'usage: trusted_source.py scheduled|keep|initialize-receiver|status-receiver|sealskin-server-started|bootstrap [--branch BRANCH]|update [--branch BRANCH]|run SCRIPT [ARGUMENT...]|verify'
 
 
 def clone_git(*arguments):
@@ -157,11 +157,19 @@ def status_receiver():
     return receiver_operation('status')
 
 
+def sealskin_server_started():
+    try:
+        RECEIVER.lstat()
+    except FileNotFoundError:
+        return run('bin/sealskin-apply')
+
+
 COMMANDS = {
     'scheduled': (scheduled, lambda count: count == 0),
     'keep': (keep, lambda count: count == 0),
     'initialize-receiver': (initialize_receiver, lambda count: count == 0),
     'status-receiver': (status_receiver, lambda count: count == 0),
+    'sealskin-server-started': (sealskin_server_started, lambda count: count == 0),
     'bootstrap': (bootstrap, lambda count: count in (0, 2)),
     "update": (update, lambda count: count in (0, 2)),
     "run": (run, lambda count: count >= 1),

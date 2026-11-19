@@ -66,6 +66,58 @@ class VmBootstrap(unittest.TestCase):
         return subprocess.run([sys.executable, '-I', str(self.bundle / 'lib/trusted_source.py'), 'bootstrap', *arguments],
                               env=self.environment, text=True, capture_output=True)
 
+    def start_sealskin(self):
+        mac = self.root / 'mac-source'
+        binaries = self.root / 'binaries'
+        binaries.mkdir()
+        for relative in ('bin/sealskin-up', 'lib/sandbox.sh', 'lib/providers/colima.sh', 'vm/network.env'):
+            target = mac / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, target)
+        (mac / 'session').mkdir()
+        shutil.copy2(self.bundle / 'session/launch.env', mac / 'session/launch.env')
+        config = self.root / 'sandboxes' / 'probe'
+        config.mkdir(parents=True)
+        (config / 'sandbox.json').write_text('{"launcher":"sealskin","serverPort":8443}\n')
+        self.stub(mac / 'bin/sealskin-apply', 'printf "unmanaged\n" > "$TEMPLATE"\n')
+        self.stub(binaries / 'docker', '[ "$1 $2 $3" = "--context colima-probe compose" ] || exit 2\nprintf "started\n" > "$SERVER"\n')
+        self.stub(binaries / 'colima', 'shift 4\n[ "$1 $2 $3" = "sudo env POTS_TRANSPORT=local" ] || exit 2\nshift 3\nexport POTS_TRANSPORT=local\nshift 2\nexec python3 -I "$FIXTURE_LAUNCH" "$@"\n')
+        fixture_launch = self.root / 'fixture-launch.py'
+        fixture_launch.write_text('import os, runpy, sys\n'
+                                  'launcher, *arguments = sys.argv[1:]\n'
+                                  'main = runpy.run_path(launcher)["main"]\n'
+                                  'main.__globals__["ROOT"] = os.geteuid()\n'
+                                  'main.__globals__["require_root_owned"] = lambda: None\n'
+                                  'sys.exit(main(arguments))\n')
+        environment = {**self.environment, 'PATH': f"{binaries}:{self.environment['PATH']}",
+                       'POTS_RUNTIME': str(self.root), 'SANDBOX': 'probe', 'FIXTURE_LAUNCH': str(fixture_launch),
+                       'TEMPLATE': str(self.root / 'template'), 'SERVER': str(self.root / 'server')}
+        return subprocess.run([str(mac / 'bin/sealskin-up')], env=environment, text=True, capture_output=True)
+
+    @staticmethod
+    def stub(path, commands):
+        path.write_text('#!/bin/sh\nset -eu\n' + commands)
+        path.chmod(0o700)
+
+    def test_enrolled_sealskin_server_start_preserves_the_selected_template(self):
+        self.receiver.mkdir()
+        template = self.root / 'template'
+        template.write_text('selected release\n')
+        result = self.start_sealskin()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / 'server').read_text(), 'started\n')
+        self.assertEqual(template.read_text(), 'selected release\n')
+
+    def test_unenrolled_sealskin_server_start_applies_the_operator_template(self):
+        (self.clone / 'bin').mkdir()
+        self.stub(self.clone / 'bin/sealskin-apply', 'printf "operator template\\n" > "$TEMPLATE"\n')
+        self.git(self.clone, 'add', 'bin/sealskin-apply')
+        self.git(self.clone, 'commit', '-qS', '-m', 'Operator template')
+        result = self.start_sealskin()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / 'server').read_text(), 'started\n')
+        self.assertEqual((self.root / 'template').read_text(), 'operator template\n')
+
     def test_enrolled_vm_verifies_the_clone_and_keeps_its_revision(self):
         self.receiver.mkdir()
         result = self.bootstrap()
