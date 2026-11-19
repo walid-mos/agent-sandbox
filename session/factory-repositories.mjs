@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 const REPOSITORIES_FILE = join(dirname(fileURLToPath(import.meta.url)), 'factory-repositories.json');
 const STEP_NAME = /^[a-z0-9-]+$/;
 
-const isStep = step => STEP_NAME.test(step?.name ?? '') && Array.isArray(step.run) && step.run.length > 0
-  && step.run.every(part => typeof part === 'string') && ['undefined', 'boolean'].includes(typeof step.network);
+const isCommand = run => Array.isArray(run) && run.length > 0 && run.every(part => typeof part === 'string');
+const isStep = step => Boolean(step) && STEP_NAME.test(step.name) && isCommand(step.run)
+  && ['undefined', 'boolean'].includes(typeof step.network);
 
 function repositories() {
   const definitions = JSON.parse(readFileSync(REPOSITORIES_FILE, 'utf8'));

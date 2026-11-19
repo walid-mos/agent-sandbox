@@ -68,6 +68,11 @@ function stream(socketPath, signal, last) {
   });
 }
 
+function eventIn(frame) {
+  const body = frame.split('\n').find(line => line.startsWith('data: '));
+  if (body) return JSON.parse(body.slice(6));
+}
+
 async function eventFrom(chunks, condition) {
   let remaining = '';
   for (;;) {
@@ -76,13 +81,8 @@ async function eventFrom(chunks, condition) {
     remaining += value;
     const frames = remaining.split('\n\n');
     remaining = frames.pop();
-    for (const frame of frames) {
-      const body = frame.split('\n').find(line => line.startsWith('data: '));
-      if (body) {
-        const event = JSON.parse(body.slice(6));
-        if (condition(event)) return event;
-      }
-    }
+    const event = frames.map(eventIn).filter(Boolean).find(condition);
+    if (event) return event;
   }
 }
 

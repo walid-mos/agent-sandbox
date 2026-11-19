@@ -9,25 +9,31 @@ import { workers } from './workers.mjs';
 const MERGEABILITY_RETRY_MS = 5_000;
 const MAX_MERGEABILITY_RETRIES = 10;
 
+const DECIDABLE = new Set(['MERGEABLE', 'CONFLICTING']);
+
+function inspectPull(subject, jobs, read) {
+  try {
+    const pull = read(subject);
+    if (pull) return recordObservation(pull, jobs);
+  } catch (error) {
+    logScanFailure(pullUrl(subject), error);
+  }
+}
+
+function recordObservation(pull, jobs) {
+  if (pull.mergeable === 'UNKNOWN') return pull;
+  if (DECIDABLE.has(pull.mergeable)) jobs.observe(pull);
+}
+
+function readySubjects(repository) {
+  return readyPulls(repository).map(({ number }) => ({ repository, number }));
+}
+
 export async function discoverReady(jobs, repositories, read = reviewSubject, wait = delay) {
-  const unknown = [];
-  function discover(subject) {
-    try {
-      const pull = read(subject);
-      if (!pull) return;
-      if (pull.mergeable === 'UNKNOWN') return pull;
-      if (pull.mergeable === 'MERGEABLE' || pull.mergeable === 'CONFLICTING') jobs.observe(pull);
-    } catch (error) {
-      logScanFailure(pullUrl(subject), error);
-    }
-  }
-  for (const repository of repositories) {
-    for (const { number } of readyPulls(repository)) {
-      const pending = discover({ repository, number });
-      if (pending && unknown.length < MAX_MERGEABILITY_RETRIES) unknown.push(pending);
-    }
-  }
-  if (unknown.length) await wait(MERGEABILITY_RETRY_MS);
+  const discover = subject => inspectPull(subject, jobs, read);
+  const unknown = repositories.flatMap(readySubjects).map(discover).filter(Boolean).slice(0, MAX_MERGEABILITY_RETRIES);
+  if (unknown.length === 0) return;
+  await wait(MERGEABILITY_RETRY_MS);
   unknown.forEach(discover);
 }
 
@@ -36,10 +42,14 @@ function logScanFailure(subject, error) {
   process.exitCode = 1;
 }
 
+function ownsDraft(worker, pull) {
+  return worker.repository?.toLowerCase() === pull.repository.toLowerCase() && worker.branch === pull.headRefName
+    && (worker.pullRequest ?? pullUrl(pull)).toLowerCase() === pullUrl(pull).toLowerCase();
+}
+
 function draftOwner(pull, readWorkers) {
   if (pull.isCrossRepository) return undefined;
-  return readWorkers().find(worker => worker.owner && worker.repository?.toLowerCase() === pull.repository.toLowerCase()
-    && worker.branch === pull.headRefName && (!worker.pullRequest || worker.pullRequest.toLowerCase() === pullUrl(pull).toLowerCase()))?.owner;
+  return readWorkers().find(worker => worker.owner && ownsDraft(worker, pull))?.owner;
 }
 
 function wakeStaleDraft(subject, now, readWorkers) {

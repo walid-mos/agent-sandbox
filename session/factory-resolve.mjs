@@ -35,15 +35,25 @@ export function resolve(arguments_) {
   process.stdout.write(`${workspace}\nMerging ${facts.baseRefName} at ${baseTip} into ${facts.headRefName} left ${files.length} conflicted files:\n${files.join('\n')}\n`);
 }
 
-function resolvedCommit(workspace, { head, baseTip, files }) {
+function requireCommittedMerge(workspace) {
   if (existsSync(join(workspace, '.git/MERGE_HEAD')) || unmergedPaths(workspace).length > 0) {
     throw new Error('factory: the merge is not committed. Resolve every conflicted file, git add them, then git commit --no-edit.');
   }
+}
+
+function resolvedCommit(workspace, { head, baseTip, files }) {
+  requireCommittedMerge(workspace);
   const [commit, ...parents] = git(workspace, ['rev-list', '--parents', '--max-count=1', 'HEAD']).split(' ');
   if (parents.join(' ') !== `${head} ${baseTip}`) throw new Error(`factory: HEAD must be one merge commit of ${head} and ${baseTip}. Run resolve again.`);
-  const markers = spawnSync('git', ['-C', workspace, 'grep', '--line-number', '-E', CONFLICT_MARKER, 'HEAD', '--', ...files], { encoding: 'utf8' });
-  if (files.length > 0 && markers.status === 0) throw new Error(`factory: conflict markers are left:\n${markers.stdout}`);
+  requireNoMarkers(workspace, files);
   return commit;
+}
+
+function requireNoMarkers(workspace, files) {
+  if (files.length === 0) return;
+  const markers = spawnSync('git', ['-C', workspace, 'grep', '--line-number', '-E', CONFLICT_MARKER, 'HEAD', '--', ...files], { encoding: 'utf8' });
+  if (markers.status === 0) throw new Error(`factory: conflict markers are left:\n${markers.stdout}`);
+  if (markers.status !== 1) throw new Error('factory: Git could not check for conflict markers.');
 }
 
 // A plain push: GitHub rejects it when the branch moved, so the factory never overwrites a commit it did not see.

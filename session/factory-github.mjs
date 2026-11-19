@@ -80,23 +80,55 @@ export function pullFacts({ repository, number }) {
   return JSON.parse(gh(['pr', 'view', String(number), '--repo', repository, '--json', VIEW_FIELDS]));
 }
 
-export function reviewSubject(subject) {
+const READY_TRANSITIONS = new Set(['ReadyForReviewEvent', 'ReopenedEvent']);
+
+function hasReadyTransition(node) {
+  return READY_TRANSITIONS.has(node?.__typename) && typeof node.id === 'string' && node.id.length > 0;
+}
+
+function reviewTransition(timeline) {
+  const nodes = timeline?.nodes;
+  if (!Array.isArray(nodes)) throw new Error('factory: GitHub did not confirm a review timeline');
+  if (nodes.length === 0) return '';
+  return readyEventId(nodes);
+}
+
+function readyEventId([node, ...extra]) {
+  if (extra.length > 0 || !hasReadyTransition(node)) throw new Error('factory: GitHub did not confirm a ready review transition');
+  return node.id;
+}
+
+function confirmedRepository(subject) {
   const response = queryPulls(subject.repository, REVIEW_FACTS_QUERY, '-F', `number=${subject.number}`);
-  const result = response.data?.repository;
-  const facts = result?.pullRequest;
-  if (response.errors?.length || !facts || result.nameWithOwner.toLowerCase() !== subject.repository.toLowerCase()) {
-    throw new Error('factory: GitHub did not confirm repository and PR identity');
+  if (response.errors?.length) throw new Error('factory: GitHub returned incomplete review facts');
+  return namedRepository(response.data?.repository, subject.repository);
+}
+
+function namedRepository(result, repository) {
+  if (result?.nameWithOwner?.toLowerCase() !== repository.toLowerCase()) {
+    throw new Error('factory: GitHub did not confirm repository identity');
   }
-  if (result.isArchived !== false || facts.state !== 'OPEN' || facts.isDraft !== false) return undefined;
-  const nodes = facts.timelineItems?.nodes;
-  if (!Array.isArray(nodes) || nodes.length > 1 || (nodes.length && (!['ReadyForReviewEvent', 'ReopenedEvent'].includes(nodes[0]?.__typename) || typeof nodes[0]?.id !== 'string' || !nodes[0].id))) {
-    throw new Error('factory: GitHub did not confirm a ready review transition');
-  }
-  const { headRefOid: head, baseRefOid: baseTip, baseRefName: base, mergeable } = facts;
-  if (![head, baseTip].every(sha => /^[0-9a-f]{40}$/.test(sha)) || typeof base !== 'string' || facts.number !== subject.number) {
+  return result;
+}
+
+function exactRevision(facts, number) {
+  const { headRefOid: head, baseRefOid: baseTip, baseRefName: base } = facts;
+  if (![head, baseTip].every(sha => /^[0-9a-f]{40}$/.test(sha)) || typeof base !== 'string' || facts.number !== number) {
     throw new Error('factory: GitHub did not confirm the exact head and base');
   }
-  return { repository: result.nameWithOwner.toLowerCase(), number: facts.number, head, base, baseTip, transition: nodes[0]?.id ?? '', mergeable };
+  return { head, base, baseTip };
+}
+
+function isReady(facts) {
+  return facts?.state === 'OPEN' && facts.isDraft === false;
+}
+
+export function reviewSubject(subject) {
+  const result = confirmedRepository(subject);
+  const facts = result.pullRequest;
+  if (result.isArchived !== false || !isReady(facts)) return undefined;
+  return { repository: result.nameWithOwner.toLowerCase(), number: facts.number, ...exactRevision(facts, subject.number),
+    transition: reviewTransition(facts.timelineItems), mergeable: facts.mergeable };
 }
 
 export function isCurrentReview(subject) {
@@ -113,8 +145,8 @@ export function requireReviewSubject(subject) {
 export function requireActionable(pull) {
   if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
   const facts = pullFacts(pull);
-  if (facts.state !== 'OPEN' || facts.isDraft || facts.headRefOid !== pull.head) {
-    throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);
+  if (!isReady(facts) || facts.headRefOid !== pull.head) {
+    throw new Error(`factory: ${pullUrl(pull)} no longer has open, ready head ${pull.head}. Wait for its next review wake.`);
   }
   requireReviewSubject(pull);
   checkSteps(pull.repository);

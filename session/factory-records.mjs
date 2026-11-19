@@ -15,13 +15,27 @@ export function pullUrl({ repository, number }) {
 }
 
 export function pullArguments([repository, number, head, generation]) {
-  if (!/^[a-zA-Z0-9-]+\/[a-zA-Z0-9_.-]+$/.test(repository ?? '')) throw new Error(`factory: expected OWNER/REPOSITORY, got ${repository}`);
-  if (!/^[1-9][0-9]*$/.test(number ?? '')) throw new Error(`factory: expected a pull request number, got ${number}`);
-  if (!FULL_SHA.test(head ?? '')) throw new Error(`factory: expected the head commit's full SHA, got ${head}`);
-  if (!/^[1-9][0-9]*$/.test(generation ?? '') || !Number.isSafeInteger(Number(generation)) || !Number.isSafeInteger(Number(number))) {
-    throw new Error('factory: use the command from the current Factory wake.');
-  }
-  return { repository: repository.toLowerCase(), number: Number(number), head, generation: Number(generation) };
+  const name = repositoryName(repository);
+  const pullNumber = positiveInteger(number);
+  if (pullNumber === undefined) throw new Error(`factory: expected a pull request number, got ${number}`);
+  requireFullHead(head);
+  const reviewGeneration = positiveInteger(generation);
+  if (reviewGeneration === undefined) throw new Error('factory: use the command from the current Factory wake.');
+  return { repository: name, number: pullNumber, head, generation: reviewGeneration };
+}
+
+function repositoryName(repository = '') {
+  if (!/^[a-zA-Z0-9-]+\/[a-zA-Z0-9_.-]+$/.test(repository)) throw new Error(`factory: expected OWNER/REPOSITORY, got ${repository}`);
+  return repository.toLowerCase();
+}
+
+function requireFullHead(head = '') {
+  if (!FULL_SHA.test(head)) throw new Error(`factory: expected the head commit's full SHA, got ${head}`);
+}
+
+function positiveInteger(text = '') {
+  const number = Number(text);
+  if (/^[1-9][0-9]*$/.test(text) && Number.isSafeInteger(number)) return number;
 }
 
 export function logDirectory(pull) {
@@ -43,9 +57,8 @@ export function recordedHeads() {
 
 export function requireRecord(pull, stage) {
   const record = readRecord(pull);
-  if (record?.stage !== stage) {
-    throw new Error(`factory: ${pullUrl(pull)} at ${pull.head} is ${record?.stage ?? 'not seen yet'}, and this step needs it ${stage}.`);
-  }
+  if (!record) throw new Error(`factory: ${pullUrl(pull)} at ${pull.head} has no review record.`);
+  if (record.stage !== stage) throw new Error(`factory: ${pullUrl(pull)} at ${pull.head} is ${record.stage}, and this step needs it ${stage}.`);
   return record;
 }
 

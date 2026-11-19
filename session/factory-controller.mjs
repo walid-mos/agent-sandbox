@@ -34,10 +34,15 @@ function scheduleDiscovery(jobs, refresh) {
   return () => {
     const revision = jobs.pendingWake();
     if (!revision || isDiscovering) return;
-    if (Date.now() < next) {
-      timer ??= setTimeout(() => { timer = undefined; refresh(); }, next - Date.now());
-      return;
-    }
+    if (Date.now() < next) return schedule();
+    start(revision);
+  };
+
+  function schedule() {
+    timer ??= setTimeout(() => { timer = undefined; refresh(); }, next - Date.now());
+  }
+
+  function start(revision) {
     isDiscovering = true;
     next = Date.now() + WAKE_GAP_MS;
     void launch('scan', [], { budget: DISCOVERY_BUDGET_MS }).then(isDone => {
@@ -47,7 +52,7 @@ function scheduleDiscovery(jobs, refresh) {
       isDiscovering = false;
       refresh();
     });
-  };
+  }
 }
 
 function scheduleExecution(jobs, refresh) {
@@ -60,11 +65,7 @@ function scheduleExecution(jobs, refresh) {
       deferred.clear();
     }
     const running = pending.filter(job => job.status === 'running');
-    for (const { id } of running) {
-      if (launched.has(id) || attemptedRecovery.has(id)) continue;
-      attemptedRecovery.add(id);
-      void launch('recover-job', [String(id)], { viaVault: false }).finally(refresh);
-    }
+    dispatchRecovery(running, launched, attemptedRecovery, refresh);
     const reserved = new Set([...launched, ...running.map(job => job.id)]);
     const queued = pending.filter(job => job.status === 'queued' && !launched.has(job.id) && !deferred.has(job.id));
     for (const { id } of queued.slice(0, Math.max(0, MAX_RUNNERS - reserved.size))) {
@@ -77,6 +78,14 @@ function scheduleExecution(jobs, refresh) {
       });
     }
   };
+}
+
+function dispatchRecovery(running, launched, attemptedRecovery, refresh) {
+  for (const { id } of running) {
+    if (launched.has(id) || attemptedRecovery.has(id)) continue;
+    attemptedRecovery.add(id);
+    void launch('recover-job', [String(id)], { viaVault: false }).finally(refresh);
+  }
 }
 
 function schedulePublication(refresh) {
@@ -121,8 +130,13 @@ function dispatch(jobs, subscribers) {
   return { refresh, backstop: () => run(true) };
 }
 
+function isWake(request) {
+  return request.method === 'POST' && request.url === '/wake'
+    && request.headers['content-length'] === '0' && !request.headers['transfer-encoding'];
+}
+
 function wakeHandler(jobs, request, response) {
-  if (request.method !== 'POST' || request.url !== '/wake' || request.headers['content-length'] !== '0' || request.headers['transfer-encoding']) {
+  if (!isWake(request)) {
     response.writeHead(400).end();
     return;
   }
@@ -142,12 +156,9 @@ function listen(path, handler, mode) {
   server.listen(path, () => chmodSync(path, mode));
 }
 
-main(import.meta, () => {
-  const [wakeSocket] = process.argv.slice(2);
-  const eventsSocket = join(JOB_DIRECTORY, 'events.sock');
-  if (wakeSocket !== undefined && (!wakeSocket.startsWith('/') || wakeSocket === eventsSocket)) {
-    throw new Error('usage: factory-controller.mjs [ABSOLUTE_WAKE_SOCKET]');
-  }
+const EVENTS_SOCKET = join(JOB_DIRECTORY, 'events.sock');
+
+function startController(wakeSocket) {
   const unlock = tryFactoryLock(JOB_DIRECTORY, 'controller');
   if (!unlock) throw new Error('factory: a controller already owns this store');
   process.umask(0o077);
@@ -158,7 +169,15 @@ main(import.meta, () => {
   const watcher = watch(JOB_DIRECTORY, (_, name) => { if (name === CHANGE_FILE || !name) refresh(); });
   watcher.on('error', () => process.stderr.write('factory: change notifications unavailable until controller restart\n'));
   if (wakeSocket) listen(wakeSocket, (request, response) => wakeHandler(jobs, request, response), 0o660);
-  listen(eventsSocket, (request, response) => streamFactoryEvents(request, response, jobs, subscribers), 0o600);
+  listen(EVENTS_SOCKET, (request, response) => streamFactoryEvents(request, response, jobs, subscribers), 0o600);
   setInterval(backstop, LOCAL_BACKSTOP_MS);
   refresh();
+}
+
+main(import.meta, () => {
+  const [wakeSocket] = process.argv.slice(2);
+  if (wakeSocket !== undefined && (!wakeSocket.startsWith('/') || wakeSocket === EVENTS_SOCKET)) {
+    throw new Error('usage: factory-controller.mjs [ABSOLUTE_WAKE_SOCKET]');
+  }
+  startController(wakeSocket);
 });

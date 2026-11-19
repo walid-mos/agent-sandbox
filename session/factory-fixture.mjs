@@ -19,12 +19,20 @@ function github(args) {
   appendFileSync(file('calls'), `${args[0]} ${args[1]}\n`);
   const facts = read('facts');
   if (args[0] === 'repo') return json([{ nameWithOwner: repository, repositoryTopics: [{ name: 'factory' }] }]);
-  if (args[1] === 'list') return json([{ number: facts.number, isDraft: facts.isDraft }]);
-  if (args[1] === 'view') return json(facts);
-  if (args[1] === 'merge' || args[1] === 'comment') throw new Error('unexpected write');
+  if (args[0] === 'pr') return githubPull(args[1], facts);
   if (args[1] !== 'graphql') return json(['factory']);
+  return githubGraphql(args, facts);
+}
+
+function githubGraphql(args, facts) {
   if (args.includes('--paginate')) return json([{ data: { repository: { pullRequests: { nodes: [] } } } }]);
   return json({ data: { repository: { nameWithOwner: repository, isArchived: false, pullRequest: facts } } });
+}
+
+function githubPull(operation, facts) {
+  if (operation === 'list') return json([{ number: facts.number, isDraft: facts.isDraft }]);
+  if (operation === 'view') return json(facts);
+  throw new Error('unexpected pull request operation');
 }
 
 function waitForRelease(container) {
@@ -39,32 +47,53 @@ function waitForRelease(container) {
   });
 }
 
-async function docker([operation, ...flags]) {
-  const container = existsSync(file('container')) ? read('container') : undefined;
-  if (operation === 'image') return;
-  if (operation === 'create') {
+const isCheck = container => container.name.endsWith('-check');
+
+function fixtureContainer() {
+  return existsSync(file('container')) ? read('container') : undefined;
+}
+
+async function simulateCheck(container) {
+  if (existsSync(file('gate'))) await waitForRelease(container);
+  if (existsSync(file('late'))) write('elapsed', 61 * 60_000);
+  if (existsSync(file('release'))) write('elapsed', 35 * 60_000);
+}
+
+const dockerOperations = {
+  image() {},
+  create(flags) {
     write('container', { name: flags[1], job: flags[3].split('=')[1], state: 'created' });
     process.stdout.write(containerId);
-    return;
-  }
-  if (operation === 'ps') return process.stdout.write(container ? containerId : '');
-  if (!container || flags.at(-1) !== containerId) throw new Error('unexpected container identity');
-  if (operation === 'inspect') {
+  },
+  ps() {
+    process.stdout.write(fixtureContainer() ? containerId : '');
+  },
+  inspect(flags, container) {
     const detail = flags.at(-2).includes('State') ? `${container.state} 0` : `/${container.name} ${container.job}`;
-    return process.stdout.write(detail);
-  }
-  if (operation === 'rm') {
-    if (container.name.endsWith('-check') && existsSync(file('refuse-cleanup'))) process.exit(1);
+    process.stdout.write(detail);
+  },
+  rm(_flags, container) {
+    if (isCheck(container) && existsSync(file('refuse-cleanup'))) process.exit(1);
     appendFileSync(file('removed'), `${container.name} ${containerId}\n`);
     rmSync(file('container'));
-    return;
-  }
-  if (operation !== 'start') throw new Error('unexpected Docker operation');
-  write('container', { ...container, state: 'running' });
-  if (container.name.endsWith('-check') && existsSync(file('gate'))) await waitForRelease(container);
-  if (container.name.endsWith('-check') && existsSync(file('late'))) write('elapsed', 61 * 60_000);
-  if (container.name.endsWith('-check') && existsSync(file('release'))) write('elapsed', 35 * 60_000);
-  if (existsSync(file('container')) && read('container').name === container.name) write('container', { ...container, state: 'exited' });
+  },
+  async start(_flags, container) {
+    write('container', { ...container, state: 'running' });
+    if (isCheck(container)) await simulateCheck(container);
+    if (fixtureContainer()?.name === container.name) write('container', { ...container, state: 'exited' });
+  },
+};
+
+async function docker([operation, ...flags]) {
+  const execute = dockerOperations[operation];
+  if (!execute) throw new Error('unexpected Docker operation');
+  const container = fixtureContainer();
+  if (['inspect', 'rm', 'start'].includes(operation)) assertFixtureIdentity(container, flags.at(-1));
+  await execute(flags, container);
+}
+
+function assertFixtureIdentity(container, id) {
+  if (!container || id !== containerId) throw new Error('unexpected container identity');
 }
 
 export function launchController(directory, program, env, wakeSocket) {

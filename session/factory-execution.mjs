@@ -11,6 +11,10 @@ function check(record, progress, jobs) {
   if (!isCurrentReview(record)) return { stage: 'superseded' };
   if (!hasChecks(record.repository)) return { stage: 'checks-missing' };
   if (record.mergeable === 'CONFLICTING') return { stage: 'conflict' };
+  return checkRevision(record, progress, jobs);
+}
+
+function checkRevision(record, progress, jobs) {
   progress('preparing', {});
   refreshMirror(record.repository);
   const base = mergeBase(record.repository, record.baseTip, record.head);
@@ -43,8 +47,17 @@ function publish(jobs, { id, subject, result, status }) {
     reportToPrincipal({ ...record, stage: status }, `PR factory stopped run ${id} for ${pullUrl(record)} after interruption. ${result.reason}.`);
     return;
   }
-  if (jobs.current(record) !== id || record.stage === 'superseded' || !isCurrentReview(record)) return;
-  if (record.stage === 'checked' || record.stage === 'conflict') {
+  if (shouldPublish(jobs, record)) publishResult(record);
+}
+
+function shouldPublish(jobs, record) {
+  return record.stage !== 'superseded' && jobs.current(record) === record.generation && isCurrentReview(record);
+}
+
+const FACTORY_STAGES = new Set(['checked', 'conflict']);
+
+function publishResult(record) {
+  if (FACTORY_STAGES.has(record.stage)) {
     handToFactory(record);
     return;
   }

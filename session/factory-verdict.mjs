@@ -39,12 +39,17 @@ function reportFailure(record) {
   return reportToPrincipal({ ...record, stage: 'failed' }, `PR factory judged ${pullUrl(record)} FAIL at head ${record.head}, so it stays unmerged. The verdict says: ${record.notes}`);
 }
 
+function readNotes(decision, path) {
+  const notes = path ? readFileSync(path, 'utf8').trim() : '';
+  if (decision !== 'PASS' && !notes) throw new Error(`factory: ${decision} needs a notes file that says why.`);
+  return notes;
+}
+
 export function verdict(arguments_) {
   const pull = pullArguments(arguments_);
   const [decision, notesFile] = arguments_.slice(4);
   if (!VERDICTS.includes(decision)) throw new Error(`factory: the verdict is one of ${VERDICTS.join(', ')}, got ${decision}`);
-  const notes = notesFile ? readFileSync(notesFile, 'utf8').trim() : '';
-  if (decision !== 'PASS' && !notes) throw new Error(`factory: ${decision} needs a notes file that says why.`);
+  const notes = readNotes(decision, notesFile);
   const record = requireRecord(pull, 'checked');
   requireActionable(record);
   const judged = postVerdict(record, decision, notes);

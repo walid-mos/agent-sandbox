@@ -26,41 +26,82 @@ function payload(bytes) {
   }
 }
 
+function allowsRepository(repository, approved) {
+  const name = repository?.full_name;
+  return typeof name === 'string' && repository.private === false && approved.has(name.toLowerCase());
+}
+
+function isPullNumber(event) {
+  return Number.isSafeInteger(event.number) && event.number > 0 && event.pull_request?.number === event.number;
+}
+
+function eventRejection(event, approved) {
+  if (typeof event?.action !== 'string') return 400;
+  return pullRejection(event, approved);
+}
+
+function pullRejection(event, approved) {
+  if (!ACTIONS.has(event.action)) return 204;
+  if (!allowsRepository(event.repository, approved)) return 403;
+  if (!isPullNumber(event)) return 400;
+}
+
+function expireReceipts(receipts, timestamp) {
+  for (const [id, receipt] of receipts) {
+    if (!receipt.pending && timestamp >= receipt.expires) receipts.delete(id);
+  }
+}
+
+async function notify(receipts, delivery, digest, expires, wake) {
+  const pending = Promise.resolve().then(wake).then(() => true, () => false);
+  const receipt = { digest, pending, expires };
+  receipts.set(delivery, receipt);
+  if (!await pending) {
+    receipts.delete(delivery);
+    return 503;
+  }
+  delete receipt.pending;
+  return 202;
+}
+
+function receiptQueue(wake, now) {
+  const receipts = new Map();
+  return async (delivery, bytes) => {
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const timestamp = now();
+    expireReceipts(receipts, timestamp);
+    const prior = receipts.get(delivery) ?? [...receipts.values()].find(receipt => receipt.digest === digest);
+    if (prior) return duplicateStatus(prior);
+    if (receipts.size >= MAX_DELIVERIES) return 503;
+    return notify(receipts, delivery, digest, timestamp + RETENTION_MS, wake);
+  };
+}
+
+async function duplicateStatus(receipt) {
+  return (await receipt.pending) === false ? 503 : 204;
+}
+
+function authenticateDelivery(headers, bytes, key) {
+  if (!authenticated(key, bytes, headers['x-hub-signature-256'])) return 401;
+  if (headers['x-github-event'] !== 'pull_request') return 204;
+  return deliveryIdentifier(headers['x-github-delivery']);
+}
+
+function deliveryIdentifier(delivery = '') {
+  return DELIVERY_ID.test(delivery) ? delivery.toLowerCase() : 400;
+}
+
 export function factoryReceipt({ key, repositories, wake, now = Date.now }) {
   if (!/^[a-f0-9]{64}$/.test(key)) throw new Error('factory webhook: expected a 64-character hexadecimal key');
   const approved = new Set(repositories);
   if (approved.size === 0 || [...approved].some(repository => !REPOSITORY.test(repository))) {
     throw new Error('factory webhook: expected a list of approved lowercase repositories');
   }
-  const receipts = new Map();
+  const queue = receiptQueue(wake, now);
   return async (headers, bytes) => {
-    if (!authenticated(key, bytes, headers['x-hub-signature-256'])) return 401;
-    if (headers['x-github-event'] !== 'pull_request') return 204;
-    const event = payload(bytes);
-    if (!event || typeof event.action !== 'string') return 400;
-    if (!ACTIONS.has(event.action)) return 204;
-    const repository = event.repository?.full_name;
-    if (typeof repository !== 'string' || event.repository.private !== false || !approved.has(repository.toLowerCase())) return 403;
-    const delivery = headers['x-github-delivery'];
-    if (typeof delivery !== 'string' || !DELIVERY_ID.test(delivery) || !Number.isSafeInteger(event.number)
-      || event.number < 1 || event.pull_request?.number !== event.number) return 400;
-    const digest = createHash('sha256').update(bytes).digest('hex');
-    const timestamp = now();
-    for (const [id, receipt] of receipts) {
-      if (!receipt.pending && timestamp >= receipt.expires) receipts.delete(id);
-    }
-    const prior = receipts.get(delivery) ?? [...receipts.values()].find(receipt => receipt.digest === digest);
-    if (prior) return await prior.pending === false ? 503 : 204;
-    if (receipts.size >= MAX_DELIVERIES) return 503;
-    const pending = Promise.resolve().then(wake).then(() => true, () => false);
-    const receipt = { digest, pending, expires: timestamp + RETENTION_MS };
-    receipts.set(delivery, receipt);
-    if (!await pending) {
-      receipts.delete(delivery);
-      return 503;
-    }
-    delete receipt.pending;
-    return 202;
+    const delivery = authenticateDelivery(headers, bytes, key);
+    if (typeof delivery === 'number') return delivery;
+    return eventRejection(payload(bytes), approved) ?? queue(delivery, bytes);
   };
 }
 
@@ -86,12 +127,16 @@ function receiveBody(incoming, response, receive) {
   });
 }
 
+function routeMatches(incoming, host) {
+  return incoming.method === 'POST' && incoming.url === ROUTE && incoming.headers.host === host;
+}
+
 export function createFactoryReceiver({ host, ...options }) {
   const receive = factoryReceipt(options);
   const server = createServer({ maxHeaderSize: 8192 }, (incoming, response) => {
     clearTimeout(HEADER_TIMERS.get(incoming.socket));
     response.setHeader('Connection', 'close');
-    if (incoming.method !== 'POST' || incoming.url !== ROUTE || incoming.headers.host !== host) return response.writeHead(404).end();
+    if (!routeMatches(incoming, host)) return response.writeHead(404).end();
     if (incoming.headers['content-encoding']) return response.writeHead(415).end();
     if (Number(incoming.headers['content-length']) > MAX_BODY) return response.writeHead(413).end();
     receiveBody(incoming, response, receive);
@@ -119,11 +164,20 @@ export function signalFactory(socketPath) {
   });
 }
 
+function isPort(port) {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
+function listenerConfig(path) {
+  const config = JSON.parse(readFileSync(path, 'utf8'));
+  if (!config.host || !isPort(config.port) || !config.wakeSocket?.startsWith('/')) throw new Error('factory webhook: invalid listener configuration');
+  return config;
+}
+
 main(import.meta, () => {
   const [configuration] = process.argv.slice(2);
   if (!configuration) throw new Error('usage: factory-webhook.mjs CONFIGURATION_JSON (key on descriptor 3)');
-  const { host, port, repositories, wakeSocket } = JSON.parse(readFileSync(configuration, 'utf8'));
-  if (!host || !Number.isInteger(port) || port < 1 || port > 65535 || !wakeSocket?.startsWith('/')) throw new Error('factory webhook: invalid listener configuration');
+  const { host, port, repositories, wakeSocket } = listenerConfig(configuration);
   const key = readFileSync(3, 'utf8').trim();
   createFactoryReceiver({ host, repositories, key, wake: () => signalFactory(wakeSocket) }).listen(port, '127.0.0.1');
 });

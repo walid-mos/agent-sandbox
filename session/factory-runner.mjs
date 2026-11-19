@@ -22,18 +22,27 @@ const pullLock = ({ repository, number }) => `${repository.replace('/', '@')}@${
 export async function runJob(jobs, directory, id, check) {
   const queued = jobs.get(id);
   if (queued?.status !== 'queued') return;
-  const unlock = tryFactoryLock(directory, pullLock(queued.subject));
+  return runLocked(jobs, directory, queued, check);
+}
+
+async function runLocked(jobs, directory, { id, subject }, check) {
+  const unlock = tryFactoryLock(directory, pullLock(subject));
   if (!unlock) return;
   try {
-    if (!jobs.claim(id)) return;
+    if (jobs.claim(id)) await executeClaim(jobs, id, subject, check);
+  } finally {
+    unlock();
+  }
+}
+
+async function executeClaim(jobs, id, subject, check) {
+  try {
     const progress = (type, detail) => jobs.progress(id, type, detail);
-    const result = await check(queued.subject, progress);
+    const result = await check(subject, progress);
     jobs.finish(id, 'complete', result);
   } catch (error) {
     process.stderr.write(`factory: run ${id} stopped: ${error.message}\n`);
     interrupt(jobs, id, 'runner failed before recording the outcome');
-  } finally {
-    unlock();
   }
 }
 
@@ -49,7 +58,11 @@ function interrupt(jobs, id, reason) {
 export function recoverJob(jobs, directory, id) {
   const running = jobs.get(id);
   if (running?.status !== 'running') return;
-  const unlock = tryFactoryLock(directory, pullLock(running.subject));
+  recoverLocked(jobs, directory, running);
+}
+
+function recoverLocked(jobs, directory, { id, subject }) {
+  const unlock = tryFactoryLock(directory, pullLock(subject));
   if (!unlock) return;
   try {
     if (jobs.get(id).status === 'running') interrupt(jobs, id, 'runner disappeared before recording its result');
