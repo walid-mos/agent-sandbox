@@ -140,7 +140,7 @@ export function scan({ routine }) {
     const revisions = new Map();
     await discoverReady(jobs, repositories, subject => observeInputs(reviewSubject(subject), revisions));
     if (!routine) return;
-    scanStaleDrafts(repositories, subject => holdDraftReview(jobs, subject));
     recoverPublications(repositories);
+    scanStaleDrafts(repositories, subject => holdDraftReview(jobs, subject));
   });
 }

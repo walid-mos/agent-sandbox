@@ -15,7 +15,7 @@ export const releaseBase = '0123456789abcdefabcdef0123456789abcdef01';
 export const retargeted = { ...ready, baseRefName: 'release', baseRefOid: releaseBase };
 const draftScan = [{ number: checked.number, headRefOid: head, isDraft: true }];
 
-export function fixture(t, { facts = ready, scanFacts = draftScan } = {}) {
+export function fixture(t, { facts = ready, scanFacts = draftScan, draftListingExit = 0 } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'factory-review-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const callsFile = join(home, 'calls.jsonl');
@@ -31,7 +31,7 @@ export function fixture(t, { facts = ready, scanFacts = draftScan } = {}) {
   const reentryFile = join(home, 'reentry.json');
   const run = (args, liveFacts = facts, topics = ['factory']) => spawnSync(process.execPath,
     [loaderFlag, ...args], {
-      encoding: 'utf8', env: { HOME: home, PATH: home, CALLS: callsFile, FACTS: JSON.stringify(liveFacts), TOPICS: JSON.stringify(topics), REENTRY: reentryFile, FAIL_WAKE: failWakeFile, SCAN_FACTS: JSON.stringify(scanFacts), REPOSITORY: checked.repository, LOCK_FACTS: lockFactsFile, FLOCK: realFlock },
+      encoding: 'utf8', env: { HOME: home, PATH: home, CALLS: callsFile, FACTS: JSON.stringify(liveFacts), TOPICS: JSON.stringify(topics), REENTRY: reentryFile, FAIL_WAKE: failWakeFile, SCAN_FACTS: JSON.stringify(scanFacts), DRAFT_LISTING_EXIT: String(draftListingExit), REPOSITORY: checked.repository, LOCK_FACTS: lockFactsFile, FLOCK: realFlock },
     });
   const reconcile = () => {
     const requested = run([factory, 'reconcile']);
@@ -86,6 +86,7 @@ if (command === 'gh' && args[0] === 'repo' && args[1] === 'list') {
 }
 if (command === 'gh' && args[0] === 'api' && args[1] === 'graphql') {
   if (args.includes('--paginate')) {
+    if (process.env.DRAFT_LISTING_EXIT !== '0') process.exit(Number(process.env.DRAFT_LISTING_EXIT));
     const nodes = JSON.parse(process.env.SCAN_FACTS);
     process.stdout.write(JSON.stringify([{ data: { repository: { pullRequests: { nodes } } } }]));
   }

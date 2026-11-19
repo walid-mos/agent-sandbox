@@ -196,6 +196,25 @@ test('scan retries a failed notification without repeating the transition', t =>
   assert.deepEqual(reports[0], reports[1]);
 });
 
+test('routine scan retries a queued report before failing draft pagination', t => {
+  const rig = fixture(t, { draftListingExit: 1 });
+  const { escalate } = handoff(rig, checked);
+  const notes = join(rig.home, 'draft scan failure notes');
+  writeFileSync(notes, 'Both judges stopped.');
+  rig.failNextReport();
+  expectRefusal(action(rig, escalate.replace(' NOTE_FILE', ''), notes), /Fixture wake failure/);
+
+  const before = rig.calls().length;
+  expectRefusal(rig.reconcile(), /draft discovery/);
+  const activity = rig.calls().slice(before).flatMap(([command, group, operation, ...args]) => {
+    if (command === 'gh' && group === 'pr' && operation === 'list') return ['ready listing'];
+    if (command === 'pots' && args.includes('principal')) return ['report delivery'];
+    if (command === 'gh' && args.includes('--paginate')) return ['draft listing'];
+    return [];
+  });
+  assert.deepEqual(activity, ['ready listing', 'report delivery', 'draft listing']);
+});
+
 test('conflict escalation uses the durable review ID', t => {
   const rig = fixture(t, { facts: { ...ready, mergeable: 'CONFLICTING' } });
   const { escalate } = handoff(rig, { ...checked, stage: 'conflict' });
