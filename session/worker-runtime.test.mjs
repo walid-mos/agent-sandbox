@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { after, afterEach, beforeEach, test } from 'node:test';
+import { after, afterEach, beforeEach, mock, test } from 'node:test';
+
+mock.module('./sandbox.mjs', { exports: { sandbox: {} } });
 
 const scratch = mkdtempSync(join(tmpdir(), 'pots-runtime-'));
 process.env.HOME = scratch;
@@ -91,6 +93,14 @@ test('an unread final result keeps its live process until exact coordinator rece
   writePrivateJson(receiptPath(worker), { id: resultId(state) });
   runtime.finish(context);
   assert.equal(shutdowns, 1);
+  assert.equal(readJson(statePath(worker)).phase, 'closing');
+});
+
+test('an exact receipt written by atomic rename wakes a settled done worker without manual finish', { timeout: 5_000 }, async t => {
+  publishBoundary({ terminals: [{ ...terminal, status: { state: 'done' } }] });
+  const closed = new Promise(resolve => { context.shutdown = resolve; });
+  acknowledge(t);
+  await closed;
   assert.equal(readJson(statePath(worker)).phase, 'closing');
 });
 

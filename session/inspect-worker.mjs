@@ -5,6 +5,7 @@ import { endTerminal, isLive, isStopped, passes, save, terminalOf, workerTitle }
 import { canFinish, isPublished, lifecycleOf, readyAt, reportFacts } from './worker-lifecycle.mjs';
 import { waitsForHuman } from './worker-human.mjs';
 import { keepResult } from './worker-results.mjs';
+import { hasNoUnreportedWork, IDLE_PHASE, measureIdle } from './worker-idle.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
 
@@ -46,11 +47,16 @@ function recordSession(worker, state) {
 }
 
 // A closing worker had its result acknowledged and is exiting, so it has nothing new to report.
-function inspectLive(worker, terminal, state, { now, terminals }) {
+function inspectLive(worker, terminal, state, view) {
+  const { now, terminals, idleWorkers } = view;
+  if (state?.phase !== IDLE_PHASE) idleWorkers?.delete(worker.name);
   if (state?.phase === 'closing') return undefined;
   const due = readyAt(state);
   if (now < due) return due;
-  reportCurrent(worker, terminal, state, canFinish(state, terminal, terminals, now));
+  const facts = reportCurrent(worker, terminal, state, canFinish(state, terminal, terminals, now));
+  if (state?.phase !== IDLE_PHASE) return undefined;
+  if (facts && hasNoUnreportedWork(facts)) return measureIdle(worker, terminal, state, view);
+  idleWorkers?.delete(worker.name);
   return undefined;
 }
 
@@ -64,8 +70,8 @@ function reportCurrent(worker, terminal, state, canSettle) {
   const result = !isWaiting && canSettle && isPublished(facts) ? state.generation : 'open';
   const publication = facts.publication ? `-${facts.publication}` : '';
   const wake = `${worker.name}-${worker.launchId}-${turn}-${status}${publication}-${result}`;
-  if (worker.lastReport === wake) return;
-  report(worker, terminal, status, wake, state, facts, canSettle && !isWaiting);
+  if (worker.lastReport !== wake) report(worker, terminal, status, wake, state, facts, canSettle && !isWaiting);
+  return facts;
 }
 
 function inspectLaunch(worker, view) {
@@ -73,6 +79,7 @@ function inspectLaunch(worker, view) {
   const current = recordSession(worker, state);
   const terminal = terminalOf(current, view.terminals);
   if (!terminal || terminal.state === 'finished') {
+    view.idleWorkers?.delete(worker.name);
     forgetReceived(current, state, view);
     recover(current, state, view.pending);
     return undefined;

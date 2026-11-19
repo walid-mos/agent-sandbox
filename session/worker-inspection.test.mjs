@@ -10,7 +10,7 @@ const wakes = [];
 let publication;
 let restart = 0;
 let mustAvoidGit = false;
-mock.module('./sandbox.mjs', { exports: { botId: 'nextnode' } });
+mock.module('./sandbox.mjs', { exports: { botId: 'nextnode', sandbox: {} } });
 mock.module('./run.mjs', { exports: {
   WITH_VAULT: '/unused-vault',
   command(binary, args) {
