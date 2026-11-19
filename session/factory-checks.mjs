@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { snapshotCheckInputs } from './factory-check-inputs.mjs';
+import { checkInputRevision, reusableCheckDigest } from './factory-check-inputs.mjs';
 import { runOwnedContainer } from './factory-container.mjs';
 import { copyAt, copyCheckInputs } from './factory-mirror.mjs';
 import { FACTORY_HOME, pullKey } from './factory-records.mjs';
@@ -19,8 +19,8 @@ const LEGACY_STEP_TIMEOUT_MS = 20 * 60 * 1000;
 export function ensureImage() {
   const digest = createHash('sha256').update(readFileSync(join(IMAGE_DIRECTORY, 'Dockerfile'))).digest('hex');
   const tag = `agent-sandbox-factory:${digest.slice(0, 12)}`;
-  if (spawnSync('docker', ['image', 'inspect', tag], { stdio: 'ignore' }).status !== 0) {
-    command('docker', ['build', '--quiet', '--tag', tag, IMAGE_DIRECTORY]);
+  if (spawnSync('docker', ['image', 'inspect', tag], { stdio: 'ignore', timeout: 5_000, killSignal: 'SIGKILL' }).status !== 0) {
+    command('docker', ['build', '--quiet', '--tag', tag, IMAGE_DIRECTORY], { timeout: 120_000, killSignal: 'SIGKILL' });
   }
   return tag;
 }
@@ -136,6 +136,10 @@ function checkWorkspace(pull, context, steps, progress, copy) {
   return runCheckSteps(steps, step => reportStep(context, step, progress));
 }
 
+export function effectiveCheckRevision(repository, image = ensureImage()) {
+  return checkInputRevision({ steps: checkSteps(repository), image, imageDirectory: IMAGE_DIRECTORY }).inputRevision;
+}
+
 export function runChecks(pull, base, logs, progress, jobs) {
   const image = ensureImage();
   const steps = checkSteps(pull.repository);
@@ -154,14 +158,16 @@ function checkAttempt({ pull, base, logs, progress, jobs, image, steps, director
   const context = { image, workspace, base, logs, runId, jobs };
   mkdirSync(join(workspace, 'home'), { recursive: true });
   mkdirSync(logs, { recursive: true });
-  const inputs = steps.every(step => step.stableInputs === true)
-    ? snapshotCheckInputs({ pull, base, steps, image, imageDirectory: IMAGE_DIRECTORY, snapshot: join(directory, 'helpers') })
-    : undefined;
+  const inputs = checkInputRevision({ steps, image, imageDirectory: IMAGE_DIRECTORY, snapshot: join(directory, 'helpers') });
+  if (inputs.inputRevision !== pull.inputRevision) return undefined;
   const execution = { ...context, ...inputs };
   const boundary = checkBoundary(execution);
   if (!boundary.isPassed) return { checks: [boundary] };
-  if (!inputs) return { checks: checkWorkspace(pull, execution, steps, progress, copyAt) };
-  return checkStableWorkspace(pull, execution, steps, progress);
+  if (!steps.every(step => step.stableInputs === true)) {
+    return { checks: checkWorkspace(pull, execution, steps, progress, copyAt) };
+  }
+  const inputDigest = reusableCheckDigest(pull, base, inputs.inputRevision);
+  return checkStableWorkspace(pull, { ...execution, inputDigest }, steps, progress);
 }
 
 function checkStableWorkspace(pull, execution, steps, progress) {

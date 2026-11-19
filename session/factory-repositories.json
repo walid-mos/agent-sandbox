@@ -14,9 +14,9 @@
     { "name": "fallow", "run": ["fallow", "audit", "--base", "{base}"] }
   ],
   "NextNodeSolutions/agent-sandbox": [
-    { "name": "check", "run": ["./bin/check"], "stableInputs": true },
-    { "name": "shellcheck", "run": ["node", "/factory/shellcheck-new.mjs", "{base}"], "stableInputs": true },
-    { "name": "fallow", "run": ["fallow", "audit", "--base", "{base}"], "stableInputs": true }
+    { "name": "check", "run": ["./bin/check"] },
+    { "name": "shellcheck", "run": ["node", "/factory/shellcheck-new.mjs", "{base}"] },
+    { "name": "fallow", "run": ["fallow", "audit", "--base", "{base}"] }
   ],
   "NextNodeSolutions/agents": [
     { "name": "skills", "run": ["node", "/factory/pi-package-check.mjs"] }

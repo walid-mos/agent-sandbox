@@ -1,6 +1,8 @@
+import { effectiveCheckRevision } from './factory-checks.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { draftCandidates, draftFacts, readyPulls, reviewSubject, watchedRepositories } from './factory-github.mjs';
 import { pullUrl } from './factory-records.mjs';
+import { hasChecks } from './factory-repositories.mjs';
 import { reportStaleDraft } from './factory-reports.mjs';
 import { isOldDraft, staleDraftWakeId } from './factory-stale-draft.mjs';
 import { withJobs } from './factory-state.mjs';
@@ -88,10 +90,17 @@ export function scanStaleDrafts(repositories) {
   for (const repository of repositories) scanRepositoryDrafts(repository, now, readWorkers);
 }
 
+function observeInputs(pull, revisions) {
+  if (pull?.mergeable !== 'MERGEABLE' || !hasChecks(pull.repository)) return pull;
+  if (!revisions.has(pull.repository)) revisions.set(pull.repository, effectiveCheckRevision(pull.repository));
+  return { ...pull, inputRevision: revisions.get(pull.repository) };
+}
+
 export function scan({ routine }) {
   return withJobs(async jobs => {
     const repositories = watchedRepositories();
-    await discoverReady(jobs, repositories);
+    const revisions = new Map();
+    await discoverReady(jobs, repositories, subject => observeInputs(reviewSubject(subject), revisions));
     if (routine) scanStaleDrafts(repositories);
   });
 }

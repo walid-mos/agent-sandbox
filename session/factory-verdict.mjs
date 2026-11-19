@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { requireCheckRevision } from './factory-execution.mjs';
 import { comment, pullFacts, requireActionable, squashMerge } from './factory-github.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 import { logDirectory, PULL_ARGUMENT_COUNT, pullArguments, pullUrl, requireRecord, writeRecord } from './factory-records.mjs';
@@ -24,7 +25,10 @@ function postVerdict(record, decision, notes) {
 }
 
 function land(record) {
-  if (isDurableFactory) requireActionable(record);
+  if (isDurableFactory) {
+    requireActionable(record);
+    requireCheckRevision(record);
+  }
   const merge = squashMerge(record);
   const after = pullFacts(record);
   if (after.state !== MERGED) {

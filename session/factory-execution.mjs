@@ -1,4 +1,4 @@
-import { runChecks } from './factory-checks.mjs';
+import { effectiveCheckRevision, runChecks } from './factory-checks.mjs';
 import { isCurrentReview } from './factory-github.mjs';
 import { mergeBase, refreshMirror } from './factory-mirror.mjs';
 import { logDirectory, pullUrl } from './factory-records.mjs';
@@ -19,6 +19,7 @@ function checkRevision(record, progress, jobs) {
   refreshMirror(record.repository);
   const base = mergeBase(record.repository, record.baseTip, record.head);
   const result = runChecks(record, base, logDirectory(record), progress, jobs);
+  if (!result) return { stage: 'superseded' };
   return { ...result, stage: result.checks.every(check => check.isPassed) ? 'checked' : 'checks-failed', mergeBase: base };
 }
 
@@ -53,7 +54,14 @@ function publish(jobs, { id, subject, result, status }) {
 function shouldPublish(jobs, record) {
   if (record.stage === 'superseded' || jobs.current(record) !== record.generation) return false;
   if (!isCurrentReview(record)) throw new Error('factory: publication deferred until review facts are confirmed');
+  if (record.stage === 'checked' || record.stage === 'checks-failed') requireCheckRevision(record);
   return true;
+}
+
+export function requireCheckRevision(record) {
+  if (!record.inputRevision || record.inputRevision !== effectiveCheckRevision(record.repository)) {
+    throw new Error('factory: check inputs changed, wait for a fresh review');
+  }
 }
 
 const FACTORY_STAGES = new Set(['checked', 'conflict']);

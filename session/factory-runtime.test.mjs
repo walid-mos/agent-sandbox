@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -209,6 +209,7 @@ test('a successful exit after the step deadline records failure and confirms rem
 test('a 35-minute check survives base churn and hands off only the current base', { timeout: fixtureTimeout }, async t => {
   const { root, directory, env, setFacts } = setup(t);
   const cli = (...args) => execFileSync(process.execPath, [join(session, 'factory.mjs'), ...args], { env });
+  writeFileSync(join(root, 'check-steps'), JSON.stringify([{ name: 'check', run: ['git', 'rev-parse', 'HEAD'], stableInputs: true }]));
   writeFileSync(join(root, 'gate'), '');
   await controller(t, root, directory, env);
   const socket = join(directory, 'events.sock');
@@ -236,6 +237,33 @@ test('a 35-minute check survives base churn and hands off only the current base'
   assert.equal(wake.baseTip, git('rev-parse', 'HEAD'));
   assert.equal(wake.generation, 3);
 });
+
+for (const revision of ['command', 'image', 'helper']) {
+  test(`changed ${revision} invalidates an issued verdict and queues the unchanged PR`, { timeout: fixtureTimeout }, async t => {
+    const { root, directory, env } = setup(t);
+    const cli = (...args) => execFileSync(process.execPath, [join(session, 'factory.mjs'), ...args], { env, stdio: 'pipe' });
+    const steps = args => writeFileSync(join(root, 'check-steps'), JSON.stringify([{ name: 'check', run: ['git', ...args] }]));
+    steps(['rev-parse', 'HEAD']);
+    cpSync(join(session, 'factory-image'), join(root, 'check-helpers'), { recursive: true });
+    cli('reconcile');
+    cli('scan');
+    cli('run-job', '1');
+    cli('publish-job', '1');
+    const original = JSON.parse(readFileSync(join(root, 'wakes'), 'utf8'));
+    if (revision === 'command') steps(['status']);
+    if (revision === 'image') writeFileSync(join(root, 'image-id'), JSON.stringify('d'.repeat(64)));
+    if (revision === 'helper') writeFileSync(join(root, 'check-helpers', 'fixture-helper'), 'different');
+    assert.throws(() => cli('verdict', original.review, 'PASS'), /check inputs changed/);
+    assert.doesNotMatch(readFileSync(join(root, 'calls'), 'utf8'), /pr (comment|merge)/);
+    cli('reconcile');
+    cli('scan');
+    cli('run-job', '2');
+    await controller(t, root, directory, env);
+    const events = await stream(join(directory, 'events.sock'), t.signal);
+    const result = await eventFrom(events.iterator(), event => event.type === 'complete' && event.job === 2);
+    assert.equal(result.detail.stage, 'checked');
+  });
+}
 
 test('routine discovery handles a failing repository and checks ready work before drafts', { timeout: fixtureTimeout }, async t => {
   const { root, directory, env } = setup(t);

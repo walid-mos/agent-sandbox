@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { probe } from './factory-checks.mjs';
-import { executeJob, publishJob, recoverExecution } from './factory-execution.mjs';
+import { executeJob, publishJob, recoverExecution, requireCheckRevision } from './factory-execution.mjs';
 import { requireActionable, requireReviewSubject } from './factory-github.mjs';
 import { scanLegacy } from './factory-legacy-scan.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
@@ -47,6 +47,8 @@ function review(operation) {
     if (!unlock) throw new Error('factory: this review is busy, retry its current wake');
     try {
       requireCurrent(jobs, pull);
+      const job = jobs.get(pull.generation);
+      if (job?.result?.stage === 'checked') requireCheckRevision(job.subject);
       return operation([pull.repository, String(pull.number), pull.head, String(pull.generation), ...arguments_]);
     } finally {
       unlock();

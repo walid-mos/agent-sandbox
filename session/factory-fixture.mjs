@@ -68,7 +68,7 @@ async function simulateCheck(container) {
 
 const dockerOperations = {
   image(flags) {
-    if (flags.includes('--format')) process.stdout.write(`sha256:${containerId}`);
+    if (flags.includes('--format')) process.stdout.write(`sha256:${existsSync(file('image-id')) ? read('image-id') : containerId}`);
   },
   run(flags) {
     appendFileSync(file('legacy-checks'), `${flags[2]}\n`);
@@ -123,6 +123,15 @@ export function launchController(directory, program, env, wakeSocket) {
 
 function preload() {
   registerHooks({ load(url, context, next) {
+    if (url.endsWith('/factory-repositories.mjs') && existsSync(file('check-steps'))) {
+      return { format: 'module', shortCircuit: true, source: `import { readFileSync } from 'node:fs';
+        export const hasChecks = () => true;
+        export const checkSteps = () => JSON.parse(readFileSync(${JSON.stringify(file('check-steps'))}, 'utf8'));` };
+    }
+    if (url.endsWith('/factory-checks.mjs') && existsSync(file('check-helpers'))) {
+      const loaded = next(url, context);
+      return { ...loaded, source: String(loaded.source).replace("join(dirname(fileURLToPath(import.meta.url)), 'factory-image')", JSON.stringify(file('check-helpers'))) };
+    }
     if (url.endsWith('/sandbox.mjs')) {
       if (existsSync(file('sandbox.json'))) {
         const loaded = next(url, context);
