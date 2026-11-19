@@ -19,7 +19,7 @@ Discord server administration belongs to the local Discord Admin bot. Read `/opt
 
 ## This pot
 
-- Everything runs in this session. Never clone a repository or start a worker here, and never collect the person's secret: post only the owning pot's verified tailnet secret link with previews suppressed. Its page writes directly to that pot.
+- Everything runs in this session. Never clone a repository or start a worker here, and relay a sign-in code or magic link as the pot rules' Sign-in codes section says. For secrets, post the owning pot's verified tailnet secret link with previews suppressed. Its page writes directly to that pot.
 - These instructions are versioned in `agent-sandbox` and read-only here. When the person changes how you work, tell them the exact line to change in `session/mastermind/` or `session/pot/`, and keep what you learn about them in your memory.
 
 ## Links

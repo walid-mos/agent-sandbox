@@ -3,11 +3,13 @@ import { mkdirSync, watch } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { stopIdleStacks } from './idle-stacks.mjs';
 import { inspectWorker } from './inspect-worker.mjs';
+import { maxWorkers } from './limits.mjs';
 import { main } from './main.mjs';
 import { isRequest, QUEUE, queued } from './queue.mjs';
 import { serveQueue } from './serve-queue.mjs';
 import { allTerminals, closeTerminal, isLive, isPublicationRecord, liveTerminals, terminalOf, WORKERS, workers } from './workers.mjs';
 import { botId } from './sandbox.mjs';
+import { createAdmission } from './worker-admission.mjs';
 import { LIFECYCLE } from './worker-lifecycle.mjs';
 
 // One change of a terminal comes as several events, so a pass waits for the burst to end.
@@ -16,52 +18,61 @@ const RESUBSCRIBE_MS = 5000;
 // hc also reports title, label, size and document changes, and a pass reads none of them.
 const WAKING_EVENTS = new Set(['created', 'lost', 'restarted', 'finished', 'removed', 'status', 'turn', 'label']);
 let settling;
-let deadline;
 
-function logFailure(subject, error) {
+function writeFailure(subject, error) {
   process.stderr.write(`pots-watcher: ${subject}: ${error instanceof Error ? error.message : 'failed'}\n`);
 }
 
-function logged(subject, step) {
-  try {
-    return step();
-  } catch (error) {
-    logFailure(subject, error);
-    return undefined;
-  }
-}
-
 // A worker's terminal that ended on its own, as in a crash, keeps its screen beside the record and leaves hc's list.
-function sweep(terminals, records) {
+function sweep(terminals, records, logged) {
   terminals.filter(terminal => !isLive(terminal) && records.has(terminal.name) &&
     records.get(terminal.name).owner === botId && terminalOf(records.get(terminal.name), [terminal]))
     .forEach(terminal => logged(terminal.name, () => closeTerminal(records.get(terminal.name), terminal)));
 }
 
-function lookAgainAt(times) {
-  clearTimeout(deadline);
-  const due = times.filter(time => time !== undefined);
-  if (due.length > 0) deadline = setTimeout(pass, Math.max(0, Math.min(...due) - Date.now()));
+export function createWatcher({ ceiling = maxWorkers, readText, now, logFailure = writeFailure } = {}) {
+  const admission = createAdmission({ ceiling, readText, now, logFailure });
+  let deadline;
+
+  function logged(subject, step) {
+    try {
+      return step();
+    } catch (error) {
+      logFailure(subject, error);
+      return undefined;
+    }
+  }
+
+  function lookAgainAt(times) {
+    clearTimeout(deadline);
+    const due = times.filter(time => time !== undefined);
+    if (due.length > 0) deadline = setTimeout(pass, Math.max(0, Math.min(...due) - Date.now()));
+  }
+
+  function pass() {
+    try {
+      const terminals = allTerminals();
+      const records = workers();
+      sweep(terminals, new Map(records.map(worker => [worker.name, worker])), logged);
+      const queue = queued();
+      const view = { terminals, now: Date.now(), queue, pending: new Set(queue.map(request => request.worker)) };
+      const times = records.map(worker => logged(worker.name, () => inspectWorker(worker, view)));
+      // Inspection can end terminals, so the queue is served from a fresh list.
+      const live = liveTerminals();
+      const retryAfter = serveQueue(live, logFailure, admission);
+      const admissionDue = retryAfter === undefined ? undefined : Date.now() + retryAfter;
+      const idleStackDue = logged('idle stacks', () => stopIdleStacks(records.filter(worker => worker.kind !== 'task').map(worker => worker.worktree), live, logFailure));
+      lookAgainAt([...times, idleStackDue, admissionDue]);
+    } catch (error) {
+      logFailure('workers', error);
+      lookAgainAt([Date.now() + RESUBSCRIBE_MS]);
+    }
+  }
+
+  return pass;
 }
 
-function pass() {
-  try {
-    const terminals = allTerminals();
-    const records = workers();
-    sweep(terminals, new Map(records.map(worker => [worker.name, worker])));
-    const queue = queued();
-    const view = { terminals, now: Date.now(), queue, pending: new Set(queue.map(request => request.worker)) };
-    const times = records.map(worker => logged(worker.name, () => inspectWorker(worker, view)));
-    // Inspection ends terminals, so the queue is served from a fresh list where their slots are free.
-    const live = liveTerminals();
-    const isDeferred = serveQueue(live, logFailure);
-    const idleStackDue = logged('idle stacks', () => stopIdleStacks(records.filter(worker => worker.kind !== 'task').map(worker => worker.worktree), live, logFailure));
-    const admissionDue = isDeferred ? Date.now() + RESUBSCRIBE_MS : undefined;
-    lookAgainAt([...times, idleStackDue, admissionDue]);
-  } catch (error) {
-    logFailure('workers', error);
-  }
-}
+const pass = createWatcher();
 
 function passSoon() {
   settling ??= setTimeout(() => {
@@ -87,7 +98,7 @@ function followTerminals() {
   createInterface({ input: events.stdout }).on('line', line => {
     if (isWaking(line)) passSoon();
   });
-  events.on('error', error => logFailure('hc events', error));
+  events.on('error', error => writeFailure('hc events', error));
   events.on('close', () => setTimeout(followTerminals, RESUBSCRIBE_MS));
 }
 
@@ -107,4 +118,5 @@ main(import.meta, () => {
     if (isPublicationRecord(file)) passSoon();
   });
   followTerminals();
+  passSoon();
 });

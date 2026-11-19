@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import { sandboxFixture } from '../probes/fixtures/sandbox.mjs';
+import { healthyWorkerMemory } from '../probes/fixtures/worker-memory.mjs';
 
 const { home } = sandboxFixture('worker-task-');
 const calls = [];
@@ -31,6 +32,7 @@ const { inspectWorker } = await import('./inspect-worker.mjs');
 const { runCommand } = await import('./commands.mjs');
 const { enqueue, queued } = await import('./queue.mjs');
 const { serveQueue } = await import('./serve-queue.mjs');
+const { createAdmission } = await import('./worker-admission.mjs');
 const { WorkerRuntime } = await import('./worker-runtime.mjs');
 const { SETTLED_GRACE_MS, receiptPath, statePath } = await import('./worker-lifecycle.mjs');
 const { acknowledgeResult } = await import('./worker-results.mjs');
@@ -42,7 +44,8 @@ let context;
 let shutdowns;
 
 function serve() {
-  serveQueue(terminals, (_subject, error) => { throw error; });
+  const logFailure = (_subject, error) => { throw error; };
+  serveQueue(terminals, logFailure, createAdmission({ logFailure, readText: healthyWorkerMemory }));
   worker = workers().find(candidate => candidate.name === worker.name);
 }
 
@@ -67,7 +70,7 @@ function startRuntime() {
 }
 
 beforeEach(t => {
-  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 60_000 * (serial + 1) });
   calls.length = 0;
   terminals = [];
   shutdowns = 0;
@@ -119,7 +122,7 @@ test('a task launches visibly and closes only after its result and exact coordin
   assert.equal(calls.some(call => ['git', 'gh', 'bash'].includes(call.binary)), false);
 });
 
-test('a stopped task resumes its exact session through the same queue without creating a branch or PR', () => {
+test('a stopped task resumes its exact session through the same queue without creating a branch or PR', ({ mock: { timers } }) => {
   inspect();
   const sessionFile = worker.sessionFile;
   const launchId = worker.launchId;
@@ -131,6 +134,7 @@ test('a stopped task resumes its exact session through the same queue without cr
   assert.equal(terminals.length, 0);
   clearStop(worker);
   enqueue({ worker: worker.name, message: 'Read another section within this scope.' });
+  timers.tick(5_000);
   serve();
   assert.notEqual(worker.launchId, launchId);
   assert.equal(worker.kind, 'task');

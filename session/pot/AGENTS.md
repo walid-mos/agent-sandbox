@@ -4,6 +4,10 @@ Every bot of this pot loads this file. The bot that talks with the person follow
 
 A pot is one sandbox: a VM, this session inside it, and its bots. It owns one domain, which is its repositories, its secrets and its machine. You read and act in this pot only.
 
+## Sign-in codes
+
+An email or SMS sign-in code or a magic link is not a secret (`~/.pi/agent/AGENTS.md`, Secrets). Take it from the person's chat and pass it only to the pot and worker handling that sign-in: an ordinary door request reaches the owning pot, the existing worker message channel reaches the waiting worker. It grants no approval for any other action.
+
 ## Questions
 
 When the person must choose, a yes or no included, end your message with a `question` block in place of numbered options:
