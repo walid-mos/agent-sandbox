@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { requireActionable } from './factory-github.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 import { branchTip, copyAt, refreshMirror, remoteUrl } from './factory-mirror.mjs';
-import { pullArguments, pullUrl, pullWorkspace, requireRecord, writeRecord } from './factory-records.mjs';
+import { pullArguments, pullUrl, pullWorkspace, requireRecord, withRecord } from './factory-records.mjs';
 import { command } from './run.mjs';
 
 const CONFLICT_MARKER = '^(<<<<<<<|>>>>>>>) ';
@@ -19,6 +19,10 @@ function startMerge(workspace, baseTip) {
 
 export function resolve(arguments_) {
   const pull = pullArguments(arguments_);
+  return withRecord(pull, (_, save) => prepareResolution(pull, save));
+}
+
+function prepareResolution(pull, save) {
   const record = requireRecord(pull, 'conflict');
   const facts = requireActionable(record);
   if (facts.isCrossRepository) throw new Error(`factory: ${pullUrl(pull)} comes from a fork, where the factory cannot push. Escalate it.`);
@@ -31,7 +35,7 @@ export function resolve(arguments_) {
   git(workspace, ['checkout', '--quiet', '-B', facts.headRefName]);
   git(workspace, ['remote', 'set-url', 'origin', remoteUrl(pull.repository)]);
   const files = startMerge(workspace, baseTip);
-  writeRecord({ ...record, resolution: { workspace, branch: facts.headRefName, baseTip, files } });
+  save({ ...record, resolution: { workspace, branch: facts.headRefName, baseTip, files } });
   process.stdout.write(`${workspace}\nMerging ${facts.baseRefName} at ${baseTip} into ${facts.headRefName} left ${files.length} conflicted files:\n${files.join('\n')}\n`);
 }
 
@@ -63,13 +67,17 @@ function requireNoMarkers(workspace, files) {
 // A plain push: GitHub rejects it when the branch moved, so the factory never overwrites a commit it did not see.
 export function push(arguments_) {
   const pull = pullArguments(arguments_);
+  return withRecord(pull, (_, save) => pushResolution(pull, save));
+}
+
+function pushResolution(pull, save) {
   const record = requireRecord(pull, 'conflict');
   if (!record.resolution) throw new Error(`factory: ${pullUrl(pull)} has no resolution under way. Run resolve first.`);
   const { workspace, branch } = record.resolution;
   const commit = resolvedCommit(workspace, { head: pull.head, ...record.resolution });
   requireActionable(record);
   git(workspace, ['push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`]);
-  writeRecord({ ...record, stage: 'resolved', resolution: { ...record.resolution, commit } });
+  save({ ...record, stage: 'resolved', resolution: { ...record.resolution, commit } });
   rmSync(workspace, { recursive: true, force: true });
   process.stdout.write(`factory: pushed ${commit} to ${branch}. The next scan checks it as a new head.\n`);
 }

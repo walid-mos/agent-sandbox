@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs';
+import { requireFactoryRuntime } from './factory-authority.mjs';
 import { probe } from './factory-checks.mjs';
 import { executeJob, publishJob, recoverExecution, requireCheckRevision } from './factory-execution.mjs';
 import { requireActionable, requireReviewSubject } from './factory-github.mjs';
 import { scanLegacy } from './factory-legacy-scan.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 import { changeText } from './factory-mirror.mjs';
+import { reviewFacts } from './factory-publication.mjs';
 import { PULL_ARGUMENT_COUNT, pullArguments, pullUrl, readRecord, requireRecord } from './factory-records.mjs';
 import { reportToPrincipal } from './factory-reports.mjs';
 import { requireBinding } from './factory-review.mjs';
@@ -18,7 +20,7 @@ import { main, runOperation } from './main.mjs';
 function show(arguments_) {
   const pull = pullArguments(arguments_);
   const record = requireRecord(pull, 'checked');
-  const facts = requireActionable(record);
+  const facts = record.recoveryOf ? reviewFacts(record) : requireActionable(record);
   const checks = record.checks.map(result => `- ${result.name}: passed, log ${result.log}`);
   process.stdout.write([
     `# ${pullUrl(pull)}`,
@@ -46,9 +48,18 @@ function review(operation) {
     const unlock = tryFactoryLock(JOB_DIRECTORY, `report-${pull.generation}`);
     if (!unlock) throw new Error('factory: this review is busy, retry its current wake');
     try {
-      requireCurrent(jobs, pull);
-      const job = jobs.get(pull.generation);
-      if (job?.result?.stage === 'checked') requireCheckRevision(job.subject);
+      const record = readRecord(pull);
+      if (!record || ['generation', 'base', 'baseTip', 'transition', 'inputRevision'].some(key => record[key] !== pull[key])) {
+        throw new Error('factory: checked review changed');
+      }
+      if (record.recoveryOf) {
+        if (operation !== show && operation !== verdict) throw new Error('factory: use show or verdict for a squash recovery review');
+        requireCheckRevision(record);
+      } else {
+        requireCurrent(jobs, pull);
+        const job = jobs.get(pull.generation);
+        if (job?.result?.stage === 'checked') requireCheckRevision(job.subject);
+      }
       return operation([pull.repository, String(pull.number), pull.head, String(pull.generation), ...arguments_]);
     } finally {
       unlock();
@@ -87,4 +98,7 @@ const durable = {
 const LEGACY_USAGE = 'usage: factory scan | probe | show|resolve|push|verdict|escalate REPOSITORY NUMBER HEAD [ARGUMENTS]';
 const DURABLE_USAGE = 'usage: factory reconcile | probe | show|resolve|push|verdict|escalate REVIEW_ID [ARGUMENTS]';
 
-main(import.meta, () => isDurableFactory ? runOperation(durable, DURABLE_USAGE) : runOperation(legacy, LEGACY_USAGE));
+main(import.meta, () => {
+  requireFactoryRuntime();
+  return isDurableFactory ? runOperation(durable, DURABLE_USAGE) : runOperation(legacy, LEGACY_USAGE);
+});

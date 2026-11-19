@@ -1,9 +1,11 @@
+import { isIsolatedFactory } from './factory-authority.mjs';
 import { effectiveCheckRevision } from './factory-checks.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { draftCandidates, draftFacts, readyPulls, reviewSubject, watchedRepositories } from './factory-github.mjs';
-import { pullUrl } from './factory-records.mjs';
+import { finishPublication } from './factory-publication.mjs';
+import { pullUrl, recordedHeads } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
-import { reportStaleDraft } from './factory-reports.mjs';
+import { deliverWakes, reportStaleDraft } from './factory-reports.mjs';
 import { isOldDraft, staleDraftWakeId } from './factory-stale-draft.mjs';
 import { withJobs } from './factory-state.mjs';
 import { workers } from './workers.mjs';
@@ -96,11 +98,24 @@ function observeInputs(pull, revisions) {
   return { ...pull, inputRevision: revisions.get(pull.repository) };
 }
 
+function recoverPublications(repositories) {
+  const watched = new Set(repositories.map(repository => repository.toLowerCase()));
+  for (const record of recordedHeads().filter(record => record.squashPublication && watched.has(record.repository.toLowerCase()))) {
+    try {
+      deliverWakes(finishPublication(record) ?? record);
+    } catch (error) {
+      logScanFailure(pullUrl(record), error);
+    }
+  }
+}
+
 export function scan({ routine }) {
   return withJobs(async jobs => {
     const repositories = watchedRepositories();
     const revisions = new Map();
     await discoverReady(jobs, repositories, subject => observeInputs(reviewSubject(subject), revisions));
-    if (routine) scanStaleDrafts(repositories);
+    if (!routine) return;
+    if (isIsolatedFactory) recoverPublications(repositories);
+    scanStaleDrafts(repositories);
   });
 }

@@ -265,6 +265,28 @@ for (const revision of ['command', 'image', 'helper']) {
   });
 }
 
+test('isolated landing recovers lost comment and signer responses before publishing evidence', { timeout: fixtureTimeout }, t => {
+  const { root, env } = setup(t);
+  writeFileSync(join(root, 'signed-fixture'), '');
+  const cli = (...args) => execFileSync(process.execPath, [join(session, 'factory.mjs'), ...args], { env, stdio: 'pipe' });
+  cli('reconcile');
+  cli('scan');
+  cli('run-job', '1');
+  cli('publish-job', '1');
+  const wake = JSON.parse(readFileSync(join(root, 'wakes'), 'utf8'));
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /gh pr comment/);
+  assert.equal(existsSync(join(root, 'merged')), false);
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /lost signer response/);
+  assert.equal(existsSync(join(root, 'published')), false);
+  cli('reconcile');
+  cli('scan');
+  const { squashEvidence } = JSON.parse(readFileSync(join(root, 'landing'), 'utf8'));
+  assert.equal(squashEvidence.generation, wake.generation);
+  assert.equal(squashEvidence.base, wake.baseTip);
+  assert.equal(readFileSync(join(root, 'published'), 'utf8'), 'fixture-tag');
+  assert.equal(readFileSync(join(root, 'calls'), 'utf8').match(/^pr comment$/gm).length, 1);
+});
+
 test('routine discovery handles a failing repository and checks ready work before drafts', { timeout: fixtureTimeout }, async t => {
   const { root, directory, env } = setup(t);
   writeFileSync(join(root, 'failing-repository'), '');

@@ -23,9 +23,28 @@ function github(args) {
     return json(names.map(nameWithOwner => ({ nameWithOwner, repositoryTopics: [{ name: 'factory' }] })));
   }
   if (args.includes('walid-mos/failing')) process.exit(1);
+  if (existsSync(file('signed-fixture'))) {
+    const result = signedGithub(args, facts);
+    if (result.isHandled) return;
+  }
   if (args[0] === 'pr') return githubPull(args[1], facts);
   if (args[1] !== 'graphql') return json(['factory']);
   return githubGraphql(args, facts);
+}
+
+function signedGithub(args, facts) {
+  if (args[0] === 'api' && args[1] === 'user') json(123);
+  else if (args[0] === 'api' && args[1].includes('/pulls/')) {
+    const isMerged = existsSync(file('merged'));
+    json({ number: facts.number, state: isMerged ? 'closed' : 'open', merged: isMerged, merge_commit_sha: facts.headRefOid,
+      base: { repo: { full_name: repository }, ref: facts.baseRefName }, head: { sha: facts.headRefOid } });
+  } else if (args[0] === 'pr' && args[1] === 'comment') {
+    write('verdict-comment', readFileSync(args.at(-1), 'utf8'));
+    process.exit(1);
+  } else if (args[0] === 'api' && args[1].includes('/comments?')) json([[{ user: { id: 123 }, body: read('verdict-comment') }]]);
+  else if (args[0] === 'pr' && args[1] === 'merge') write('merged', true);
+  else return { isHandled: false };
+  return { isHandled: true };
 }
 
 function githubGraphql(args, facts) {
@@ -123,6 +142,15 @@ export function launchController(directory, program, env, wakeSocket) {
 
 function preload() {
   registerHooks({ load(url, context, next) {
+    if (existsSync(file('signed-fixture'))) {
+      const replacement = signedModule(url);
+      if (replacement) return { format: 'module', shortCircuit: true, source: replacement };
+    }
+    if (url.endsWith('/factory-authority.mjs') && !existsSync(file('signed-fixture'))) {
+      return { format: 'module', shortCircuit: true, source: `export const isIsolatedFactory = false, isRetiredSessionFactory = false,
+        landingRepository = 'example/landing', LANDING_BRANCH = 'main', REPORT_SOURCE = 'pr-factory', isLandingPull = () => false;
+        export function requireFactoryRuntime() {} export function requireLandingAuthority() {}` };
+    }
     if (url.endsWith('/factory-repositories.mjs') && existsSync(file('check-steps'))) {
       return { format: 'module', shortCircuit: true, source: `import { readFileSync } from 'node:fs';
         export const hasChecks = () => true;
@@ -154,6 +182,28 @@ function preload() {
     appendFileSync(file('intervals'), `${milliseconds}\n`);
     return interval(handler, milliseconds, ...args);
   };
+}
+
+function signedModule(url) {
+  if (url.endsWith('/factory-authority.mjs')) return `export const isIsolatedFactory = true, isRetiredSessionFactory = false,
+    landingRepository = ${JSON.stringify(repository)}, LANDING_BRANCH = 'main', isLandingPull = pull => pull.repository === landingRepository && pull.base === LANDING_BRANCH; export function requireFactoryRuntime() {} export function requireLandingAuthority() {}`;
+  const preamble = `import { readFileSync, writeFileSync } from 'node:fs'; const root = ${JSON.stringify(root)};`;
+  if (url.endsWith('/factory-release-git.mjs')) return `${preamble}
+    export function releaseGit() {
+      const facts = JSON.parse(readFileSync(root + '/facts'));
+      return { tip: () => facts.baseRefOid, tree: () => 'a'.repeat(40),
+        inspectSquash: head => ({ head, base: facts.baseRefOid, tree: 'a'.repeat(40) }),
+        storeSquashEvidence: (release, request) => { if (JSON.stringify(release.request) !== JSON.stringify(request)) throw new Error('receipt mismatch'); return release.tag; },
+        publishSquashEvidence: tag => writeFileSync(root + '/published', tag) };
+    }`;
+  if (url.endsWith('/factory-channel.mjs')) return `${preamble}
+    export function askFactory(kind, request) {
+      const path = root + '/' + kind;
+      if (kind !== 'landing') return writeFileSync(path, JSON.stringify(request));
+      try { writeFileSync(path, JSON.stringify(request), { flag: 'wx' }); }
+      catch (error) { if (error.code !== 'EEXIST') throw error; return { request: request.squashEvidence, tag: 'fixture-tag' }; }
+      throw new Error('fixture lost signer response');
+    }`;
 }
 
 function pots(args) {

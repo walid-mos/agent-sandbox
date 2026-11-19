@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { isLandingPull, landingRepository, requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
 import { accorPublicationPolicy } from './accor-publication-policy.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 import { pullUrl } from './factory-records.mjs';
@@ -152,6 +153,8 @@ function requireWatchedTopic(repository) {
 }
 
 export function requireActionable(pull) {
+  requireFactoryRuntime();
+  requireLandingAuthority(pull.repository);
   if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
   const facts = pullFacts(pull);
   if (!isReady(facts) || facts.headRefOid !== pull.head) {
@@ -172,7 +175,39 @@ export function comment({ repository, number }, bodyFile) {
 }
 
 // GitHub refuses the merge when the head moved since the verdict, or when the pull request went back to draft, so a merge never lands code the verdict did not cover.
-export function squashMerge({ repository, number, head }) {
+export function mergeReadback({ repository, number }) {
+  const pull = JSON.parse(gh(['api', `repos/${repository}/pulls/${number}`]));
+  return { repository: pull.base?.repo?.full_name, number: pull.number, head: pull.head?.sha,
+    ref: `refs/heads/${pull.base?.ref}`, state: pull.merged === true && pull.state === 'closed' ? 'MERGED' : pull.state,
+    squash: pull.merge_commit_sha };
+}
+
+export function commentAuthor({ repository }) {
+  const author = Number(gh(['api', 'user', '--jq', '.id'], { env: { ...process.env, GH_REPO: repository } }));
+  if (!Number.isSafeInteger(author) || author <= 0) throw new Error('factory: could not identify the GitHub verdict author');
+  return author;
+}
+
+export function hasComment({ repository, number }, author, body) {
+  const pages = JSON.parse(gh(['api', `repos/${repository}/issues/${number}/comments?per_page=100`, '--paginate', '--slurp']));
+  if (!Array.isArray(pages) || !pages.length || !pages.every(Array.isArray)) throw new Error('factory: invalid verdict comment listing');
+  return pages.some(page => page.some(entry => entry?.user?.id === author && entry.body?.trimEnd() === body));
+}
+
+export function requireReviewPolicy(pull) {
+  requireFactoryRuntime();
+  requireLandingAuthority(pull.repository);
+  if (accorPublicationPolicy(sandbox)) throw new Error('factory: publication requires a human decision');
+  requireWatchedTopic(pull.repository);
+  checkSteps(pull.repository);
+}
+
+export function squashMerge(record) {
+  const { repository, number, head } = record;
+  if (repository.toLowerCase() === landingRepository.toLowerCase()) {
+    requireLandingAuthority(repository);
+    if (!isLandingPull(record) || record.stage !== 'squash-pending') throw new Error('factory: landing requires saved squash intent');
+  }
   const merge = spawnSync('gh', ['pr', 'merge', String(number), '--repo', repository, '--squash', '--match-head-commit', head], { encoding: 'utf8' });
   return { isAccepted: merge.status === 0, output: `${merge.stdout ?? ''}${merge.stderr ?? ''}`.trim() };
 }

@@ -1,7 +1,9 @@
 import { dirname, join } from 'node:path';
+import { isIsolatedFactory } from './factory-authority.mjs';
+import { askFactory } from './factory-channel.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 import { fileURLToPath } from 'node:url';
-import { pullKey, pullUrl, readRecord, writeRecord } from './factory-records.mjs';
+import { pullKey, pullUrl, readRecord, usesSharedRecord, withRecord, writeRecord } from './factory-records.mjs';
 import { bindReview } from './factory-review.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 import { botId } from './sandbox.mjs';
@@ -40,6 +42,10 @@ export function handToFactory(record) {
     wakeFactory(record, {}, [record.repository, String(record.number), record.head]);
     return writeRecord(record);
   }
+  if (usesSharedRecord(record)) return deliverWakes(withRecord(record, (prior, save) => {
+    if (prior?.generation >= record.generation || prior?.squashPublication) return prior;
+    return save(queueFactoryWake(record));
+  }));
   const saved = readRecord(record) ?? writeRecord(record);
   if (saved.stage !== record.stage) return saved;
   const review = bindReview(saved);
@@ -47,7 +53,38 @@ export function handToFactory(record) {
   return saved;
 }
 
+export function queueFactoryWake(record) {
+  return { ...record, pendingWakes: [{ kind: 'review' }] };
+}
+
+export function queueReport(record, text) {
+  return { ...record, pendingWakes: [{ kind: 'report', text }] };
+}
+
+export function deliverWakes(record) {
+  for (const wake of record?.pendingWakes ?? []) {
+    if (wake.kind === 'review') {
+      const review = bindReview(record);
+      wakeFactory(record, { review }, [review]);
+    } else {
+      const id = `pr-factory-${record.stage}-${pullKey(record)}-${record.generation}`;
+      if (isIsolatedFactory) askFactory('reports', { id, text: wake.text });
+    }
+    withRecord(record, (current, save) => {
+      if (JSON.stringify(current) === JSON.stringify(record)) save({ ...current, pendingWakes: [] });
+    });
+  }
+  return record;
+}
+
 export function reportToPrincipal(record, text) {
+  if (usesSharedRecord(record)) {
+    const saved = withRecord(record, (prior, save) => {
+      if (prior?.squashPublication || prior?.generation > record.generation) return prior;
+      return save(queueReport(record, text));
+    });
+    return deliverWakes(saved);
+  }
   command('pots', ['wake', '--bot', botId, '--from', PRINCIPAL_SOURCE, '--id', `pr-factory-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`, '--note', text]);
   return writeRecord(record);
 }

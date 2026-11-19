@@ -1,6 +1,8 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { closeSync, openSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { isIsolatedFactory, landingRepository } from './factory-authority.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 
 export const FACTORY_HOME = join(homedir(), '.config/agent-sandbox/factory');
@@ -62,7 +64,8 @@ export function pullWorkspace(folder, pull) {
   return isDurableFactory ? join(path, String(pull.generation)) : path;
 }
 
-const recordPath = pull => join(HEADS, `${pullKey(pull)}${isDurableFactory ? `-${pull.generation}` : ''}.json`);
+const recordPath = pull => join(HEADS, `${pullKey(pull)}${isDurableFactory && !usesSharedRecord(pull) ? `-${pull.generation}` : ''}.json`);
+export const usesSharedRecord = pull => isIsolatedFactory && pull.repository.toLowerCase() === landingRepository.toLowerCase();
 const isLegacyRecord = name => /-[a-f0-9]{40}\.json$/.test(name);
 
 export function readRecord(pull) {
@@ -79,8 +82,21 @@ export function recordedHeads() {
 export function requireRecord(pull, stage) {
   const record = readRecord(pull);
   if (!record) throw new Error(`factory: ${pullUrl(pull)} at ${pull.head} has no review record.`);
+  if (isDurableFactory && record.generation !== pull.generation) throw new Error('factory: checked review changed');
   if (record.stage !== stage) throw new Error(`factory: ${pullUrl(pull)} at ${pull.head} is ${record.stage}, and this step needs it ${stage}.`);
   return record;
+}
+
+export function withRecord(pull, operation) {
+  mkdirSync(HEADS, { recursive: true });
+  const lock = openSync(`${recordPath(pull)}.lock`, 'a', 0o600);
+  try {
+    const result = spawnSync('flock', ['--exclusive', '--wait', '30', '3'], { stdio: ['ignore', 'ignore', 'ignore', lock] });
+    if (result.status !== 0) throw new Error('factory: could not lock the shared review record');
+    return operation(readRecord(pull), writeRecord);
+  } finally {
+    closeSync(lock);
+  }
 }
 
 export function writeRecord(record) {

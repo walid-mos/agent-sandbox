@@ -1,3 +1,4 @@
+import { isLandingPull, requireLandingAuthority } from './factory-authority.mjs';
 import { effectiveCheckRevision, runChecks } from './factory-checks.mjs';
 import { isCurrentReview } from './factory-github.mjs';
 import { mergeBase, refreshMirror } from './factory-mirror.mjs';
@@ -18,6 +19,10 @@ function checkRevision(record, progress, jobs) {
   progress('preparing', {});
   refreshMirror(record.repository);
   const base = mergeBase(record.repository, record.baseTip, record.head);
+  if (isLandingPull(record)) {
+    requireLandingAuthority(record.repository);
+    if (base !== record.baseTip) return { stage: 'stale-base' };
+  }
   const result = runChecks(record, base, logDirectory(record), progress, jobs);
   if (!result) return { stage: 'superseded' };
   return { ...result, stage: result.checks.every(check => check.isPassed) ? 'checked' : 'checks-failed', mergeBase: base };
@@ -73,6 +78,10 @@ function publishResult(record) {
   }
   if (record.stage === 'checks-missing') {
     reportToPrincipal(record, `PR factory has no check definition for ${record.repository}. ${pullUrl(record)} stays open.`);
+    return;
+  }
+  if (record.stage === 'stale-base') {
+    reportToPrincipal(record, `PR factory needs a head containing the target tip for ${pullUrl(record)}.`);
     return;
   }
   const failed = record.checks.find(result => !result.isPassed);

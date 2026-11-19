@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isRetiredSessionFactory } from './factory-authority.mjs';
 import { FACTORY_BOT, factoryCommand, reconcileCommand, WATCH } from './factory-reports.mjs';
 import { FACTORY_TOPIC } from './factory-github.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
@@ -39,6 +40,7 @@ function holdCheckIn() {
 }
 
 main(import.meta, () => {
+  if (isRetiredSessionFactory) return;
   if (owners.length === 0) {
     process.stdout.write('factory: this pot owns no repositories, so it runs no Factory bot\n');
     return;
