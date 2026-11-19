@@ -177,8 +177,9 @@ export function comment({ repository, number }, bodyFile) {
 // GitHub refuses the merge when the head moved since the verdict, or when the pull request went back to draft, so a merge never lands code the verdict did not cover.
 export function mergeReadback({ repository, number }) {
   const pull = JSON.parse(gh(['api', `repos/${repository}/pulls/${number}`]));
+  const base = pull.base?.ref;
   return { repository: pull.base?.repo?.full_name, number: pull.number, head: pull.head?.sha,
-    ref: `refs/heads/${pull.base?.ref}`, state: pull.merged === true && pull.state === 'closed' ? 'MERGED' : pull.merged === false && pull.state === 'open' ? 'open' : undefined,
+    ref: typeof base === 'string' && base.length > 0 ? `refs/heads/${base}` : undefined, state: pull.merged === true && pull.state === 'closed' ? 'MERGED' : pull.merged === false && pull.state === 'open' ? 'open' : undefined,
     squash: pull.merge_commit_sha };
 }
 

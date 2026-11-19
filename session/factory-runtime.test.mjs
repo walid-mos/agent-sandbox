@@ -279,7 +279,7 @@ function signedReview(t, baseRefName = 'main') {
   cli('run-job', '1');
   cli('publish-job', '1');
   const wake = JSON.parse(readFileSync(join(root, 'wakes'), 'utf8'));
-  return { root, cli, wake };
+  return { root, cli, wake, setFacts };
 }
 
 function beginLandedRetry({ root, cli, wake }) {
@@ -344,6 +344,30 @@ test('a confirmed open stale squash intent yields to the current review', { time
   assert.equal(wakes.at(-1).generation, 2);
   assert.notEqual(wakes.at(-1).review, wake.review);
   assert.throws(() => cli('verdict', wake.review, 'PASS'), /checked review changed/);
+  assert.equal(existsSync(join(root, 'landing')), false);
+});
+
+test('confirmed open same-head retarget releases a pending squash for the current review', { timeout: fixtureTimeout }, t => {
+  const { root, cli, wake, setFacts } = signedReview(t);
+  writeFileSync(join(root, 'refuse-merge'), '');
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /gh pr comment/);
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /merge readback/);
+  const recordPath = join(root, '.config/agent-sandbox/factory/heads', `${repository.replace('/', '-')}-${wake.number}-${wake.head}.json`);
+  const record = () => JSON.parse(readFileSync(recordPath, 'utf8'));
+  const pending = record();
+  assert.equal(pending.stage, 'squash-pending');
+  setFacts({ baseRefName: 'develop' });
+  cli('reconcile');
+  cli('scan');
+  assert.equal(record().stage, 'squash-superseded');
+  assert.deepEqual(record().squashPublication, pending.squashPublication);
+  cli('run-job', '2');
+  cli('publish-job', '2');
+  const current = JSON.parse(readFileSync(join(root, 'wakes'), 'utf8').trim().split('\n').at(-1));
+  assert.equal(current.generation, 2);
+  assert.match(cli('show', current.review), /into develop/);
+  assert.throws(() => cli('show', wake.review), /checked review changed/);
+  assert.equal(existsSync(join(root, 'merged')), false);
   assert.equal(existsSync(join(root, 'landing')), false);
 });
 

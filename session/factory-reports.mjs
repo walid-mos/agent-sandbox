@@ -59,8 +59,10 @@ export function queueFactoryWake(record) {
   return { ...record, pendingWakes: [{ kind: 'review' }] };
 }
 
+const reportWakeId = record => `pr-factory-${record.stage}-${pullKey(record)}-${record.generation}`;
+
 export function queueReport(record, text) {
-  return { ...record, pendingWakes: [{ kind: 'report', text }] };
+  return { ...record, pendingWakes: [{ kind: 'report', id: reportWakeId(record), text }] };
 }
 
 export function deliverWakes(record) {
@@ -69,8 +71,9 @@ export function deliverWakes(record) {
       const review = bindReview(record);
       wakeFactory(record, { review }, [review]);
     } else {
-      const id = `pr-factory-${record.stage}-${pullKey(record)}-${record.generation}`;
+      const id = wake.id ?? reportWakeId(record);
       if (isIsolatedFactory) askFactory('reports', { id, text: wake.text });
+      else command('pots', ['wake', '--bot', botId, '--from', PRINCIPAL_SOURCE, '--id', id, '--note', wake.text]);
     }
     withRecord(record, (current, save) => {
       if (JSON.stringify(current) === JSON.stringify(record)) save({ ...current, pendingWakes: [] });

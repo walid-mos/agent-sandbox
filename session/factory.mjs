@@ -2,13 +2,13 @@ import { readFileSync } from 'node:fs';
 import { requireFactoryRuntime } from './factory-authority.mjs';
 import { probe } from './factory-checks.mjs';
 import { executeJob, publishJob, recoverExecution, requireCheckRevision } from './factory-execution.mjs';
-import { requireActionable, requireReviewSubject } from './factory-github.mjs';
+import { requireActionable } from './factory-github.mjs';
 import { scanLegacy } from './factory-legacy-scan.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 import { changeText } from './factory-mirror.mjs';
 import { reviewFacts } from './factory-publication.mjs';
-import { PULL_ARGUMENT_COUNT, pullArguments, pullUrl, readRecord, requireRecord } from './factory-records.mjs';
-import { reportToPrincipal } from './factory-reports.mjs';
+import { PULL_ARGUMENT_COUNT, pullArguments, pullUrl, readRecord, requireRecord, withRecord } from './factory-records.mjs';
+import { deliverWakes, queueReport, reportToPrincipal } from './factory-reports.mjs';
 import { requireBinding } from './factory-review.mjs';
 import { push, resolve } from './factory-resolve.mjs';
 import { tryFactoryLock } from './factory-runner.mjs';
@@ -34,37 +34,53 @@ function show(arguments_) {
 
 function escalate(arguments_) {
   const pull = pullArguments(arguments_);
-  const record = readRecord(pull);
-  if (!record) throw new Error(`factory: ${pullUrl(pull)} at ${pull.head} was never scanned.`);
   const note = readFileSync(arguments_[PULL_ARGUMENT_COUNT] ?? '', 'utf8').trim();
   if (!note) throw new Error('factory: write what Principal must decide in the note file, then escalate again.');
-  if (isDurableFactory) requireReviewSubject(record);
-  reportToPrincipal({ ...record, stage: 'escalated', note }, `PR factory needs a decision on ${pullUrl(pull)} at head ${pull.head}: ${note}`);
+  const text = `PR factory needs a decision on ${pullUrl(pull)} at head ${pull.head}: ${note}`;
+  if (isDurableFactory) return withRecord(pull, (_, save) => {
+    const record = requirePendingEscalation(pull);
+    requireActionable(record);
+    if (record.stage === 'checked') requireCheckRevision(record);
+    return save(queueReport({ ...record, stage: 'escalated', note }, text));
+  });
+  const record = readRecord(pull);
+  if (!record) throw new Error(`factory: ${pullUrl(pull)} at ${pull.head} was never scanned.`);
+  reportToPrincipal({ ...record, stage: 'escalated', note }, text);
+}
+
+function requirePendingEscalation(pull) {
+  const record = readRecord(pull);
+  return requireRecord(pull, record?.stage === 'conflict' ? 'conflict' : 'checked');
 }
 
 function review(operation) {
-  return ([id, ...arguments_]) => withJobs(jobs => {
-    const pull = requireBinding(id);
-    const unlock = tryFactoryLock(JOB_DIRECTORY, `report-${pull.generation}`);
-    if (!unlock) throw new Error('factory: this review is busy, retry its current wake');
-    try {
-      const record = readRecord(pull);
-      if (!record || ['generation', 'base', 'baseTip', 'transition', 'inputRevision'].some(key => record[key] !== pull[key])) {
-        throw new Error('factory: checked review changed');
-      }
-      if (record.recoveryOf) {
-        if (operation !== show && operation !== verdict) throw new Error('factory: use show or verdict for a squash recovery review');
-        requireCheckRevision(record);
-      } else {
-        requireCurrent(jobs, pull);
-        const job = jobs.get(pull.generation);
-        if (job?.result?.stage === 'checked') requireCheckRevision(job.subject);
-      }
-      return operation([pull.repository, String(pull.number), pull.head, String(pull.generation), ...arguments_]);
-    } finally {
-      unlock();
+  return async ([id, ...arguments_]) => {
+    const outcome = await withJobs(jobs => runReview(jobs, operation, id, arguments_));
+    if (operation === escalate) deliverWakes(outcome);
+  };
+}
+
+function runReview(jobs, operation, id, arguments_) {
+  const pull = requireBinding(id);
+  const unlock = tryFactoryLock(JOB_DIRECTORY, `report-${pull.generation}`);
+  if (!unlock) throw new Error('factory: this review is busy, retry its current wake');
+  try {
+    const record = readRecord(pull);
+    if (!record || ['generation', 'base', 'baseTip', 'transition', 'inputRevision'].some(key => record[key] !== pull[key])) {
+      throw new Error('factory: checked review changed');
     }
-  });
+    if (record.recoveryOf) {
+      if (operation !== show && operation !== verdict) throw new Error('factory: use show or verdict for a squash recovery review');
+      requireCheckRevision(record);
+    } else {
+      requireCurrent(jobs, pull);
+      const job = jobs.get(pull.generation);
+      if (job?.result?.stage === 'checked') requireCheckRevision(job.subject);
+    }
+    return operation([pull.repository, String(pull.number), pull.head, String(pull.generation), ...arguments_]);
+  } finally {
+    unlock();
+  }
 }
 
 async function discover() {

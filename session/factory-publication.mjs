@@ -42,10 +42,10 @@ function continuePublication(record, save, adapters) {
   if (record.stage === PENDING && facts.state === 'open') {
     const request = record.squashPublication.request;
     if (facts.repository !== request.repository || facts.number !== request.number
-        || facts.head !== request.head || facts.ref !== request.ref) {
+        || facts.head !== request.head || !facts.ref) {
       throw new Error('factory: the open PR no longer matches the saved merge intent.');
     }
-    if (currentGeneration(record) !== record.generation
+    if (facts.ref !== request.ref || currentGeneration(record) !== record.generation
         || adapters.currentInputRevision(record.repository) !== record.inputRevision
         || adapters.git.tip(request.ref) !== request.base) {
       return save({ ...record, stage: SUPERSEDED_SQUASH });

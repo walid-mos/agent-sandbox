@@ -112,7 +112,8 @@ function recordVerdict(record, decision, notes) {
 
 export function verdict(arguments_) {
   const pull = pullArguments(arguments_);
-  const [decision, notesFile] = arguments_.slice(PULL_ARGUMENT_COUNT);
+  const [decision, notesFile, ...extra] = arguments_.slice(PULL_ARGUMENT_COUNT);
+  if (isDurableFactory && extra.length) throw new Error('factory: the verdict takes only a decision and optional notes file');
   if (!VERDICTS.includes(decision)) throw new Error(`factory: the verdict is one of ${VERDICTS.join(', ')}, got ${decision}`);
   const notes = readNotes(decision, notesFile);
   const record = requireRecord(pull, 'checked');
