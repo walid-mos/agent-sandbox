@@ -81,6 +81,27 @@ class RepositoryReadTests(unittest.TestCase):
             with self.assertRaisesRegex(GitFailure, f'Commit {missing} is unavailable'):
                 build_bundle(work, REPOSITORY, [missing], TOKEN, run=remote)
 
+    def test_named_commit_fetch_preserves_credential_refusal(self):
+        with fixture() as (root, commits, remote), http_remote(403) as (endpoint, _):
+            work = root / 'fetch'
+            work.mkdir()
+            named_ref = f'{commits[2]}:refs/repository-read/{commits[2]}'
+
+            def fetch_with_refusal(directory, *arguments, credential=None):
+                if named_ref in arguments:
+                    return git(directory, '-c', 'protocol.http.allow=always', 'fetch', '--', endpoint, credential=credential)
+                return remote(directory, *arguments, credential=credential)
+
+            with self.assertRaisesRegex(GitFailure, 'replace its configured credential'):
+                build_bundle(work, REPOSITORY, [commits[2]], TOKEN, run=fetch_with_refusal)
+
+    def test_unrelated_not_found_does_not_blame_credential(self):
+        with tempfile.TemporaryDirectory(prefix='repository-git-failure-') as directory:
+            result = subprocess.CompletedProcess([], 128, b'', b'remote: git-upload-pack: command not found')
+            with patch('repository_git.subprocess.run', return_value=result):
+                with self.assertRaisesRegex(GitFailure, r'^Git read failed\. No credential fallback was attempted\.$'):
+                    git(directory, 'fetch', '--', f'https://github.com/{REPOSITORY}.git', credential=(REPOSITORY, TOKEN))
+
     def test_helper_only_answers_selected_https_path(self):
         environment = {'REPOSITORY_READ_KEY': REPOSITORY, 'REPOSITORY_READ_TOKEN': TOKEN}
         good = f'protocol=https\nhost=github.com\npath={REPOSITORY}.git\n'
@@ -91,7 +112,7 @@ class RepositoryReadTests(unittest.TestCase):
         self.assertEqual(credential_answer('get', good, {**environment, 'REPOSITORY_READ_TOKEN': TOKEN + '\npoison'}), '')
 
     def test_redirects_and_authenticated_refusals_never_fallback_or_disclose(self):
-        for status, message in [(302, 'Git read failed'), (401, 'GitHub refused this token')]:
+        for status, message in [(302, 'Git read failed'), (401, 'GitHub refused this token'), (404, 'GitHub refused this token')]:
             with self.subTest(status=status), fixture() as (root, commits, remote), http_remote(status) as (endpoint, requests):
                 work = root / 'fetch'
                 work.mkdir()
