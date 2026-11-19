@@ -66,7 +66,7 @@ The VM's keeper launches the session within a minute of `vm-up`. To have it at o
 4. It restarts the router and seeds it, as [Model router](#model-router) describes.
 5. It creates the sandbox's bot when it has none, then links [its instructions](#the-bot-and-its-pi-workers), [the pot rules](session/pot/AGENTS.md) and the sandbox's `rules` into the session.
 6. It restarts the gateway, the worker watcher and the source watcher.
-7. It creates the Factory bot when the pot owns repositories. Discord Admin has its own [registered owner activation](docs/discord-admin-activation.md).
+7. It creates the Factory bot when the pot owns repositories. Mastermind installs optional bots through [registered owner activation](docs/bot-activation.md).
 8. It serves the pot's files under its tailnet name, as [Pot cloud](#pot-cloud) describes.
 
 Bootstrap needs access to the private harness repository and the configured vault paths, and the Mac's Magpie as the source of the seed.

@@ -5,28 +5,32 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { ACTIVATION_STATE_ID } from './discord-admin-enabled.mjs';
+import { activationStateId } from './bot-activation.mjs';
+import { DISCORD_ADMIN } from './bot-activation-registry.mjs';
 
-const optedIn = { discordAdmin: { enabled: true } };
-const activated = { ...optedIn, activation: { id: ACTIVATION_STATE_ID, approval: 'a'.repeat(32), guildId: '100000000000000001', applicationId: '100000000000000002' } };
+const activationId = activationStateId(DISCORD_ADMIN);
+const optedIn = { botActivation: { 'discord-admin': true } };
+const activated = { ...optedIn, activation: { id: activationId, approval: 'a'.repeat(32), isInstalled: true, scope: { bot: 'discord-admin' },
+  authority: { guildId: '100000000000000001', applicationId: '100000000000000002' } } };
 
-function runCommand(t, command, mode, { discordAdmin, activation, input = '{}' } = {}) {
+function runCommand(t, command, mode, { botActivation, activation, input = '{}' } = {}) {
   const folder = mkdtempSync(join(tmpdir(), 'discord-admin-disabled-'));
   t.after(() => rmSync(folder, { recursive: true, force: true }));
   const modulePath = name => fileURLToPath(new URL(name, import.meta.url));
   const preload = join(folder, 'preload.mjs');
   if (activation) {
-    const state = join(folder, '.config/agent-sandbox/human/discord-admin-activation-state');
+    const state = join(folder, '.config/agent-sandbox/human/bot-activation-state');
     mkdirSync(state, { recursive: true });
-    writeFileSync(join(state, `${ACTIVATION_STATE_ID}.json`), JSON.stringify(activation));
+    writeFileSync(join(state, `${activationId}.json`), JSON.stringify(activation));
   }
   writeFileSync(join(folder, 'bot.json'), JSON.stringify({ channels: [{ type: 'discord', secrets: '/test-reference' }] }));
   writeFileSync(preload, `import { mock } from 'node:test';
-mock.module(${JSON.stringify(modulePath('sandbox.mjs'))}, { exports: { isMastermind: true, sandbox: ${JSON.stringify({ role: 'mastermind', bot: 'Primary', doors: {}, discordAdmin })}, botHome: ${JSON.stringify(folder)}, potsBotHome: () => ${JSON.stringify(folder)} } });
+mock.module(${JSON.stringify(modulePath('sandbox.mjs'))}, { exports: { isMastermind: true, sandbox: ${JSON.stringify({ role: 'mastermind', bot: 'Primary', doors: {}, botActivation })}, botHome: ${JSON.stringify(folder)}, potsBotHome: () => ${JSON.stringify(folder)} } });
 mock.module(${JSON.stringify(modulePath('discord-admin-api.mjs'))}, { exports: { discordAdminApi: () => { throw new Error('CREDENTIAL_READ_ATTEMPT'); } } });
-mock.module(${JSON.stringify(modulePath('router-bot.mjs'))}, { exports: { ensureRouterBot: () => { throw new Error('BOT_CREATION_ATTEMPT'); } } });
+mock.module(${JSON.stringify(modulePath('router-bot.mjs'))}, { exports: { routerBotArguments: () => [], ensureRouterBot: () => { throw new Error('BOT_CREATION_ATTEMPT'); } } });
 `);
-  return spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--experimental-test-module-mocks', '--import', preload, modulePath(command), mode], { input, encoding: 'utf8', env: { ...process.env, HOME: folder } });
+  const modes = Array.isArray(mode) ? mode : [mode];
+  return spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--experimental-test-module-mocks', '--import', preload, modulePath(command), ...modes], { input, encoding: 'utf8', env: { ...process.env, HOME: folder } });
 }
 
 const disabledCommand = (t, command, mode) => runCommand(t, command, mode);
@@ -58,7 +62,7 @@ test('actions does not advertise approval to revoke a role from the guild owner'
 });
 
 test('disabled activation prepare refuses before credentials or bot creation', t => {
-  const run = disabledCommand(t, 'discord-admin-activate.mjs', 'prepare');
+  const run = disabledCommand(t, 'bot-activate.mjs', ['discord-admin', 'prepare']);
   assert.equal(run.status, 1);
   assert.match(run.stderr, /disabled/);
   assert.doesNotMatch(run.stderr, /CREDENTIAL_READ_ATTEMPT|BOT_CREATION_ATTEMPT/);
@@ -70,9 +74,9 @@ test('a staged opt-in without a durable activation leaves the Admin CLI disabled
   assert.match(run.stderr, /registered owner activation/);
 });
 
-test('the former installer entry point cannot create the bot directly', t => {
-  const run = runCommand(t, 'discord-admin-bot.mjs', '', optedIn);
-  assert.equal(run.status, 0);
-  assert.equal(run.stdout, '');
+test('apply refuses an invalid approval before credentials or bot creation', t => {
+  const run = runCommand(t, 'bot-activate.mjs', ['discord-admin', 'apply', 'unverified'], optedIn);
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /registered activation dialog ID/);
   assert.doesNotMatch(run.stderr, /CREDENTIAL_READ_ATTEMPT|BOT_CREATION_ATTEMPT/);
 });

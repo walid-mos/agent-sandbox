@@ -3,14 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { discordAdminActivation } from './discord-admin-activation.mjs';
-import { isDiscordAdminEnabled } from './discord-admin-enabled.mjs';
+import { botActivation } from './bot-activation.mjs';
+import { DISCORD_ADMIN } from './bot-activation-registry.mjs';
+import { discordBotActivation } from './discord-bot-activation.mjs';
 import { acceptDiscordClick } from './discord-clicks.mjs';
 import { humanStore } from './human-store.mjs';
 import { botId, channelId, guildId, ownerId, userId } from '../probes/fixtures/discord-admin.mjs';
 
 const messageId = '100000000000000020';
-const configuration = { role: 'mastermind', discordAdmin: { enabled: true } };
+const configuration = { role: 'mastermind', bot: 'Mastermind' };
 
 async function setup(t, install = async () => {}) {
   const folder = mkdtempSync(join(tmpdir(), 'discord-admin-self-activation-'));
@@ -30,7 +31,8 @@ async function setup(t, install = async () => {}) {
     if (path === `/channels/${channelId}/messages/${messageId}`) return display;
     assert.fail(`Unexpected Discord request ${path}`);
   };
-  const open = () => discordAdminActivation({ api, clicks, pending, state, channelAccount: 'discord', install });
+  const approvals = discordBotActivation(() => ({ api, clicks, pending, channelAccount: 'discord' }));
+  const open = () => botActivation(DISCORD_ADMIN, { configuration, approvals, state, install, installArguments: () => ['fixture'] });
   const activation = open();
   const prepared = await activation.prepare();
   const { approval } = prepared;
@@ -45,21 +47,19 @@ async function setup(t, install = async () => {}) {
   return { activation, open, approval, clicks, pending, state, register, click, changeOwner: id => { currentOwner = id; }, failDiscord: () => { failure = new Error('Discord unavailable'); } };
 }
 
-test('the private opt-in alone cannot enable administration', () => {
-  assert.equal(isDiscordAdminEnabled(configuration), false);
-});
-
-test('a pick saved by an older handler cannot authorize activation', async t => {
-  const proof = await setup(t, () => assert.fail('bot installed from unchecked click'));
-  await proof.register();
-  await proof.click();
-  const record = proof.clicks.get(proof.approval);
-  const entry = Object.values(record.picks)[0];
-  delete entry.ownerDisplayVerified;
-  await proof.clicks.patch(proof.approval, { picks: record.picks });
-  await assert.rejects(proof.activation.apply(proof.approval), /handler.*verif/i);
-  assert.equal(proof.pending.get(proof.approval).consumed, undefined);
-});
+for (const missing of ['ownerDisplayVerified', 'activationVerifier']) {
+  test(`a click without ${missing} cannot authorize activation`, async t => {
+    const proof = await setup(t, () => assert.fail('bot installed from unchecked click'));
+    await proof.register();
+    await proof.click();
+    const record = proof.clicks.get(proof.approval);
+    const entry = Object.values(record.picks)[0];
+    delete entry[missing];
+    await proof.clicks.patch(proof.approval, { picks: record.picks });
+    await assert.rejects(proof.activation.apply(proof.approval), /handler.*verif/i);
+    assert.equal(proof.pending.get(proof.approval).consumed, undefined);
+  });
+}
 
 test('cancellation and a non-owner click leave installation disabled', async t => {
   const proof = await setup(t, () => assert.fail('bot installed without approval'));
@@ -85,7 +85,7 @@ test('an interrupted installation resumes with the same consumed receipt and com
   await assert.rejects(proof.activation.apply(proof.approval), /installation interrupted/);
   const receipt = proof.pending.get(proof.approval).consumed;
   assert.equal(receipt.evidence.userId, ownerId);
-  assert.equal(proof.state.all().length, 0);
+  assert.deepEqual(proof.open().status(), { status: 'installation_pending', approval: proof.approval });
   assert.deepEqual((await Promise.all([proof.open().apply(proof.approval), proof.open().apply(proof.approval)])).map(result => result.status), ['activated', 'already_active']);
   assert.deepEqual(proof.pending.get(proof.approval).consumed, receipt);
   assert.equal(proof.state.all().length, 1);

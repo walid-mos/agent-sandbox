@@ -39,7 +39,7 @@ Ordinary questions have no role, permission or user allowlist check. The operato
 
 Discord push-click acceptance stays off until the merged transport is verified live. After that rollout is authorized, configure `humanDiscord.userId` privately and enable `humanDiscord.pushApprovalsEnabled` in each involved pot's `/etc/agent-sandbox/sandbox.json`. Push acceptance compares the clicker with that one operator ID. Missing or disabled configuration rejects push clicks. The applicable rules still govern whether the push requires approval. Never commit personal identifiers, message links containing them, or runtime answer records.
 
-`discordAdmin.enabled: true` in Mastermind's private `/etc/agent-sandbox/sandbox.json` permits the activation question. Administration also requires the saved owner activation. Use the dedicated signed rollout and approval-service check in [Activate Discord Admin in Mastermind](discord-admin-activation.md).
+Discord Admin requires the private opt-in and completed owner approval described in [Activate Discord Admin in Mastermind](discord-admin-activation.md).
 
 Secret pages require Pots' `publicUrl` and `pagePort` in `~/.pots/settings.json`. Publish the loopback page port with `tailnet-link`, then set `publicUrl` to that exact HTTPS origin. Changing an existing public URL can break old links, so check its existing links and obtain authorization before changing it. The bridge checks Tailscale Serve's mapping and rejects a public URL that is absent, unrelated to the loopback page port, or enabled for Funnel. It never starts a tunnel or changes Serve.
 

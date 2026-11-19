@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 const sandboxModule = new URL('./sandbox.mjs', import.meta.url).href;
-const installerModule = new URL('./discord-admin-bot.mjs', import.meta.url).href;
+const installerModule = new URL('./install-registered-bot.mjs', import.meta.url).href;
+const registryModule = new URL('./bot-activation-registry.mjs', import.meta.url).href;
 const signedInstructions = new URL('./discord-admin/AGENTS.md', import.meta.url).pathname;
 const fakePots = `#!/usr/bin/env node
 const { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs');
@@ -37,8 +38,9 @@ function setup(t) {
   writeFileSync(join(folder, 'pots'), fakePots, { mode: 0o700 });
   const code = `import { openSync } from 'node:fs'; import { mock } from 'node:test';
 mock.module(${JSON.stringify(sandboxModule)}, { exports: { potsBotHome: id => process.env.FIXTURE_ROOT + '/' + id } });
-const { installDiscordAdminBot } = await import(${JSON.stringify(installerModule)});
-installDiscordAdminBot(openSync(${JSON.stringify(descriptor)}, 'r'));
+const { installRegisteredBot } = await import(${JSON.stringify(installerModule)});
+const { DISCORD_ADMIN } = await import(${JSON.stringify(registryModule)});
+installRegisteredBot(DISCORD_ADMIN, openSync(${JSON.stringify(descriptor)}, 'r'));
 `;
   const run = mode => {
     writeFileSync(join(folder, 'mode'), mode);

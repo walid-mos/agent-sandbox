@@ -1,6 +1,7 @@
 import { answerParts, answersOf, checkDiscordPolicy, DIALOG_ID, DIGEST, DISCORD_MESSAGE_LIMIT, discordEvidence, discordMessageUrl, isSnowflake, packet, questionsOf, RELAYED_POLICIES, VERSION } from './human-contract.mjs';
 import { bindsTo, eventOf } from './discord-event.mjs';
 import { isPotName, isRequestId } from './door-messages.mjs';
+import { BOT_ACTIVATION_ACTION, DISCORD_OWNER_HANDLER } from './bot-activation-registry.mjs';
 import { requireApprovalDisplay } from './discord-admin-message.mjs';
 
 export function registerDiscordQuestion(registration, store, identity) {
@@ -35,6 +36,11 @@ function requireApprovalOwner(record, event) {
   if (!record.localAdmin) return;
   if (![event.userId === record.ownerId, event.guildId === record.registration.guildId].every(Boolean)) throw new Error('discord-human: only the guild owner in the registered guild can decide this administration approval.');
   requireApprovalDisplay(event.interaction?.message, record.registration.messages[event.questionIndex]);
+}
+
+function ownerDisplayProof(record) {
+  const proof = { ownerDisplayVerified: true, handlerPid: process.pid };
+  return record.purpose === BOT_ACTIVATION_ACTION ? { ...proof, activationVerifier: DISCORD_OWNER_HANDLER } : proof;
 }
 
 const formChildren = component => component.components ?? (component.component ? [component.component] : []);
@@ -98,8 +104,9 @@ export async function acceptDiscordClick(row, { store, identity, channelAccount,
     const messageUrl = discordMessageUrl({ guildId: record.registration.guildId, ...message });
     const evidence = discordEvidence({ userId: event.userId, guildId: event.guildId ?? record.registration.guildId, messageUrl, at }, identity, question.policy);
     const [answer] = answersOf([asked], [chosenAnswer(asked, event)]);
+    const ownerProof = record.localAdmin ? ownerDisplayProof(record) : {};
     const picks = { ...record.picks, [asked.id]: { question: asked.id, request: record.registration.request, messageUrl,
-      customId: event.customId, option: event.option, answer, evidence, at, ...(record.localAdmin && { ownerDisplayVerified: true, handlerPid: process.pid }) } };
+      customId: event.customId, option: event.option, answer, evidence, at, ...ownerProof } };
     const isComplete = question.questions.every(item => Object.hasOwn(picks, item.id));
     const outbox = isComplete ? packet('human.answer', { dialog: question.dialog, request: record.registration.request, digest: question.digest,
       answers: question.questions.map(item => picks[item.id].answer),
