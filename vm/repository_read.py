@@ -72,6 +72,8 @@ def fetch_grant(request, name, read_secret, state_directory):
         return fetch(request, token, state_directory)
     except Refused as error:
         raise Refused(f"{error} Repository {request['repository']}, credential {name}.") from None
+    except (OSError, ValueError):
+        raise Refused('Repository read could not prepare or run the worker. Ask the VM operator to check the broker.') from None
 
 
 def fetch(request, token, state_directory):

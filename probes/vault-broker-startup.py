@@ -120,6 +120,17 @@ class BrokerStartupTests(unittest.TestCase):
         self.fetch.assert_called_once_with(READ, 'read-value', state)
         self.assertEqual(list(state.iterdir()), [])
 
+    def test_local_read_failure_is_reported_without_private_details(self):
+        state = self.root / 'read-state'
+        state.mkdir(mode=0o711)
+        self.fetch.side_effect = OSError('private detail')
+        self.start({'RUNTIME_DIRECTORY': str(state)})
+        self.assertEqual(self.read_reply, {
+            'ok': False,
+            'error': 'Repository read could not prepare or run the worker. Ask the VM operator to check the broker.',
+        })
+        self.assertEqual(list(state.iterdir()), [])
+
 
 if __name__ == '__main__':
     unittest.main()
