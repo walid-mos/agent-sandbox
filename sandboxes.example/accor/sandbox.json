@@ -8,6 +8,11 @@
   },
   "bot": "Accor",
   "owners": {},
+  "readRepositories": {
+    "ExampleOrg/reference": {
+      "credential": "GITHUB_TOKEN_REFERENCE"
+    }
+  },
   "secrets": {},
   "onRequest": {
     "atlassian": {
