@@ -206,6 +206,37 @@ test('a successful exit after the step deadline records failure and confirms rem
   events.destroy();
 });
 
+test('a 35-minute check survives base churn and hands off only the current base', { timeout: fixtureTimeout }, async t => {
+  const { root, directory, env, setFacts } = setup(t);
+  const cli = (...args) => execFileSync(process.execPath, [join(session, 'factory.mjs'), ...args], { env });
+  writeFileSync(join(root, 'gate'), '');
+  await controller(t, root, directory, env);
+  const socket = join(directory, 'events.sock');
+  const events = await stream(socket, t.signal);
+  cli('reconcile');
+  await waitFor(root, 'blocked', t.signal);
+  const gitIn = (path, ...args) => execFileSync('git', ['-C', path, ...args], { env, encoding: 'utf8' }).trim();
+  const git = (...args) => gitIn(join(root, 'origin'), ...args);
+  const checkout = join(directory, '..', 'runs', '1', 'work', 'repository');
+  assert.equal(gitIn(checkout, 'for-each-ref'), '');
+  assert.equal(gitIn(checkout, 'remote'), '');
+  for (const name of ['next base', 'latest base']) {
+    git('-c', 'user.name=Fixture', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-qm', name);
+    setFacts({ baseRefOid: git('rev-parse', 'HEAD') });
+    cli('reconcile');
+    cli('scan');
+  }
+  rmSync(join(root, 'gate'));
+  writeFileSync(join(root, 'release'), '');
+  const outcome = await eventFrom(events.iterator(), event => event.type === 'complete' && event.job === 3);
+  assert.equal(outcome.detail.stage, 'checked');
+  assert.equal(readFileSync(join(root, 'removed'), 'utf8').match(/-check /g).length, 1);
+  await waitFor(root, 'wakes', t.signal);
+  const wake = JSON.parse(readFileSync(join(root, 'wakes'), 'utf8'));
+  assert.equal(wake.baseTip, git('rev-parse', 'HEAD'));
+  assert.equal(wake.generation, 3);
+});
+
 test('routine discovery handles a failing repository and checks ready work before drafts', { timeout: fixtureTimeout }, async t => {
   const { root, directory, env } = setup(t);
   writeFileSync(join(root, 'failing-repository'), '');

@@ -3,8 +3,9 @@ import { createHash } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { snapshotCheckInputs } from './factory-check-inputs.mjs';
 import { runOwnedContainer } from './factory-container.mjs';
-import { copyAt } from './factory-mirror.mjs';
+import { copyAt, copyCheckInputs } from './factory-mirror.mjs';
 import { FACTORY_HOME, pullKey } from './factory-records.mjs';
 import { checkSteps } from './factory-repositories.mjs';
 import { command } from './run.mjs';
@@ -25,11 +26,11 @@ export function ensureImage() {
 }
 
 // The container is the boundary: no credential, no session file but the copy and the read-only image folder, no capability, and no network unless the step asks for it.
-function containerArguments({ image, workspace, base }, step) {
+function containerArguments({ image, workspace, base, imageDirectory = IMAGE_DIRECTORY }, step) {
   return ['--network', step.network ? 'bridge' : 'none',
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '2048', '--memory', '6g',
     '--env', 'HOME=/work/home', '--env', 'CI=true',
-    '--volume', `${workspace}:/work`, '--volume', `${IMAGE_DIRECTORY}:/factory:ro`, '--workdir', '/work/repository',
+    '--volume', `${workspace}:/work`, '--volume', `${imageDirectory}:/factory:ro`, '--workdir', '/work/repository',
     image, ...step.run.map(part => (part === BASE_PLACEHOLDER ? base : part))];
 }
 
@@ -120,22 +121,58 @@ function reportStep(context, step, progress) {
   return result;
 }
 
+function checkBoundary(context) {
+  const repository = join(context.workspace, 'repository');
+  mkdirSync(repository, { recursive: true });
+  const boundary = runStep(context, { name: 'boundary', run: ATTACKS });
+  removeWorkspace(repository);
+  return boundary;
+}
+
+function checkWorkspace(pull, context, steps, progress, copy) {
+  const repository = join(context.workspace, 'repository');
+  mkdirSync(repository);
+  copy(pull.repository, pull.head, repository);
+  return runCheckSteps(steps, step => reportStep(context, step, progress));
+}
+
 export function runChecks(pull, base, logs, progress, jobs) {
   const image = ensureImage();
+  const steps = checkSteps(pull.repository);
   const runId = pull.generation;
-  const workspace = freshWorkspace(String(runId));
-  mkdirSync(logs, { recursive: true });
+  const directory = join(RUNS, String(runId));
+  removeWorkspace(directory);
+  const workspace = join(directory, 'work');
   try {
-    mkdirSync(join(workspace, 'repository'));
-    const context = { image, workspace, base, logs, runId, jobs };
-    const boundary = runStep(context, { name: 'boundary', run: ATTACKS });
-    if (!boundary.isPassed) return [boundary];
-    removeWorkspace(join(workspace, 'repository'));
-    copyAt(pull.repository, pull.head, join(workspace, 'repository'));
-    return runCheckSteps(checkSteps(pull.repository), step => reportStep(context, step, progress));
+    return checkAttempt({ pull, base, logs, progress, jobs, image, steps, directory, workspace, runId });
   } finally {
-    if (!jobs.container(runId)) removeWorkspace(workspace);
+    if (!jobs.container(runId)) removeRunWorkspace(runId);
   }
+}
+
+function checkAttempt({ pull, base, logs, progress, jobs, image, steps, directory, workspace, runId }) {
+  const context = { image, workspace, base, logs, runId, jobs };
+  mkdirSync(join(workspace, 'home'), { recursive: true });
+  mkdirSync(logs, { recursive: true });
+  const inputs = steps.every(step => step.stableInputs === true)
+    ? snapshotCheckInputs({ pull, base, steps, image, imageDirectory: IMAGE_DIRECTORY, snapshot: join(directory, 'helpers') })
+    : undefined;
+  const execution = { ...context, ...inputs };
+  const boundary = checkBoundary(execution);
+  if (!boundary.isPassed) return { checks: [boundary] };
+  if (!inputs) return { checks: checkWorkspace(pull, execution, steps, progress, copyAt) };
+  return checkStableWorkspace(pull, execution, steps, progress);
+}
+
+function checkStableWorkspace(pull, execution, steps, progress) {
+  const { jobs, inputDigest } = execution;
+  const previous = jobs.reusable(pull, inputDigest);
+  if (previous) {
+    progress('checks-reused', { from: previous.id });
+    return { checks: previous.result.checks, inputDigest };
+  }
+  const checks = checkWorkspace(pull, execution, steps, progress, copyCheckInputs);
+  return { checks, inputDigest };
 }
 
 export function removeRunWorkspace(id) {

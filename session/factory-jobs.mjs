@@ -25,6 +25,8 @@ const NO_LIVE_RUNNER = `NOT EXISTS (SELECT 1 FROM jobs live WHERE live.repositor
   AND live.number = jobs.number AND live.status IN ('running', 'uncertain'))`;
 const STATEMENTS = {
   get: 'SELECT * FROM jobs WHERE id = ?',
+  reusable: `SELECT * FROM jobs WHERE repository = ? AND number = ? AND status = 'complete'
+    AND json_extract(result, '$.stage') = 'checked' AND json_extract(result, '$.inputDigest') = ? ORDER BY id DESC LIMIT 1`,
   current: 'SELECT * FROM jobs WHERE repository = ? AND number = ? AND current = 1',
   supersede: `UPDATE jobs SET current = 0, status = CASE WHEN status = 'queued' THEN 'superseded' ELSE status END WHERE id = ?`,
   hand: 'UPDATE jobs SET current = 0, reported = 1 WHERE id = ?',
@@ -130,6 +132,10 @@ export class FactoryJobs {
 
   get(id) {
     return job(this.#sql.get.get(id));
+  }
+
+  reusable({ repository, number }, inputDigest) {
+    return job(this.#sql.reusable.get(repository, number, inputDigest));
   }
 
   claim(id) {

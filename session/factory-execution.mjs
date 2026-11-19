@@ -18,8 +18,8 @@ function checkRevision(record, progress, jobs) {
   progress('preparing', {});
   refreshMirror(record.repository);
   const base = mergeBase(record.repository, record.baseTip, record.head);
-  const checks = runChecks(record, base, logDirectory(record), progress, jobs);
-  return { stage: checks.every(result => result.isPassed) ? 'checked' : 'checks-failed', mergeBase: base, checks };
+  const result = runChecks(record, base, logDirectory(record), progress, jobs);
+  return { ...result, stage: result.checks.every(check => check.isPassed) ? 'checked' : 'checks-failed', mergeBase: base };
 }
 
 export function executeJob([identifier]) {

@@ -67,7 +67,9 @@ async function simulateCheck(container) {
 }
 
 const dockerOperations = {
-  image() {},
+  image(flags) {
+    if (flags.includes('--format')) process.stdout.write(`sha256:${containerId}`);
+  },
   run(flags) {
     appendFileSync(file('legacy-checks'), `${flags[2]}\n`);
   },

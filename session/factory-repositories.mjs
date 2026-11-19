@@ -7,7 +7,8 @@ const STEP_NAME = /^[a-z0-9-]+$/;
 
 const isCommand = run => Array.isArray(run) && run.length > 0 && run.every(part => typeof part === 'string');
 const isStep = step => Boolean(step) && STEP_NAME.test(step.name) && isCommand(step.run)
-  && ['undefined', 'boolean'].includes(typeof step.network);
+  && ['undefined', 'boolean'].includes(typeof step.network)
+  && (step.stableInputs === undefined || (step.stableInputs === true && !step.network));
 
 function repositories() {
   const definitions = JSON.parse(readFileSync(REPOSITORIES_FILE, 'utf8'));
