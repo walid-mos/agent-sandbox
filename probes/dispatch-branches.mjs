@@ -121,6 +121,8 @@ function accepted(branch, values = launch) {
   assert.equal(worker.branch, branch);
   assert.equal(worker.repository, allowedRepository);
   assert.equal(worker.pullRequest, pullRequest);
+  assert.equal(worker.admission, 'memory');
+  assert.equal(Object.hasOwn(worker, 'maxWorkers'), false);
   const checkout = join(result.home, 'Development', allowedRepository);
   const worktree = join(checkout, '.worktree/product-data-apps', branch.replaceAll('/', '-'));
   assert.deepEqual(result.calls, [

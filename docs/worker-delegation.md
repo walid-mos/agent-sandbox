@@ -26,7 +26,7 @@ The old startup contract remains at [Startup approval before a worker exists](hu
 
 Use `dispatch.mjs start --local` with the same repository, branch, brief, title, subject and optional base as ordinary `start`. It verifies that the existing checkout origin names the requested GitHub repository, then creates the worktree, local bootstrap commit, worker record and queued launch. It neither pushes nor opens a PR, and never consults or consumes a human dialog. Ordinary `start` keeps its existing immediate draft behavior for pots without a push gate. Choose `--local` whenever the loaded policy requires a push approval.
 
-The watcher serves both kinds of launch from the same queue and slot limit. Each has the existing `pots.worker`, `pots.owner`, `pots.launch`, `herdr.space` and `herdr.tab` labels and exact Pi session identity. A queued worker has no terminal until a slot is free. Herdr lists the labelled terminal after it starts. No existing gateway child is converted.
+The watcher serves both kinds of launch from the same queue with [live memory admission](#worker-admission). Each has the existing `pots.worker`, `pots.owner`, `pots.launch`, `herdr.space` and `herdr.tab` labels and exact Pi session identity. A queued worker has no terminal until the watcher admits its launch. Herdr lists the labelled terminal after it starts. No existing gateway child is converted.
 
 ## Publish a local repository worker
 
@@ -59,7 +59,21 @@ The snapshot preserves a worker's kind and title before its terminal starts. A l
 
 Both kinds retain the existing lifecycle guards. The watcher saves the exact transcript and screen only after the settled final reply, completed goals, no pending work, no open human dialog and no unread helpers. The coordinator reads those files and the task's result file when present, then acknowledges the exact result ID with `dispatch.mjs finish`. Pi rechecks its live session and completion facts before closing. An idle badge alone is insufficient.
 
-`control.mjs stop-worker WORKER` marks and ends either kind without requiring a PR or Git. `dispatch.mjs send WORKER MESSAGE_FILE` clears the stop and queues a follow-up. The same recorded Pi session resumes when a slot is free. Automatic crash recovery remains bounded across watcher restarts. Idle Compose shutdown applies only to repository worktrees, never a task's arbitrary directory. Pots remains responsible for its workers' finish and cleanup, independently of Herdr views.
+`control.mjs stop-worker WORKER` marks and ends either kind without requiring a PR or Git. `dispatch.mjs send WORKER MESSAGE_FILE` clears the stop and queues a follow-up. The watcher resumes the same recorded Pi session when it admits another launch. Automatic crash recovery remains bounded across watcher restarts. Idle Compose shutdown applies only to repository worktrees, never a task's arbitrary directory. Pots remains responsible for its workers' finish and cleanup, independently of Herdr views.
+
+## Worker admission
+
+The watcher reads the guest kernel before each new launch. It admits workers in queue order, and they run concurrently after startup. A memory pause affects only new launches. Live workers and their follow-ups continue, including follow-ups queued behind a waiting launch. `maxWorkers` adds a ceiling only when the operator sets it.
+
+| Signal | How the watcher uses it |
+| --- | --- |
+| `/proc/meminfo` | `MemAvailable` is Linux's estimate of RAM available for new work without swapping. The reserve in [the admission code](../session/worker-admission.mjs) uses a share of the current `MemTotal` for large guests and a small absolute floor for the session on smaller guests. Both are policy choices for the guest as a whole. Each sample rereads both fields, including after ballooning. Missing, malformed, inconsistent or unreadable fields pause new launches. |
+| `/proc/pressure/memory` | Linux [pressure stall information](https://docs.kernel.org/accounting/psi.html) reports time stalled. The policy uses the short `avg10` window and sets a lower threshold for `full` stalls, when all non-idle tasks are stalled, than for `some` stalls, when at least one is. These are initial policy choices for sustained reclaim or swap stalls. If the kernel does not expose PSI, the watcher uses available RAM alone. Malformed or otherwise unreadable PSI pauses new launches. |
+| Swap | Swap occupancy and swap-in alone can reflect cold pages or light page-ins on an otherwise healthy guest. Admission uses the RAM and stall signals above on guests with and without swap. |
+
+A short spacing interval after opening a worker gives its startup memory time to register. A live worker still waiting to report its first agent status holds the next launch until it reports or exits. While a launch is waiting, a timer rechecks admission even when hc and the queue are quiet. See [the admission code](../session/worker-admission.mjs) for the thresholds and interval.
+
+After the authorized signed update reaches a pot, restart its `pots-watcher` service to load the policy. Remove any temporary `maxWorkers` ceiling before the restart if the operator wants memory-only admission. On each pot, confirm the watcher comes back, can read guest memory and PSI or uses the documented fallback, and preserves live terminals. With normal work, check queue-order starts and follow-ups. When pressure occurs during ordinary use, check that launches pause and resume while existing workers keep running.
 
 ## Proof and rollout
 

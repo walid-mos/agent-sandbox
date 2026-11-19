@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, beforeEach, mock, test } from 'node:test';
+import { healthyWorkerMemory } from '../probes/fixtures/worker-memory.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'pots-delivery-'));
 process.env.HOME = scratch;
@@ -14,6 +15,7 @@ process.env.POTS_TEST_BOUNDARY = boundaryPath;
 mock.module('./sandbox.mjs', { exports: { botId: 'nextnode', sandbox: { maxWorkers: 1 } } });
 const { inspectWorker } = await import('./inspect-worker.mjs');
 const { serveQueue } = await import('./serve-queue.mjs');
+const { createAdmission } = await import('./worker-admission.mjs');
 const { acknowledgeResult } = await import('./worker-results.mjs');
 const { enqueue, queued, QUEUE } = await import('./queue.mjs');
 const { receiptPath, statePath, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
@@ -66,7 +68,8 @@ function inspect() {
   inspectWorker(workers()[0], { terminals: boundary().terminals, now: Date.now(), queue: queued(), pending: new Set() });
 }
 function serve() {
-  serveQueue(boundary().terminals, (_subject, error) => { throw error; });
+  const logFailure = (_subject, error) => { throw error; };
+  serveQueue(boundary().terminals, logFailure, createAdmission({ ceiling: 1, logFailure, readText: healthyWorkerMemory }));
 }
 
 beforeEach(() => {
