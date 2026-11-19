@@ -25,6 +25,7 @@ function prepare() {
   mkdirSync(binaries);
   mkdirSync(join(fixture, 'docs'));
   copyFileSync(join(repository, 'session/dispatch.mjs'), join(session, 'dispatch.mjs'));
+  copyFileSync(join(repository, 'session/launch.env'), join(session, 'launch.env'));
   copyFileSync(join(repository, 'docs/human-dialogs.md'), policyGuide);
   writeFileSync(clientRules, clientRuleText);
   writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "accor-hotels": "UNUSED_PROBE_TOKEN" }, bot: "Probe", rules: process.env.PROBE_CLIENT_RULES, sources: ["pi", "accor"], publicationPolicy: process.env.PROBE_PUBLICATION_POLICY, humanDiscord: { pushApprovalsEnabled: false } }; export const owners = Object.keys(sandbox.owners); export const botId = sandbox.bot.toLowerCase();\n');

@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { remoteUrl } from './github-url.mjs';
 import { accorPublicationPolicy } from './accor-publication-policy.mjs';
+import { withAdmission } from './admission.mjs';
 import { repositoryOrigin } from './repository-origin.mjs';
 import { find } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
@@ -128,7 +129,7 @@ function send([name, messageFile]) {
   enqueue({ worker: name, message });
 }
 
-const OPERATIONS = { start, task, send, scope: args => process.stdout.write(`${JSON.stringify(workerScope(args))}\n`),
+const OPERATIONS = { start: args => withAdmission(() => start(args)), task, send, scope: args => process.stdout.write(`${JSON.stringify(workerScope(args))}\n`),
   publish: async args => process.stdout.write(`${await publishWorker(args)}\n`),
   'open-pr': args => process.stdout.write(`${openWorkerPR(args)}\n`), push: args => process.stdout.write(`${pushWorker(args)}\n`), finish: acknowledgeResult };
 const USAGE = 'usage: dispatch start [--local] [--max] [--for REQUEST_ID] --title PR_TITLE [--subject COMMIT_SUBJECT] owner/repo type/branch brief-file [base] | task [--max] [--for REQUEST_ID] --title TITLE --scope SCOPE task-name workdir brief-file result-file | scope worker | publish worker dialog-id affirmative-label | open-pr worker | push worker | send worker message-file | finish worker result-id';

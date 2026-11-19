@@ -1,9 +1,9 @@
 [Unit]
-Description=Fast-forward the agent-sandbox clone of this VM to a commit an operator key signed
+Description=Check for the next trusted agent-sandbox release
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py update
-TimeoutStartSec=5min
+ExecStart=/usr/bin/python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py scheduled
+TimeoutStartSec=10min
