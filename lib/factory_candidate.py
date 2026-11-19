@@ -8,6 +8,7 @@ from managed_update import (BRANCH, SHA1, GIT_READ_OPTIONS, Blocked, commit_obje
 LANDING_REF = f'refs/heads/{BRANCH}'
 REVIEW_TAG_ROOT = 'refs/tags/factory-reviewed/'
 PROVENANCE_HEADER = b'Factory landing v1'
+SIGNATURE_UNVERIFIED = 'factory-signature-unverified'
 REQUEST_FIELDS = {'repository', 'number', 'generation', 'ref', 'head', 'base', 'tree'}
 MAX_SAFE_INTEGER = (1 << 53) - 1
 
@@ -64,7 +65,7 @@ def require_landing_parents(stage, candidate, base):
 def signed_landing(root, origin, stage, candidate):
     signers = root / 'factory-signers.asc'
     require_protected(signers, stat.S_ISREG, (os.geteuid(),))
-    signer = verify_signature(stage, candidate, signers, 'factory-signature-unverified')
+    signer = verify_signature(stage, candidate, signers, SIGNATURE_UNVERIFIED)
     repository = origin.removeprefix('https://github.com/').removesuffix('.git')
     return signer, landing_request(stage, candidate, repository)
 

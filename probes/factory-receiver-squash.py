@@ -52,7 +52,7 @@ class ReceiverSquash(SquashFixture):
         self.git(self.bundle, 'update-ref', SOURCE_REF, raced)
         return raced
 
-    def forge_merge_evidence(self, squash, request):
+    def publish_fixture_evidence(self, squash, request):
         signers = self.receiver / 'factory-signers.asc'
         public = subprocess.run(['gpg', '--armor', '--export', self.other_fingerprint], env=self.environment,
                                 check=True, capture_output=True, text=True).stdout
@@ -67,10 +67,19 @@ class ReceiverSquash(SquashFixture):
         tree = self.git(self.bundle, 'rev-parse', f'{last}^{{tree}}')
         merge = self.git(self.bundle, 'commit-tree', tree, '-p', middle, '-p', self.installed, '-m', 'squash with a second parent')
         self.git(self.bundle, 'update-ref', SOURCE_REF, merge)
-        self.forge_merge_evidence(merge, self.proof['checkpoints'][2]['request'])
+        self.publish_fixture_evidence(merge, self.proof['checkpoints'][2]['request'])
         code, state = self.poll()
         self.assertEqual((code, state['blocked'], state['loaded']), (1, 'factory-base-mismatch', self.installed))
         self.assertEqual(self.starts(), [self.installed])
+
+    def test_native_squash_subject_does_not_select_the_commit_signature_rule(self):
+        _first, middle, _last = self.checkpoints
+        request = self.proof['checkpoints'][2]['request']
+        squash = self.git(self.bundle, 'commit-tree', request['tree'], '-p', middle, '-m', 'Factory landing v1')
+        self.git(self.bundle, 'update-ref', SOURCE_REF, squash)
+        self.publish_fixture_evidence(squash, request)
+        code, state = self.poll()
+        self.assertEqual((code, state['loaded']), (0, squash), state)
 
     def test_timer_activates_every_native_squash_in_order(self):
         code, state = self.poll()

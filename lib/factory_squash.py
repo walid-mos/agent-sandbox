@@ -2,8 +2,8 @@ import json
 import os
 import stat
 
-from factory_candidate import (LANDING_REF, PROVENANCE_HEADER, REQUEST_FIELDS, require_landing_parents,
-                               require_review_request, require_reviewed_head)
+from factory_candidate import (LANDING_REF, PROVENANCE_HEADER, REQUEST_FIELDS, SIGNATURE_UNVERIFIED,
+                               require_landing_parents, require_review_request, require_reviewed_head)
 from managed_update import GIT_READ_OPTIONS, SHA1, Blocked, read_git, require_exact_commit, require_protected, verify_signature
 from signed_commit import Untrusted
 from signed_tag import require_signed_tag
@@ -36,7 +36,7 @@ def signed_squash(root, origin, directory, tag_id, squash):
     try:
         signer, payload = require_signed_tag(directory, tag_id, signers, GIT_READ_OPTIONS)
     except (Untrusted, OSError, UnicodeError):
-        raise Blocked('factory-signature-unverified') from None
+        raise Blocked(SIGNATURE_UNVERIFIED) from None
     header, _, message = payload.partition(b'\n\n')
     subject, separator, body = message.partition(b'\n\n')
     if header.splitlines()[:3] != [f'object {squash}'.encode(), b'type commit', f'tag factory-release/{squash}'.encode()]:

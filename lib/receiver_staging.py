@@ -4,7 +4,7 @@ from pathlib import Path
 import stat
 import tempfile
 
-from factory_candidate import LANDING_REF, REVIEW_TAG_ROOT, verify_checkpoint
+from factory_candidate import LANDING_REF, REVIEW_TAG_ROOT, SIGNATURE_UNVERIFIED, verify_checkpoint
 from factory_squash import EVIDENCE_ROOT, REVIEW_ROOT, SQUASH_TAG_ROOT, evidence_id, is_landing, verify_squash
 from managed_update import TRACKING_REF, Blocked, read_git, require_protected, require_repository, staged_candidate
 from source_refresh import BRANCH, git
@@ -39,9 +39,12 @@ def fetch_review(stage, endpoint, protocol, candidate, head):
         raise Blocked('factory-review-ref-mismatch')
 
 
+EVIDENCE_FETCH_FAILED = 'factory-evidence-fetch-failed'
+
+
 def fetch_evidence(stage, endpoint, protocol, squash):
-    fetch_ref(stage, endpoint, protocol, SQUASH_TAG_ROOT + squash, EVIDENCE_ROOT + squash, 'factory-evidence-fetch-failed')
-    return evidence_id(stage, squash, 'factory-evidence-fetch-failed')
+    fetch_ref(stage, endpoint, protocol, SQUASH_TAG_ROOT + squash, EVIDENCE_ROOT + squash, EVIDENCE_FETCH_FAILED)
+    return evidence_id(stage, squash, EVIDENCE_FETCH_FAILED)
 
 
 def materialize(root, origin, verified):
@@ -89,9 +92,22 @@ def verify_series(root, origin, installed, tip, endpoint, protocol):
     fetch_squash_evidence = partial(fetch_evidence, stage, endpoint, protocol)
     checkpoints = []
     for revision in revisions:
-        if is_landing(stage, revision):
-            checkpoints.append(verify_checkpoint(root, origin, stage, installed, revision, fetch))
-        else:
-            checkpoints.append(verify_squash(root, origin, stage, installed, revision, fetch_squash_evidence, fetch))
+        checkpoints.append(verify_series_checkpoint(root, origin, stage, installed, revision, fetch_squash_evidence, fetch))
         installed = revision
     return checkpoints
+
+
+def verify_series_checkpoint(root, origin, stage, installed, revision, fetch_evidence, fetch_review):
+    if not is_landing(stage, revision):
+        return verify_squash(root, origin, stage, installed, revision, fetch_evidence, fetch_review)
+    try:
+        return verify_checkpoint(root, origin, stage, installed, revision, fetch_review)
+    except Blocked as landing_failure:
+        if str(landing_failure) != SIGNATURE_UNVERIFIED:
+            raise
+    try:
+        return verify_squash(root, origin, stage, installed, revision, fetch_evidence, fetch_review)
+    except Blocked as squash_failure:
+        if str(squash_failure) == EVIDENCE_FETCH_FAILED:
+            raise Blocked(SIGNATURE_UNVERIFIED) from None
+        raise
