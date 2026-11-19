@@ -8,7 +8,7 @@ compile_python() {
 	PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 -m py_compile "$1"
 }
 
-for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/proxmox/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/mac/* "$root"/probes/* "$root"/vm/*; do
+for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/proxmox/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/session/factory-runtime/* "$root"/mac/* "$root"/probes/* "$root"/vm/*; do
 	[ -f "$path" ] || continue
 	IFS= read -r interpreter < "$path" || true
 	case "$interpreter" in
@@ -22,7 +22,7 @@ for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/pr
 		esac ;;
 	esac
 done
-for path in "$root"/session/*.mjs "$root"/session/factory-image/*.mjs "$root"/mac/*.mjs "$root"/herdr/*.js; do
+for path in "$root"/session/*.mjs "$root"/session/factory-image/*.mjs "$root"/session/factory-runtime/*.mjs "$root"/mac/*.mjs "$root"/herdr/*.js; do
 	node --check "$path"
 done
 # node --check rejects type annotations, so a TypeScript file is checked with its types stripped.
@@ -82,6 +82,20 @@ PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 "$root/probe
 node "$root/probes/dispatch-branches.mjs"
 python3 -B "$root/probes/client-rules.py"
 python3 -B "$root/probes/client-rules-activation.py"
+python3 -B "$root/probes/managed-update.py"
+python3 -B "$root/probes/vm-bootstrap.py"
+python3 -B "$root/probes/factory-receiver.py"
+if [ -n "${FACTORY_RELEASE_EXPORT:-}" ]; then
+	python3 -B "$root/probes/factory-producer-receiver.py"
+	python3 -B "$root/probes/factory-installed-receiver.py"
+	python3 -B "$root/probes/factory-gateway-cutover.py"
+fi
+if [ -n "${FACTORY_RELEASE_SERIES:-}" ]; then
+	python3 -B "$root/probes/factory-receiver-series.py"
+fi
+if [ -n "${FACTORY_RELEASE_SQUASH:-}${FACTORY_RELEASE_SQUASH_RECOVERY:-}${FACTORY_RELEASE_ENTRY:-}" ]; then
+	python3 -B "$root/probes/factory-receiver-squash.py"
+fi
 python3 -B "$root/probes/repository-read-policy.py"
 python3 -B "$root/probes/repository-read.py"
 python3 -B "$root/probes/repository-read-supervision.py"

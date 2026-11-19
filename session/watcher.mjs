@@ -54,9 +54,10 @@ function pass() {
     const times = records.map(worker => logged(worker.name, () => inspectWorker(worker, view)));
     // Inspection ends terminals, so the queue is served from a fresh list where their slots are free.
     const live = liveTerminals();
-    serveQueue(live, logFailure);
+    const isDeferred = serveQueue(live, logFailure);
     const idleStackDue = logged('idle stacks', () => stopIdleStacks(records.filter(worker => worker.kind !== 'task').map(worker => worker.worktree), live, logFailure));
-    lookAgainAt([...times, idleStackDue]);
+    const admissionDue = isDeferred ? Date.now() + RESUBSCRIBE_MS : undefined;
+    lookAgainAt([...times, idleStackDue, admissionDue]);
   } catch (error) {
     logFailure('workers', error);
   }

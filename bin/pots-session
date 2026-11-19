@@ -2,12 +2,14 @@
 set -eu
 . "$(dirname "$0")/../lib/sandbox.sh"
 
-LOCK=/run/pots-session.lock
+LOCK=$POTS_SESSION_LOCK_PATH
 LOCK_WAIT_SECONDS=300
 LOCK_BUSY_STATUS=75
 DOCKER_STOP_SECONDS=30
 DOCKER_REMOVE_SECONDS=30
 DOCKER_REMOVE_POLL_SECONDS=1
+ROUTER_REQUEST_SECONDS=5
+ROUTER_RESTART_MILLISECONDS=10000
 NEWLINE='
 '
 
@@ -106,6 +108,49 @@ ensure() {
 	echo "$running"
 }
 
+router_current() {
+	session_exec "$1" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-current
+}
+
+restart_router() {
+	session_exec "$1" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-only
+	sandbox_docker exec --user root "$1" s6-svc -wr -T "$ROUTER_RESTART_MILLISECONDS" -r /run/service/custom-svc-pots-router
+}
+
+router_ready() {
+	address=${POTS_ROUTER_ADDRESS:-$POTS_ROUTER_DEFAULT_ADDRESS}
+	case "$address" in
+		127.0.0.1:*) port=${address#127.0.0.1:} ;;
+		\[::1\]:*) port=${address#\[::1\]:} ;;
+		*) return 1 ;;
+	esac
+	case "$port" in '' | *[!0-9]*) return 1 ;; esac
+	code=$(sandbox_docker exec --user root "$1" curl -q --noproxy '*' --silent --show-error \
+		--max-time "$ROUTER_REQUEST_SECONDS" --output /dev/null --write-out '%{http_code}' \
+		"http://$address/api/hello") && [ "$code" = 200 ]
+}
+
+health() {
+	name=$1 revision=$2
+	shift 2
+	sandbox_docker exec --user root "$name" /bin/sh -eu -c '
+		marker=$1 expected=$2
+		shift 2
+		read -r revision < "$marker"
+		[ "$revision" = "$expected" ]
+		for service in "$@"; do
+			status=$(s6-svstat -o up,pid "/run/service/custom-svc-$service")
+			set -- $status
+			[ "$#" -eq 2 ] && [ "$1" = true ] && [ "$2" -gt 1 ] || exit 1
+			process=$(readlink "/proc/$2/exe")
+			case "$process" in
+				'' | */sleep) exit 1 ;;
+			esac
+			grep -zFxq "POTS_LOADED_REVISION=$revision" "/proc/$2/environ"
+		done
+	' health "$POTS_RELEASE_ID" "$revision" "$@"
+}
+
 if [ "$POTS_TRANSPORT" = provider ]; then
 	run_trusted bin/pots-session "$@"
 	exit
@@ -113,7 +158,20 @@ fi
 case "${1:-}" in
 	ensure) hold_lock "$@"; ensure ;;
 	name) session_container ;;
+	name-all) sandbox_docker ps --filter "label=$POTS_SESSION_LABEL" --filter status=running --format '{{.Names}}' ;;
+	inventory) session_exec "$2" hc ls --all --json ;;
+	bot-status) session_exec "$2" pots status ;;
+	router-current) router_current "$2" ;;
+	restart-router) restart_router "$2" ;;
+	health) shift; health "$@" && router_ready "$1" ;;
 	stop) stop ;;
 	restart) hold_lock "$@"; stop && ensure ;;
+	select-release)
+		hold_lock "$@"
+		[ -n "${POTS_RELEASE_CHECKOUT:-}" ] || exit 2
+		stop
+		[ "$POTS_LAUNCHER" != sealskin ] || "$POTS_REPO/bin/sealskin-apply"
+		ensure
+		;;
 	*) echo "usage: pots-session ensure|name|stop|restart" >&2; exit 2 ;;
 esac

@@ -7,6 +7,7 @@ import runpy
 import shutil
 import socket
 import socketserver
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -33,6 +34,9 @@ class BrokerStartupTests(unittest.TestCase):
         self.script = self.root / 'vm' / 'vault-broker'
         self.script.parent.mkdir()
         shutil.copyfile(ROOT / 'vm/vault-broker', self.script)
+        library = self.root / 'lib'
+        library.mkdir()
+        shutil.copyfile(ROOT / 'lib/launch.py', library / 'launch.py')
         session = self.root / 'session'
         session.mkdir()
         identity = self.root / 'identity.json'
@@ -80,7 +84,8 @@ class BrokerStartupTests(unittest.TestCase):
         self.read_reply = self.exchange(server, READ)
 
     def start(self, environment):
-        with patch.dict(os.environ, environment, clear=True):
+        with patch.dict(os.environ, environment, clear=True), patch.dict(sys.modules):
+            sys.modules.pop('launch', None)
             runpy.run_path(str(self.script), run_name='__main__')
         self.serve_requests.assert_called_once()
 
