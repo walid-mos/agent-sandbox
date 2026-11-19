@@ -19,7 +19,7 @@ function startMerge(workspace, base) {
 
 function prepareResolution(pull, save) {
   const record = requireRecord(pull, 'conflict');
-  const facts = requireActionable(pull);
+  const facts = requireActionable(record);
   if (facts.isCrossRepository) throw new Error(`factory: ${pullUrl(pull)} comes from a fork, where the factory cannot push. Escalate it.`);
   refreshMirror(pull.repository);
   const workspace = join(RESOLUTIONS, pullKey(pull));
@@ -54,8 +54,8 @@ function pushResolution(pull, save) {
   const record = requireRecord(pull, 'conflict');
   if (!record.resolution) throw new Error(`factory: ${pullUrl(pull)} has no resolution under way. Run resolve first.`);
   const { workspace, branch } = record.resolution;
-  const commit = resolvedCommit(workspace, { head: pull.head, ...record.resolution });
-  requireActionable(pull);
+  const commit = resolvedCommit(workspace, { ...record.resolution, head: record.head });
+  requireActionable(record);
   git(workspace, ['push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`]);
   save({ ...record, stage: 'resolved', resolution: { ...record.resolution, commit } });
   rmSync(workspace, { recursive: true, force: true });

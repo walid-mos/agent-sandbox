@@ -9,9 +9,13 @@ export const factory = fileURLToPath(new URL('./factory.mjs', import.meta.url));
 export const head = '0123456789abcdef0123456789abcdef01234567';
 export const otherHead = 'abcdef0123456789abcdef0123456789abcdef01';
 export const checked = { repository: 'walid-mos/agent-sandbox', number: 22, head, generation: 0, stage: 'checked', base: 'main', branch: 'fix/example', mergeBase: otherHead, checks: [{ name: 'check', isPassed: true }] };
-export const ready = { state: 'OPEN', isDraft: false, headRefOid: head, baseRefName: 'main' };
+export const ready = { state: 'OPEN', isDraft: false, headRefOid: head, headRefName: checked.branch, baseRefName: checked.base, mergeable: 'MERGEABLE' };
+export const resolvedHead = 'fedcba9876543210fedcba9876543210fedcba98';
+export const retargeted = { ...ready, baseRefName: 'release' };
+export const releaseBase = '0123456789abcdefabcdef0123456789abcdef01';
+const draftScan = [{ number: checked.number, headRefOid: head, isDraft: true }];
 
-export function fixture(t) {
+export function fixture(t, { facts = ready, scanFacts = draftScan } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'factory-review-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const callsFile = join(home, 'calls.jsonl');
@@ -24,11 +28,10 @@ export function fixture(t) {
     return next(specifier, context);
   } });`;
   const loaderFlag = `--import=data:text/javascript,${encodeURIComponent(loader)}`;
-  const scanFacts = { number: checked.number, headRefOid: head, isDraft: true };
   const reentryFile = join(home, 'reentry.json');
-  const run = (args, facts = ready, topics = ['factory']) => spawnSync(process.execPath,
+  const run = (args, liveFacts = facts, topics = ['factory']) => spawnSync(process.execPath,
     [loaderFlag, ...args], {
-      encoding: 'utf8', env: { HOME: home, PATH: home, CALLS: callsFile, FACTS: JSON.stringify(facts), TOPICS: JSON.stringify(topics), REENTRY: reentryFile, FAIL_WAKE: failWakeFile, SCAN_FACTS: JSON.stringify([scanFacts]), REPOSITORY: checked.repository, LOCK_FACTS: lockFactsFile, FLOCK: realFlock },
+      encoding: 'utf8', env: { HOME: home, PATH: home, CALLS: callsFile, FACTS: JSON.stringify(liveFacts), TOPICS: JSON.stringify(topics), REENTRY: reentryFile, FAIL_WAKE: failWakeFile, SCAN_FACTS: JSON.stringify(scanFacts), REPOSITORY: checked.repository, LOCK_FACTS: lockFactsFile, FLOCK: realFlock },
     });
   const reenterOn = (match, command, ...args) => {
     writeFileSync(reentryFile, JSON.stringify({ match, args: [loaderFlag, ...command.split(' ').slice(2), ...args] }));
@@ -77,9 +80,15 @@ if (command === 'gh' && args[0] === 'repo' && args[1] === 'list') {
 if (command === 'gh' && args[0] === 'api' && args[1] === 'graphql') {
   process.stdout.write(JSON.stringify([{ data: { repository: { pullRequests: { nodes: [] } } } }]));
 } else if (command === 'gh' && args[0] === 'api') process.stdout.write(process.env.TOPICS);
-if (command === 'git') process.stdout.write('Fixture diff');
+if (command === 'git') {
+  const verb = args[2];
+  if (verb === 'diff' && !args.includes('--diff-filter=U')) process.stdout.write('Fixture diff');
+  if (verb === 'rev-parse') process.stdout.write('${otherHead}');
+  if (verb === 'rev-list') process.stdout.write('${resolvedHead} ${head} ${otherHead}');
+  if (verb === 'merge-base' && args[3] === 'refs/heads/${retargeted.baseRefName}') process.stdout.write('${releaseBase}');
+}
 `, { mode: 0o700 });
-  for (const name of ['gh', 'git', 'pots', 'flock']) symlinkSync(fake, join(home, name));
+  for (const name of ['gh', 'git', 'pots', 'flock', 'docker']) symlinkSync(fake, join(home, name));
   const calls = () => readFileSync(callsFile, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   const changePullAtLock = facts => {
     writeFileSync(callsFile, '');
@@ -97,8 +106,11 @@ export function handoff({ run, calls }, record) {
     const record = JSON.parse(process.argv[1]);
     deliverWakes(withRecord(record, (_, save) => save(queueFactoryWake(record))));`, JSON.stringify(record)]);
   assert.equal(result.status, 0, result.stderr);
-  const wake = calls().findLast(call => call.includes('factory-watch'));
-  return JSON.parse(wake.at(-1)).commands;
+  return reviewWakes({ calls }).at(-1).commands;
+}
+
+export function reviewWakes({ calls }) {
+  return calls().filter(call => call[0] === 'pots' && call.includes('factory-watch')).map(call => JSON.parse(call.at(-1)));
 }
 
 export function action({ run }, command, ...arguments_) {

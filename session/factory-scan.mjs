@@ -1,5 +1,5 @@
 import { probe, runChecks } from './factory-checks.mjs';
-import { draftCandidates, draftFacts, draftPulls, FACTORY_TOPIC, readyPulls, watchedRepositories } from './factory-github.mjs';
+import { draftCandidates, draftFacts, draftPulls, FACTORY_TOPIC, isReadyHead, pullFacts, readyPulls, watchedRepositories } from './factory-github.mjs';
 import { mergeBase, refreshMirror } from './factory-mirror.mjs';
 import { logDirectory, pullUrl, readRecord, recordedHeads, withRecord } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
@@ -10,11 +10,16 @@ import { workers } from './workers.mjs';
 // GitHub computes mergeability in the background, so a pull request it has not computed yet waits for the next scan.
 const isDecidable = pull => pull.mergeable === 'MERGEABLE' || pull.mergeable === 'CONFLICTING';
 const CHECKS_MISSING = 'checks-missing';
+const CHECKED = 'checked';
 const HELD = 'held';
 
-// A head reported for missing checks is taken again once its repository's checks are defined, and a head that went back to draft once it is ready again.
-function isNew(record, isChecked) {
-  return !record || record.stage === HELD || (isChecked && record.stage === CHECKS_MISSING);
+function isRetargetedReview(pull, record) {
+  return record?.stage === CHECKED && record.base !== pull.base;
+}
+
+function isNew({ pull, previous }, isChecked) {
+  if (!previous || previous.stage === HELD) return true;
+  return isChecked && (previous.stage === CHECKS_MISSING || isRetargetedReview(pull, previous));
 }
 
 function isSameStage({ stage, generation } = {}, { stage: expectedStage, generation: expectedGeneration } = {}) {
@@ -26,7 +31,7 @@ function newHeads(repository, isChecked) {
     .map(pull => ({ repository, number: pull.number, head: pull.headRefOid, base: pull.baseRefName, branch: pull.headRefName, mergeable: pull.mergeable }))
     .filter(isDecidable)
     .map(pull => ({ pull, previous: readRecord(pull) }))
-    .filter(({ previous }) => isNew(previous, isChecked));
+    .filter(candidate => isNew(candidate, isChecked));
 }
 
 function holdRecord(previous) {
@@ -62,7 +67,7 @@ function check(subject) {
   const checks = runChecks(subject, base, logDirectory(subject));
   const failed = checks.find(result => !result.isPassed);
   if (failed) return queueReport({ ...subject, stage: 'checks-failed', mergeBase: base, checks }, failedCheckText(subject, failed));
-  return queueFactoryWake({ ...subject, stage: 'checked', mergeBase: base, checks });
+  return queueFactoryWake({ ...subject, stage: CHECKED, mergeBase: base, checks });
 }
 
 function reportMissingChecks({ mergeable, ...subject }) {
@@ -74,11 +79,20 @@ function handle({ mergeable, ...subject }) {
   return check(subject);
 }
 
+function isCurrentCandidate(pull) {
+  const facts = pullFacts(pull);
+  return isReadyHead(pull, facts) && facts.baseRefName === pull.base
+    && facts.headRefName === pull.branch && facts.mergeable === pull.mergeable;
+}
+
 function recordCandidate({ pull, previous }, step) {
   return withRecord(pull, (record, save) => {
     if (!isSameStage(record, previous)) return undefined;
+    const isRetargeted = isRetargetedReview(pull, record);
+    if (isRetargeted && !isCurrentCandidate(pull)) return undefined;
     const { generation = 0, stage, pendingWakes } = record ?? {};
-    return save(step({ ...pull, generation: stage === HELD ? generation + 1 : generation, pendingWakes }));
+    const nextGeneration = stage === HELD || isRetargeted ? generation + 1 : generation;
+    return save(step({ ...pull, generation: nextGeneration, pendingWakes }));
   });
 }
 
