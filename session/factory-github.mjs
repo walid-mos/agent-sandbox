@@ -75,15 +75,19 @@ function requireTopic(repository) {
   if (!hasFactoryTopic(topicNames)) throw new Error(`factory: ${repository} no longer has the ${FACTORY_TOPIC} topic, so the factory leaves its pull requests alone.`);
 }
 
-export function requireActionable(pull) {
-  if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
-  const facts = pullFacts(pull);
+function requireCurrentReview(pull, facts) {
   if (facts.state !== 'OPEN' || facts.isDraft || facts.headRefOid !== pull.head) {
     throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);
   }
   if (facts.baseRefName !== pull.base) {
     throw new Error(`factory: ${pullUrl(pull)} now targets ${facts.baseRefName}, and this step covers ${pull.base} only. The next scan takes this head against its new base.`);
   }
+}
+
+export function requireActionable(pull) {
+  if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
+  const facts = pullFacts(pull);
+  requireCurrentReview(pull, facts);
   requireTopic(pull.repository);
   checkSteps(pull.repository);
   return facts;
