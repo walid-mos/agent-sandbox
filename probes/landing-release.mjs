@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { releaseGit } from '../session/factory-release-git.mjs';
 import { publishReviewedRelease } from '../session/factory-release.mjs';
 
-const [root, sharedRecord, remote, clone, policy, source, scenario] = process.argv.slice(2);
+const [root, sharedRecord, remote, clone, policy, source, scenario, mergeCommit] = process.argv.slice(2);
 const { withRecord, readRecord } = await import(pathToFileURL(`${sharedRecord}/factory-records.mjs`));
 const { bindReview, requireReview } = await import(pathToFileURL(`${sharedRecord}/factory-review.mjs`));
 const proof = JSON.parse(readFileSync(`${root}/request.json`, 'utf8'));
@@ -29,7 +29,13 @@ withRecord(checked, (_, save) => {
 });
 const publish = overrides => withRecord(checked, (record, save) => publishReviewedRelease(record, save, { ...authority, ...overrides }));
 
-if (scenario === 'moved') {
+if (scenario === 'squash-record') {
+  withRecord(checked, (record, save) => {
+    assert.equal(record.stage, 'judged');
+    save({ ...record, stage: 'merged', mergeCommit });
+  });
+  process.stdout.write(JSON.stringify({ reviewId, review: readRecord(checked) }));
+} else if (scenario === 'moved') {
   const raced = { ...git, publish(commit, request) {
     execFileSync('git', ['--git-dir', remote, 'update-ref', request.ref, head, base]);
     git.publish(commit, request);

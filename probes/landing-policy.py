@@ -179,7 +179,7 @@ def load_signer(source):
     return module
 
 
-def run_release(fixture, shared_revision, scenario):
+def run_release(fixture, shared_revision, scenario, *, merge_commit=None):
     policy = Path(__file__).resolve()
     shared = fixture.root / "review-source"
     if not shared.exists():
@@ -190,8 +190,10 @@ def run_release(fixture, shared_revision, scenario):
     node = shutil.which("node")
     if node is None:
         raise RuntimeError("landing release fixture needs Node.js on PATH.")
+    extra = (merge_commit,) if merge_commit else ()
     result = run(node, str(policy.with_name("landing-release.mjs")), str(fixture.root), str(shared), str(fixture.remote), str(fixture.clone),
-                 str(policy), str(fixture.source), scenario, environment={**FIXED_ENVIRONMENT, "HOME": str(fixture.root)}, stderr=None)
+                 str(policy), str(fixture.source), scenario, *extra,
+                 environment={**FIXED_ENVIRONMENT, "HOME": str(fixture.root)}, stderr=None)
     return json.loads(result) if result else None
 
 

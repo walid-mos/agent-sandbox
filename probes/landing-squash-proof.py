@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import runpy
@@ -68,7 +69,20 @@ def create_squash(fixture, request, live_base):
     return {key: request[key] for key in ('repository', 'number', 'head', 'ref')} | {'state': 'MERGED', 'squash': squash}
 
 
-def next_checkpoint(fixture, request):
+def require_bound_review(request, squash, checkpoint):
+    review = checkpoint['review']
+    fields = ('repository', 'number', 'head', 'generation')
+    identity = [request[field] for field in fields]
+    review_id = hashlib.sha256(json.dumps(identity, separators=(',', ':')).encode()).hexdigest()
+    if (checkpoint['reviewId'] != review_id or [review[field] for field in fields] != identity
+            or review['stage'] != 'merged' or review['mergeCommit'] != squash
+            or review['mergeBase'] != request['base'] or 'refs/heads/' + review['base'] != request['ref']
+            or review['verdict'] != 'PASS' or not review['checks']
+            or not all(check['isPassed'] is True for check in review['checks'])):
+        raise ValueError('merged record differs from the bound checked review')
+
+
+def next_checkpoint(fixture, request, review_source):
     test = unittest.TestCase()
     fixture.git('update-ref', request['ref'], request['base'])
     facts = create_squash(fixture, request, request['base'])
@@ -81,8 +95,12 @@ def next_checkpoint(fixture, request):
         sign_checkpoint(fixture, {**request, 'base': request['head']}, facts)
     with test.assertRaisesRegex(ValueError, 'checked base or tree'):
         sign_checkpoint(fixture, {**request, 'tree': fixture.git('rev-parse', f"{request['base']}^{{tree}}")}, facts)
+    checked = POLICY['run_release'](fixture, review_source, 'squash-record', merge_commit=squash)
+    require_bound_review(request, squash, checked)
+    with test.assertRaisesRegex(ValueError, 'bound checked review'):
+        require_bound_review({**request, 'generation': request['generation'] + 1}, squash, checked)
     signed = sign_checkpoint(fixture, request, facts)
-    receipt = {'request': request, 'squash': squash, 'tagObject': signed}
+    receipt = {**checked, 'request': request, 'squash': squash, 'tagObject': signed}
     saved = fixture.root / f'{squash}.json'
     saved.write_text(json.dumps(receipt))
     publish_checkpoint(fixture, receipt)
@@ -103,10 +121,10 @@ def reject_raced_squash(fixture):
     unittest.TestCase().assertEqual(fixture.git('tag', '--list', TAG_NAME + '*'), '')
 
 
-def export_proof(fixture, output):
+def export_proof(fixture, output, review_source):
     checkpoints = []
     for index in range(SERIES['RELEASE_COUNT']):
-        checkpoint = next_checkpoint(fixture, fixture.request)
+        checkpoint = next_checkpoint(fixture, fixture.request, review_source)
         checkpoints.append(checkpoint)
         if index + 1 < SERIES['RELEASE_COUNT']:
             fixture.request = SERIES['next_review'](fixture, checkpoint['squash'], fixture.request['number'] + 1)
@@ -115,7 +133,7 @@ def export_proof(fixture, output):
     run('git', '--git-dir', str(fixture.remote), 'bundle', 'create', str(output / 'squashes.bundle'), fixture.request['ref'], *refs)
     (output / 'factory-public.asc').write_text(fixture.public_key(fixture.factory, fixture.factory_key))
     (output / 'operator-public.asc').write_text(fixture.public_key(fixture.operator, fixture.operator_key))
-    return {'producerSource': run('git', '-C', str(ROOT), 'rev-parse', 'HEAD'), 'anchor': fixture.base,
+    return {'producerSource': run('git', '-C', str(ROOT), 'rev-parse', 'HEAD'), 'reviewSource': review_source, 'anchor': fixture.base,
             'target': fixture.request['ref'], 'tip': checkpoints[-1]['squash'], 'checkpoints': checkpoints}
 
 
@@ -152,6 +170,8 @@ def verify_bundle(store, output, proof, env):
         return run('git', '--no-replace-objects', '--git-dir', str(store), *args, **options)
 
     target, anchor = proof['target'], proof['anchor']
+    if target != SERIES['FIXTURE_TARGET']:
+        raise ValueError('unexpected fixture target')
     git('fetch', '--no-tags', str(output / 'squashes.bundle'), f'{target}:{target}',
         f'{TAG_REF}*:{TAG_REF}*', f'{HEAD_REF}*:{HEAD_REF}*')
     run('python3', '-I', str(ROOT / 'lib/signed_commit.py'), 'verify', str(store), anchor, str(output / 'operator-public.asc'))
@@ -164,7 +184,11 @@ def verify_bundle(store, output, proof, env):
     for squash, row in zip(chain, proof['checkpoints'], strict=True):
         if git('rev-parse', TAG_REF + squash) != row['tagObject']:
             raise ValueError('signed tag ID differs from the export receipt')
-        verify_checkpoint(git, env, row['request'], squash, base)
+        request = row['request']
+        if (request['repository'], request['ref']) != (SERIES['FIXTURE_REPOSITORY'], target):
+            raise ValueError('unexpected fixture repository or target')
+        require_bound_review(request, squash, row)
+        verify_checkpoint(git, env, request, squash, base)
         base = squash
     middle = proof['checkpoints'][1]
     ref = TAG_REF + middle['squash']
@@ -181,11 +205,15 @@ def main():
     operation = parser.add_mutually_exclusive_group(required=True)
     operation.add_argument('--export', type=Path)
     operation.add_argument('--verify', type=Path)
+    parser.add_argument('--review-source', metavar='COMMIT')
     args = parser.parse_args()
     if args.verify:
         output = args.verify.resolve()
         proof = json.loads((output / 'squashes.json').read_text())
     else:
+        if not args.review_source:
+            parser.error('--export requires --review-source')
+        review_source = run('git', '-C', str(ROOT), 'rev-parse', '--verify', f'{args.review_source}^{{commit}}')
         output = args.export.resolve()
         fixture = POLICY['LandingPolicy']()
         try:
@@ -196,7 +224,7 @@ def main():
         fixture = POLICY['LandingPolicy']()
         try:
             fixture.setUp()
-            proof = export_proof(fixture, output)
+            proof = export_proof(fixture, output, review_source)
         finally:
             fixture.doCleanups()
         (output / 'squashes.json').write_text(json.dumps(proof, indent=2) + '\n')
