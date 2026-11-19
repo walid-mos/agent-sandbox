@@ -12,7 +12,7 @@ import { deliverWakes, queueReport, reportToPrincipal } from './factory-reports.
 import { requireBinding } from './factory-review.mjs';
 import { push, resolve } from './factory-resolve.mjs';
 import { tryFactoryLock } from './factory-runner.mjs';
-import { scan } from './factory-scan.mjs';
+import { scanMaintenance, scanReady } from './factory-scan.mjs';
 import { JOB_DIRECTORY, requireCurrent, withJobs } from './factory-state.mjs';
 import { verdict } from './factory-verdict.mjs';
 import { main, runOperation } from './main.mjs';
@@ -83,17 +83,22 @@ function runReview(jobs, operation, id, arguments_) {
   }
 }
 
-async function discover() {
-  const unlock = tryFactoryLock(JOB_DIRECTORY, 'discovery');
-  if (!unlock) throw new Error('factory: discovery already running');
+async function scanWithLock(phase, operation) {
+  const unlock = tryFactoryLock(JOB_DIRECTORY, phase);
+  if (!unlock) throw new Error(`factory: ${phase} already running`);
   try {
-    await withJobs(jobs => {
-      const wake = jobs.pendingWake();
-      return wake ? scan(wake) : undefined;
-    });
+    await withJobs(operation);
   } finally {
     unlock();
   }
+}
+
+const discoverReady = () => scanWithLock('discovery', jobs => jobs.pendingWake() ? scanReady(jobs) : undefined);
+const maintain = () => scanWithLock('maintenance', jobs => jobs.pendingMaintenance() ? scanMaintenance(jobs) : undefined);
+
+async function discover() {
+  await discoverReady();
+  await maintain();
 }
 
 const common = { probe: () => process.stdout.write(`${probe()}\n`) };
@@ -101,6 +106,8 @@ const legacy = { ...common, scan: scanLegacy, show, verdict, resolve, push, esca
 const durable = {
   ...common,
   scan: discover,
+  'scan-ready': discoverReady,
+  'scan-maintenance': maintain,
   reconcile: () => withJobs(jobs => jobs.reconcile()),
   show: review(show),
   verdict: review(verdict),

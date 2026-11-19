@@ -114,7 +114,7 @@ function holdDraftReview(jobs, { repository, number }) {
   withRecord(record, (current, save) => {
     if (current?.generation !== generation || current.stage === 'held' || current.squashPublication || jobs.current(current) !== generation) return;
     const facts = pullFacts(current);
-    if (facts.state === 'OPEN' && facts.isDraft === true && facts.headRefOid === current.head) {
+    if (facts.state === 'OPEN' && facts.isDraft === true && facts.headRefOid === current.head && jobs.current(current) === generation) {
       return save({ ...current, stage: 'held' });
     }
     return current;
@@ -134,13 +134,20 @@ function recoverPublications(repositories) {
   }
 }
 
+export function scanReady(jobs, repositories = watchedRepositories()) {
+  const revisions = new Map();
+  return discoverReady(jobs, repositories, subject => observeInputs(reviewSubject(subject), revisions));
+}
+
+export function scanMaintenance(jobs, repositories = watchedRepositories()) {
+  recoverPublications(repositories);
+  scanStaleDrafts(repositories, subject => holdDraftReview(jobs, subject));
+}
+
 export function scan({ routine }) {
   return withJobs(async jobs => {
     const repositories = watchedRepositories();
-    const revisions = new Map();
-    await discoverReady(jobs, repositories, subject => observeInputs(reviewSubject(subject), revisions));
-    if (!routine) return;
-    recoverPublications(repositories);
-    scanStaleDrafts(repositories, subject => holdDraftReview(jobs, subject));
+    await scanReady(jobs, repositories);
+    if (routine) scanMaintenance(jobs, repositories);
   });
 }
