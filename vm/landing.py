@@ -158,23 +158,27 @@ class SquashSigner(Signer):
             raise Refused("landing: the squash is outside the target first-parent history.")
 
     def require_previous_squash(self, request, previous):
-        squash = previous["request"]["squash"]
+        evidence = previous["request"]
+        squash = evidence["landed"]["head"] if "landed" in evidence else evidence["squash"]
+        reviewed = evidence.get("original", evidence)
         if request["base"] != squash or previous["fingerprint"] != self.key:
             raise Refused("landing: the squash must extend the preceding signed checkpoint.")
         tag, head = f"refs/tags/{SQUASH_TAG}{squash}", REVIEWED_TAG + squash
-        expected = {f"{previous['tag']}\t{tag}", f"{previous['request']['head']}\t{head}"}
+        expected = {f"{previous['tag']}\t{tag}", f"{reviewed['head']}\t{head}"}
         if set(self.git("ls-remote", "--refs", self.origin, tag, head).splitlines()) != expected:
             raise Refused("landing: the preceding squash evidence has not been confirmed on the origin.")
 
-    def construct_tag(self, request):
-        name = SQUASH_TAG + request["squash"]
-        message = f"{SQUASH_HEADER}\n\n{json.dumps(request, sort_keys=True, separators=(',', ':'))}\n"
+    def construct_tag(self, request, squash, subject):
+        name = SQUASH_TAG + squash
+        message = f"{subject}\n\n{json.dumps(request, sort_keys=True, separators=(',', ':'))}\n"
         self.git("-c", "gpg.format=openpgp", "-c", "gpg.program=/usr/bin/gpg", "tag", "--force", "--cleanup=verbatim",
-                 "-u", self.key, "-F", "-", name, request["squash"], input=message.encode(), environment=self.signing_environment())
+                 "-u", self.key, "-F", "-", name, squash, input=message.encode(), environment=self.signing_environment())
         tag = self.git("rev-parse", f"refs/tags/{name}")
         return {"tag": tag, "object": self.encode_object("tag", tag), "fingerprint": self.key, "request": request}
 
     def sign(self, evidence):
+        if isinstance(evidence, dict) and set(evidence) == {"original", "landed"}:
+            return self.sign_recovery(evidence)
         if not isinstance(evidence, dict):
             raise Refused("landing: expected a squash evidence request.")
         request = {key: value for key, value in evidence.items() if key != "squash"}
@@ -184,13 +188,34 @@ class SquashSigner(Signer):
             raise Refused("landing: expected the full landed squash object ID.")
         self.fetch(request)
         self.require_landed(request, squash)
+        self.git("merge-base", "--is-ancestor", request["base"], request["head"])
+        if self.git("rev-parse", f"{request['head']}^{{tree}}") != request["tree"]:
+            raise Refused("landing: the proposed tree differs from the checked head.")
+        return self.certify(evidence, request, squash, SQUASH_HEADER)
+
+    def sign_recovery(self, evidence):
+        original, landed = evidence["original"], evidence["landed"]
+        self.validate(original)
+        if not isinstance(landed, dict) or set(landed) != {"head", "generation", "base", "tree"}:
+            raise Refused("landing: expected the bound landed review tuple.")
+        request = {**original, **landed}
+        self.validate(request)
+        if (original["base"], original["tree"]) == (landed["base"], landed["tree"]):
+            raise Refused("landing: an unchanged squash needs ordinary evidence.")
+        self.fetch(original)
+        self.require_landed(landed, landed["head"])
+        self.git("merge-base", "--is-ancestor", original["base"], original["head"])
+        self.git("merge-base", "--is-ancestor", original["base"], landed["base"])
+        if self.git("rev-parse", f"{original['head']}^{{tree}}") != original["tree"]:
+            raise Refused("landing: the original tree differs from the checked head.")
+        return self.certify(evidence, request, landed["head"], "Factory squash recovery v1")
+
+    def certify(self, evidence, request, squash, subject):
         previous = self.previous()
         if previous.get("request") == evidence and previous.get("fingerprint") == self.key:
             return previous
         if previous:
             self.require_previous_squash(request, previous)
-            prior = {**previous, "commit": previous["request"]["squash"]}
         else:
-            prior = previous
-        self.verify_release(request, prior)
-        return self.save(self.construct_tag(evidence))
+            self.verify_release(request, {})
+        return self.save(self.construct_tag(evidence, squash, subject))

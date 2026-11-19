@@ -16,16 +16,24 @@ function storeSquashEvidence(git, release, request) {
   const messageStart = object.indexOf('\n\n');
   const [target, type, name] = object.slice(0, messageStart).split('\n');
   const message = object.slice(messageStart + 2);
-  const payload = JSON.stringify(Object.fromEntries(Object.keys(request).sort().map(key => [key, request[key]])));
-  const expected = `${squashSubject}\n\n${payload}\n-----BEGIN PGP SIGNATURE-----\n`;
-  if (target !== `object ${request.squash}` || type !== 'type commit'
-      || name !== `tag ${squashTagName(request.squash)}` || !message.startsWith(expected)) {
+  const squash = request.landed?.head ?? request.squash;
+  const subject = request.landed ? 'Factory squash recovery v1' : squashSubject;
+  const expected = `${subject}\n\n${canonicalJson(request)}\n-----BEGIN PGP SIGNATURE-----\n`;
+  if (target !== `object ${squash}` || type !== 'type commit'
+      || name !== `tag ${squashTagName(squash)}` || !message.startsWith(expected)) {
     throw new Error('factory: the tag does not bind the approved squash.');
   }
   return tag;
 }
 
-function publishSquashEvidence(git, origin, tag, { squash, head }) {
+function canonicalJson(value) {
+  return JSON.stringify(value, (_, item) => item && typeof item === 'object'
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+}
+
+function publishSquashEvidence(git, origin, tag, request) {
+  const squash = request.landed?.head ?? request.squash;
+  const head = request.original?.head ?? request.head;
   const refs = [squashTagRef(squash), reviewedHeadRef(squash)];
   const expected = [`${tag}\t${refs[0]}`, `${head}\t${refs[1]}`].sort().join('\n');
   const readback = () => git(['ls-remote', '--refs', origin, ...refs]).split('\n').sort().join('\n');
@@ -59,12 +67,18 @@ export function releaseGit(directory, origin) {
     },
     requireCandidate: (commit, request) => requireCandidate(git, commit, request),
     requireLandedSquash(commit, request) {
-      const [tip, ref] = git(['ls-remote', '--refs', '--exit-code', origin, request.ref]).split('\t');
-      if (ref !== request.ref || !/^[a-f0-9]{40}$/.test(tip)) throw new Error('factory: could not establish the squash target tip.');
+      const landed = this.inspectSquash(commit, request.ref);
+      if (landed.base !== request.base || landed.tree !== request.tree) throw new Error('factory: the candidate must have only the checked base as its parent and the checked tree.');
+    },
+    inspectSquash(commit, target) {
+      const tip = this.tip(target);
+      if (!/^[a-f0-9]{40}$/.test(tip)) throw new Error('factory: could not establish the squash target tip.');
       git(['fetch', '--no-tags', '--no-write-fetch-head', origin, tip]);
-      requireCandidate(git, commit, request);
-      const history = git(['rev-list', '--first-parent', tip, `^${request.base}`]).split('\n');
+      const [base, tree] = git(['show', '-s', '--format=%P%n%T', commit]).split('\n');
+      if (!/^[a-f0-9]{40}$/.test(base)) throw new Error('factory: the squash must have exactly one parent.');
+      const history = git(['rev-list', '--first-parent', tip, `^${base}`]).split('\n');
       if (!history.includes(commit)) throw new Error('factory: the squash is outside the target first-parent history.');
+      return { head: commit, base, tree };
     },
     storeSquashEvidence: (release, request) => storeSquashEvidence(git, release, request),
     publishSquashEvidence: (tag, request) => publishSquashEvidence(git, origin, tag, request),

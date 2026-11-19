@@ -8,7 +8,7 @@ export const isRetiredSessionFactory = botId === launch.POTS_SIGNING_FACTORY_BOT
 export const landingRepository = launch.POTS_LANDING_REPOSITORY;
 export const REPORT_SOURCE = launch.POTS_FACTORY_REPORT_SOURCE;
 export const LANDING_BRANCH = 'main';
-export const isLandingPull = pull => pull.repository === landingRepository && pull.base === LANDING_BRANCH;
+export const isLandingPull = pull => pull.repository.toLowerCase() === landingRepository.toLowerCase() && pull.base === LANDING_BRANCH;
 
 export function requireFactoryRuntime() {
   if (isRetiredSessionFactory) {
@@ -17,7 +17,8 @@ export function requireFactoryRuntime() {
 }
 
 export function requireLandingAuthority(repository) {
-  if (repository === landingRepository && (!isIsolatedFactory || !existsSync(launch.POTS_LANDING_SOCKET))) {
-    throw new Error('factory: host-code publication requires the private signer socket in the isolated factory.');
+  if (repository.toLowerCase() !== landingRepository.toLowerCase()) return;
+  if (launch.POTS_LANDING_SQUASH_ENROLLED !== '1' || !isIsolatedFactory || !existsSync(launch.POTS_LANDING_SOCKET)) {
+    throw new Error('factory: host-code publication requires explicit native squash enrollment and the private signer socket in the isolated factory.');
   }
 }

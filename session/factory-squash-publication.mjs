@@ -1,9 +1,10 @@
 import { isDeepStrictEqual } from 'node:util';
 import { releaseRequest } from './factory-release.mjs';
 
-const PENDING = 'squash-pending';
+export const PENDING = 'squash-pending';
 const OBSERVED = 'squash-observed';
 const SIGNED = 'squash-signed';
+export const isPendingSquash = record => [PENDING, OBSERVED, SIGNED].includes(record?.stage);
 const PUBLISHED = 'published';
 const COMMIT_ID = /^[a-f0-9]{40}$/;
 
@@ -25,7 +26,6 @@ function observeMerge(record, request, authority) {
   }
   const observed = record.squashPublication.squash;
   if (observed !== undefined && observed !== squash) throw new Error('factory: the recorded squash differs from merge readback.');
-  authority.git.requireLandedSquash(squash, request);
   return squash;
 }
 
@@ -40,12 +40,17 @@ function publishEvidence(record, save, request, authority) {
 
 export function finishSquashPublication(record, save, authority) {
   if (record.stage === PUBLISHED && record.squashPublication?.release) return record;
-  if (![PENDING, OBSERVED, SIGNED].includes(record.stage)) throw new Error('factory: no bound native squash is pending.');
+  if (!isPendingSquash(record)) throw new Error('factory: no bound native squash is pending.');
   const request = releaseRequest(record, authority);
   if (!isDeepStrictEqual(record.squashPublication?.request, request)) throw new Error('factory: the saved squash intent differs from the approved review.');
   const squash = observeMerge(record, request, authority);
-  const evidence = { ...request, squash };
-  const observed = record.stage === PENDING ? save({ ...record, stage: OBSERVED, squashPublication: { request, squash } }) : record;
+  const landed = authority.git.inspectSquash(squash, request.ref);
+  const raced = landed.base !== request.base || landed.tree !== request.tree;
+  if (raced && !authority.recovery) authority.git.requireLandedSquash(squash, request);
+  const observed = record.stage === PENDING ? save({ ...record, stage: OBSERVED, squashPublication: { request, squash, landed } }) : record;
+  if (!isDeepStrictEqual(observed.squashPublication.landed, landed)) throw new Error('factory: the saved landed tuple differs from Git.');
+  const evidence = raced ? authority.recovery(observed, landed) : { ...request, squash };
+  if (!evidence) return observed;
   const signed = publishEvidence(observed, save, evidence, authority);
   const published = { ...signed, stage: PUBLISHED, mergeCommit: squash };
   return save(authority.queueReport(published, `PR factory verified ${request.repository}#${request.number} merged into ${record.base} as ${squash} and confirmed its signed release evidence.`));

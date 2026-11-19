@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { landingRepository } from './factory-authority.mjs';
 import { FACTORY_HOME } from './factory-records.mjs';
+import { releaseGit } from './factory-release-git.mjs';
 import { remoteUrl } from './github-url.mjs';
 import { command } from './run.mjs';
 
@@ -8,6 +10,7 @@ import { command } from './run.mjs';
 const MIRRORS = join(FACTORY_HOME, 'mirrors');
 
 const mirrorPath = repository => join(MIRRORS, `${repository}.git`);
+export const landingGit = () => releaseGit(mirrorPath(landingRepository), remoteUrl(landingRepository));
 const inMirror = (repository, arguments_, options) => command('git', ['-C', mirrorPath(repository), ...arguments_], options);
 
 export function refreshMirror(repository) {

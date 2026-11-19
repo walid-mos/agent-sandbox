@@ -1,15 +1,15 @@
 import { spawnSync } from 'node:child_process';
+import { isLandingPull, landingRepository, requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
+import { accorPublicationPolicy } from './accor-publication-policy.mjs';
 import { pullUrl } from './github-url.mjs';
 import { checkSteps } from './factory-repositories.mjs';
 import { command } from './run.mjs';
 import { owners, sandbox } from './sandbox.mjs';
-import { landingRepository, requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
-import { accorPublicationPolicy } from './accor-publication-policy.mjs';
 
 export const FACTORY_TOPIC = 'factory';
 const REPOSITORY_LIMIT = '1000';
 const LIST_FIELDS = 'number,headRefOid,headRefName,baseRefName,isDraft,mergeable';
-const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,baseRefOid,isDraft,isCrossRepository,mergeCommit';
+const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeCommit,mergeable';
 const DRAFT_LIST_QUERY = `query($owner: String!, $name: String!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(first: 100, after: $endCursor, states: OPEN) {
@@ -43,7 +43,7 @@ function topicRepositories(owner) {
 
 export const watchedRepositories = () => accorPublicationPolicy(sandbox) ? [] : owners.flatMap(topicRepositories);
 
-export function openPulls(repository) {
+function openPulls(repository) {
   return JSON.parse(gh(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', LIST_FIELDS]));
 }
 
@@ -76,26 +76,60 @@ function requireTopic(repository) {
   if (!hasFactoryTopic(topicNames)) throw new Error(`factory: ${repository} no longer has the ${FACTORY_TOPIC} topic, so the factory leaves its pull requests alone.`);
 }
 
-export function requireActionable(pull) {
+export function isReadyHead(pull, facts) {
+  return facts.state === 'OPEN' && !facts.isDraft && facts.headRefOid === pull.head;
+}
+
+function requireCurrentReview(pull, facts) {
+  if (!isReadyHead(pull, facts)) {
+    throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);
+  }
+  if (facts.baseRefName !== pull.base) {
+    throw new Error(`factory: ${pullUrl(pull)} now targets ${facts.baseRefName}, and this step covers ${pull.base} only. Use a fresh Factory attempt for the new target.`);
+  }
+}
+
+function requireFactoryAccess(pull) {
   requireFactoryRuntime();
   requireLandingAuthority(pull.repository);
   if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
-  const facts = pullFacts(pull);
-  if (facts.state !== 'OPEN' || facts.isDraft || facts.headRefOid !== pull.head) {
-    throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);
-  }
+}
+
+function requireRepositoryPolicy(pull) {
   requireTopic(pull.repository);
   checkSteps(pull.repository);
+}
+
+export function requireReviewPolicy(pull) {
+  requireFactoryAccess(pull);
+  requireRepositoryPolicy(pull);
+}
+
+export function requireActionable(pull) {
+  requireFactoryAccess(pull);
+  const facts = pullFacts(pull);
+  requireCurrentReview(pull, facts);
+  requireRepositoryPolicy(pull);
   return facts;
+}
+
+export function mergeReadback({ repository, number }) {
+  const pull = JSON.parse(gh(['api', `repos/${repository}/pulls/${number}`]));
+  return { repository: pull.base?.repo?.full_name, number: pull.number, head: pull.head?.sha,
+    ref: `refs/heads/${pull.base?.ref}`, state: pull.merged === true && pull.state === 'closed' ? 'MERGED' : pull.state,
+    squash: pull.merge_commit_sha };
 }
 
 export function comment({ repository, number }, bodyFile) {
   gh(['pr', 'comment', String(number), '--repo', repository, '--body-file', bodyFile]);
 }
 
-// GitHub refuses the merge when the head moved since the verdict, or when the pull request went back to draft, so a merge never lands code the verdict did not cover.
-export function squashMerge({ repository, number, head }) {
-  if (repository === landingRepository) throw new Error('factory: the GitHub squash operation cannot bind the checked target and base. Use the signed publication path once its review record integration is ready.');
+export function squashMerge(record) {
+  const { repository, number, head } = record;
+  if (repository.toLowerCase() === landingRepository.toLowerCase()) {
+    requireLandingAuthority(repository);
+    if (!isLandingPull(record) || record.stage !== 'squash-pending') throw new Error('factory: native squash requires a saved merge intent for the enrolled target.');
+  }
   const merge = spawnSync('gh', ['pr', 'merge', String(number), '--repo', repository, '--squash', '--match-head-commit', head], { encoding: 'utf8' });
-  return `${merge.stdout ?? ''}${merge.stderr ?? ''}`.trim();
+  return { isAccepted: merge.status === 0, output: `${merge.stdout ?? ''}${merge.stderr ?? ''}`.trim() };
 }

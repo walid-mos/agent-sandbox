@@ -1,70 +1,78 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FACTORY_BOT } from './factory-identity.mjs';
-import { FACTORY_HOME, pullKey, writeRecord } from './factory-records.mjs';
-import { pullUrl } from './github-url.mjs';
 import { isIsolatedFactory, REPORT_SOURCE } from './factory-authority.mjs';
 import { askFactory } from './factory-channel.mjs';
+import { pullKey, readRecord, withRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
+import { bindReview } from './factory-review.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 import { botId } from './sandbox.mjs';
 
+export const FACTORY_BOT = { name: 'Factory', id: 'factory' };
 // The scan routine's name, and the source of the wakes it sends, by which the Factory bot recognises them.
 export const WATCH = 'factory-watch';
 const SESSION = dirname(fileURLToPath(import.meta.url));
-const PRINCIPAL_SOURCE = 'pr-factory';
+const PRINCIPAL_SOURCE = REPORT_SOURCE;
 
 export const factoryCommand = (operation, ...arguments_) => [WITH_VAULT, 'node', join(SESSION, 'factory.mjs'), operation, ...arguments_].join(' ');
 
 const COMMANDS = {
-  checked: facts => ({
-    show: factoryCommand('show', ...facts),
-    verdict: factoryCommand('verdict', ...facts, 'VERDICT', 'NOTES_FILE'),
-    escalate: factoryCommand('escalate', ...facts, 'NOTE_FILE'),
-  }),
-  conflict: facts => ({
-    resolve: factoryCommand('resolve', ...facts),
-    push: factoryCommand('push', ...facts),
-    escalate: factoryCommand('escalate', ...facts, 'NOTE_FILE'),
-  }),
+  checked: pull => {
+    const review = bindReview(pull);
+    return {
+      show: factoryCommand('review', review, 'show'),
+      verdict: factoryCommand('review', review, 'verdict', 'VERDICT', 'NOTES_FILE'),
+      escalate: factoryCommand('review', review, 'escalate', 'NOTE_FILE'),
+    };
+  },
+  conflict: ({ repository, number, head }) => {
+    const facts = [repository, String(number), head];
+    return {
+      resolve: factoryCommand('resolve', ...facts),
+      push: factoryCommand('push', ...facts),
+      escalate: factoryCommand('escalate', ...facts, 'NOTE_FILE'),
+    };
+  },
 };
 
-// Each wake of these two goes out before its record is written, and its ID, one per stage, pull request and head commit, makes a rerun after a crash wake nobody twice.
-export function handToFactory(record) {
-  const { stage: event, ...pull } = record;
-  const facts = [pull.repository, String(pull.number), pull.head];
-  const note = { event, pullRequest: pullUrl(pull), ...pull, commands: COMMANDS[event](facts) };
-  command('pots', ['wake', '--bot', FACTORY_BOT.id, '--from', WATCH, '--id', `factory-${event}-${pullKey(pull)}-${pull.generation ?? 0}`, '--note', JSON.stringify(note)]);
-  return writeRecord(record);
+const wakeId = (prefix, record) => `${prefix}-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`;
+
+function queueWake(record, wake) {
+  return { ...record, pendingWakes: [...(record.pendingWakes ?? []), wake] };
 }
 
-const OUTBOX = join(FACTORY_HOME, 'report-outbox');
-
-export function flushReports() {
-  if (!isIsolatedFactory || !existsSync(OUTBOX)) return;
-  for (const name of readdirSync(OUTBOX).filter(name => name.endsWith('.json'))) {
-    const file = join(OUTBOX, name);
-    try {
-      askFactory('reports', JSON.parse(readFileSync(file, 'utf8')));
-      unlinkSync(file);
-    } catch (error) {
-      process.stderr.write(`factory: a Principal report remains queued in the isolated outbox: ${error instanceof Error ? error.message : String(error)}\n`);
-      return;
-    }
-  }
+export function queueFactoryWake(record) {
+  const { stage: event, pendingWakes, ...pull } = record;
+  const note = { event, pullRequest: pullUrl(pull), ...pull, commands: COMMANDS[event](pull) };
+  return queueWake({ ...record, pendingWakes }, { bot: FACTORY_BOT.id, source: WATCH, id: wakeId('factory', record), note: JSON.stringify(note) });
 }
 
-export function reportToPrincipal(record, text) {
-  const id = `${REPORT_SOURCE}-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`;
-  if (isIsolatedFactory) {
-    mkdirSync(OUTBOX, { recursive: true, mode: 0o700 });
-    writeFileSync(join(OUTBOX, `${id}.json`), JSON.stringify({ id, text }) + '\n', { mode: 0o600 });
-    writeRecord(record);
-    flushReports();
-    return record;
+export function queueReport(record, note) {
+  return queueWake(record, { bot: botId, source: PRINCIPAL_SOURCE, id: wakeId(PRINCIPAL_SOURCE, record), note });
+}
+
+function acknowledge(pull, id) {
+  withRecord(pull, (record, save) => {
+    if (!record?.pendingWakes?.some(wake => wake.id === id)) return;
+    const { pendingWakes, ...head } = record;
+    const remaining = pendingWakes.filter(wake => wake.id !== id);
+    save(remaining.length ? { ...head, pendingWakes: remaining } : head);
+  });
+}
+
+function deliverWake(record, { bot, source, id, note }) {
+  const current = readRecord(record);
+  if (!current?.pendingWakes?.some(wake => wake.id === id)) return;
+  if (source === PRINCIPAL_SOURCE && isIsolatedFactory) {
+    askFactory('reports', { id, text: note });
+  } else if (source !== WATCH || id === wakeId('factory', current)) {
+    command('pots', ['wake', '--bot', bot, '--from', source, '--id', id, '--note', note]);
   }
-  command('pots', ['wake', '--bot', botId, '--from', REPORT_SOURCE, '--id', id, '--note', text]);
-  return writeRecord(record);
+  acknowledge(record, id);
+}
+
+export function deliverWakes(record) {
+  for (const wake of record.pendingWakes ?? []) deliverWake(record, wake);
 }
 
 export function reportStaleDraft(pull, id, owner) {
