@@ -24,7 +24,7 @@ WRITABLE_BY_OTHERS = stat.S_IWGRP | stat.S_IWOTH
 ROOT = 0
 # Git refuses a clone another user owns; the ownership walk has already proven this one root-owned.
 CLONE_GIT_OPTIONS = ("-c", f"safe.directory={CLONE}")
-USAGE = 'usage: trusted_source.py scheduled|keep|initialize-receiver|status-receiver|update [--branch BRANCH]|run SCRIPT [ARGUMENT...]|verify'
+USAGE = 'usage: trusted_source.py scheduled|keep|initialize-receiver|status-receiver|bootstrap [--branch BRANCH]|update [--branch BRANCH]|run SCRIPT [ARGUMENT...]|verify'
 
 
 def clone_git(*arguments):
@@ -145,6 +145,14 @@ def initialize_receiver():
     return receiver_operation('initialize')
 
 
+def bootstrap(*arguments):
+    if os.path.lexists(RECEIVER):
+        if arguments:
+            raise Untrusted('trusted-source: the managed receiver holds this VM\'s release selection, so bootstrap takes no branch.')
+        return verify()
+    return update(*arguments)
+
+
 def status_receiver():
     return receiver_operation('status')
 
@@ -154,6 +162,7 @@ COMMANDS = {
     'keep': (keep, lambda count: count == 0),
     'initialize-receiver': (initialize_receiver, lambda count: count == 0),
     'status-receiver': (status_receiver, lambda count: count == 0),
+    'bootstrap': (bootstrap, lambda count: count in (0, 2)),
     "update": (update, lambda count: count in (0, 2)),
     "run": (run, lambda count: count >= 1),
     "verify": (verify, lambda count: count == 0),
