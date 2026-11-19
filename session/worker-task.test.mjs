@@ -70,7 +70,7 @@ function startRuntime() {
 }
 
 beforeEach(t => {
-  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 60_000 * (serial + 1) });
   calls.length = 0;
   terminals = [];
   shutdowns = 0;
@@ -122,7 +122,7 @@ test('a task launches visibly and closes only after its result and exact coordin
   assert.equal(calls.some(call => ['git', 'gh', 'bash'].includes(call.binary)), false);
 });
 
-test('a stopped task resumes its exact session through the same queue without creating a branch or PR', () => {
+test('a stopped task resumes its exact session through the same queue without creating a branch or PR', ({ mock: { timers } }) => {
   inspect();
   const sessionFile = worker.sessionFile;
   const launchId = worker.launchId;
@@ -134,6 +134,7 @@ test('a stopped task resumes its exact session through the same queue without cr
   assert.equal(terminals.length, 0);
   clearStop(worker);
   enqueue({ worker: worker.name, message: 'Read another section within this scope.' });
+  timers.tick(5_000);
   serve();
   assert.notEqual(worker.launchId, launchId);
   assert.equal(worker.kind, 'task');

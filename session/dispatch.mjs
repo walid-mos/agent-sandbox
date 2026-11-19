@@ -8,7 +8,7 @@ import { find } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { maxWorkers } from './limits.mjs';
 import { MAX_MODEL } from './models.mjs';
-import { enqueue, queued } from './queue.mjs';
+import { enqueue } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId, owners, sandbox } from './sandbox.mjs';
 import { repositoryBrief, taskBrief } from './worker-brief.mjs';
@@ -85,8 +85,7 @@ function start(arguments_) {
 function queueWorker(worker, text) {
   const brief = writeBrief(worker.name, text);
   save({ ...worker, brief });
-  const ahead = queued().length;
-  enqueue({ worker: worker.name });
+  const ahead = enqueue({ worker: worker.name });
   process.stdout.write(`${JSON.stringify({ ...worker, brief, ahead, admission: 'memory', maxWorkers })}\n`);
 }
 

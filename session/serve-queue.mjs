@@ -79,14 +79,26 @@ function serve(request, view) {
   startWaiting(request, worker, view);
 }
 
+function launchAges(records, terminals) {
+  const now = Date.now();
+  let latestLaunchAge = Infinity;
+  let pendingStatusAge = Infinity;
+  for (const worker of records.values()) {
+    if (worker.owner !== botId) continue;
+    const terminal = terminalOf(worker, terminals);
+    const startedAt = terminal?.created_ms ?? worker.startedAt;
+    if ((!terminal && !worker.terminal) || !Number.isFinite(startedAt)) continue;
+    const age = Math.max(0, now - startedAt);
+    latestLaunchAge = Math.min(latestLaunchAge, age);
+    if (terminal && !terminal.status) pendingStatusAge = Math.min(pendingStatusAge, age);
+  }
+  return { latestLaunchAge, pendingStatusAge };
+}
+
 export function serveQueue(terminals, logFailure, admission) {
   const records = new Map(workers().map(worker => [worker.name, worker]));
   const running = terminals.filter(terminal => records.has(terminal.name));
-  const hasStartingWorker = running.some(terminal => {
-    const worker = records.get(terminal.name);
-    return worker.owner === botId && !terminal.status && terminalOf(worker, [terminal]);
-  });
-  const view = { records, terminals, running: new Set(running.map(terminal => terminal.name)).size, hasStartingWorker, admission };
+  const view = { records, terminals, running: new Set(running.map(terminal => terminal.name)).size, ...launchAges(records, running), admission };
   for (const request of queued()) {
     try {
       serve(request, view);

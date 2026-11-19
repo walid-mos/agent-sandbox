@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
+import { optionalMetric, readGroupMemory } from './cgroup-memory.mjs';
 
 // Check twice per PSI avg10 window while leaving time for a newly opened process to allocate.
 const CHECK_INTERVAL_MS = 5_000;
+const AGENT_STARTUP_GRACE_MS = 30_000;
 // The absolute floor protects the session on small guests; the share lets the reserve grow with guest memory.
 const MIN_AVAILABLE_KIB = 256 * 1024;
 const MIN_AVAILABLE_SHARE = 0.05;
@@ -10,7 +12,6 @@ const SOME_STALL_PERCENT = 5;
 const FULL_STALL_PERCENT = 1;
 const MEMINFO = '/proc/meminfo';
 const MEMORY_PSI = '/proc/pressure/memory';
-const PSI_UNAVAILABLE = new Set(['ENOENT', 'EOPNOTSUPP', 'ENOTSUP']);
 
 function memoryAmount(text, field) {
   const line = text.split('\n').find(candidate => candidate.startsWith(`${field}:`));
@@ -19,39 +20,41 @@ function memoryAmount(text, field) {
   return amount;
 }
 
-function stallPercent(text, kind) {
+function stallPercent(text, path, kind) {
   const line = text.split('\n').find(candidate => candidate.startsWith(`${kind} `));
   const percent = Number(/(?:^| )avg10=(\d+(?:\.\d+)?)(?: |$)/.exec(line)?.[1]);
-  if (!(percent >= 0 && percent <= 100)) throw new Error(`${MEMORY_PSI}: invalid ${kind} avg10`);
+  if (!(percent >= 0 && percent <= 100)) throw new Error(`${path}: invalid ${kind} avg10`);
   return percent;
 }
 
-function readPressure(readText) {
-  try {
-    return readText(MEMORY_PSI);
-  } catch (error) {
-    if (PSI_UNAVAILABLE.has(error?.code)) return undefined;
-    throw error;
-  }
+function isStalled(readText, path) {
+  const pressure = optionalMetric(readText, path);
+  if (pressure === undefined) return false;
+  const some = stallPercent(pressure, path, 'some');
+  const full = stallPercent(pressure, path, 'full');
+  return some >= SOME_STALL_PERCENT || full >= FULL_STALL_PERCENT;
 }
 
-function memoryBlock(readText) {
+function guestMemoryBlock(readText) {
   const meminfo = readText(MEMINFO);
   const total = memoryAmount(meminfo, 'MemTotal');
   const available = memoryAmount(meminfo, 'MemAvailable');
   if (total === 0 || available > total) throw new Error(`${MEMINFO}: inconsistent MemTotal and MemAvailable`);
   if (available < Math.max(MIN_AVAILABLE_KIB, total * MIN_AVAILABLE_SHARE)) return 'low available memory';
-  const pressure = readPressure(readText);
-  if (pressure === undefined) return undefined;
-  const some = stallPercent(pressure, 'some');
-  const full = stallPercent(pressure, 'full');
-  if (some >= SOME_STALL_PERCENT || full >= FULL_STALL_PERCENT) return 'memory pressure stalls';
+  return isStalled(readText, MEMORY_PSI) ? 'memory pressure stalls' : undefined;
+}
+
+function groupMemoryBlock(readText) {
+  for (const { limit, available, pressurePath } of readGroupMemory(readText)) {
+    if (available < limit * MIN_AVAILABLE_SHARE) return `${pressurePath}: low cgroup memory headroom`;
+    if (isStalled(readText, pressurePath)) return `${pressurePath}: cgroup memory pressure stalls`;
+  }
   return undefined;
 }
 
 function sampleBlock(readText) {
   try {
-    const reason = memoryBlock(readText);
+    const reason = guestMemoryBlock(readText) ?? groupMemoryBlock(readText);
     return reason && new Error(reason);
   } catch (error) {
     return error instanceof Error ? error : new Error(String(error));
@@ -67,14 +70,21 @@ export function createAdmission({ ceiling, logFailure, readText = path => readFi
     return CHECK_INTERVAL_MS;
   }
 
-  function check({ running, hasStartingWorker }) {
-    const remaining = nextCheckAt - now();
-    if (remaining > 0) return remaining;
-    const atCeiling = ceiling !== undefined && running >= ceiling;
-    if (atCeiling || hasStartingWorker) return CHECK_INTERVAL_MS;
-    const block = sampleBlock(readText);
+  function note(block) {
     if (block && block.message !== lastReason) logFailure('memory admission', block);
     lastReason = block?.message;
+  }
+
+  function check({ running, latestLaunchAge = Infinity, pendingStatusAge = Infinity }) {
+    const remaining = Math.max(nextCheckAt - now(), CHECK_INTERVAL_MS - latestLaunchAge);
+    if (remaining > 0) return remaining;
+    if (ceiling !== undefined && running >= ceiling) return CHECK_INTERVAL_MS;
+    if (pendingStatusAge < AGENT_STARTUP_GRACE_MS) {
+      note(new Error('waiting for the first agent status'));
+      return Math.min(CHECK_INTERVAL_MS, AGENT_STARTUP_GRACE_MS - pendingStatusAge);
+    }
+    const block = sampleBlock(readText);
+    note(block);
     return block ? retry() : undefined;
   }
 
