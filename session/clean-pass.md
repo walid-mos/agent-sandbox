@@ -25,3 +25,11 @@ A pass that cannot start names what to correct. A pass that stops because the Cl
 Your pull request opens as a draft. Mark it ready with `gh pr ready PULL_REQUEST` once the work is finished and tested: every change committed and pushed, the project's checks passing on your last commit, and the clean pass done or skipped under its exception. In a repository with the `factory` topic, the PR factory then checks, judges and merges it with no other review.
 
 Keep it in draft while the work center that started you holds it, until a message from it lifts the hold, and while a push waits for the person's yes. Name the hold or the waiting push in your final response.
+
+A draft created more than 24 hours ago wakes the bot that owns it, once per head commit and per edit of its title or description, unless its description holds a line of exactly this shape, from the line's first character:
+
+```text
+BLOCKED UNTIL: 2026-12-01 — waiting for the vendor's sandbox API key
+```
+
+The date is `YYYY-MM-DD`, a real calendar day, and the line holds the reminder back until 00:00 UTC that day. The reason is the rest of the line after a space, an em dash (U+2014) and a space, and it needs one character other than a space. A line with no date, a malformed date, no reason or another separator holds nothing back, and neither does one indented, quoted or in a list. Whoever can edit the description can set it: write it there whenever you keep a pull request in draft for a known reason, with the day you expect that reason to end. The line only holds the reminder back. It never marks a pull request ready, and never stands in for a check, a verdict or the merge rule. Once its day comes, the next scan sends that one reminder.

@@ -158,6 +158,8 @@ install_sysbox
 install_firewall
 install_tailscale
 install_door
+id pots-repository-read > /dev/null 2>&1 || useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin pots-repository-read
+usermod --password '*' --groups '' pots-repository-read
 configure_swap "$swap_gib"
 install_units
 install_signing

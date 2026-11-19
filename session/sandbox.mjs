@@ -12,6 +12,7 @@ function load() {
   }
 }
 
+export const readHumanDiscord = () => load().humanDiscord;
 export const sandbox = load();
 if (sandbox.role !== undefined && sandbox.role !== MASTERMIND) {
   throw new Error(`sandbox: role is ${JSON.stringify(sandbox.role)} in ${CONFIG}. Leave it out for a pot that owns a domain, or set it to "${MASTERMIND}".`);
