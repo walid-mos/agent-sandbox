@@ -8,6 +8,7 @@ export const FACTORY_BOT = { name: 'Factory', id: 'factory' };
 // The scan routine's name, and the source of the wakes it sends, by which the Factory bot recognises them.
 export const WATCH = 'factory-watch';
 const SESSION = dirname(fileURLToPath(import.meta.url));
+const PRINCIPAL_SOURCE = 'pr-factory';
 
 export const factoryCommand = (operation, ...arguments_) => [WITH_VAULT, 'node', join(SESSION, 'factory.mjs'), operation, ...arguments_].join(' ');
 
@@ -34,6 +35,11 @@ export function handToFactory(record) {
 }
 
 export function reportToPrincipal(record, text) {
-  command('pots', ['wake', '--bot', botId, '--from', 'pr-factory', '--id', `pr-factory-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`, '--note', text]);
+  command('pots', ['wake', '--bot', botId, '--from', PRINCIPAL_SOURCE, '--id', `pr-factory-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`, '--note', text]);
   return writeRecord(record);
+}
+
+export function reportStaleDraft(pull, id, owner) {
+  const text = `PR factory: ${pullUrl(pull)} is still a draft past its reminder threshold. Check the worker that owns it and follow up, or tell the person if no worker owns it.`;
+  command('pots', ['wake', '--bot', owner ?? botId, '--from', PRINCIPAL_SOURCE, '--id', id, '--note', text]);
 }
