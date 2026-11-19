@@ -3,15 +3,15 @@ import { createHash } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runOwnedContainer } from './factory-container.mjs';
 import { copyAt } from './factory-mirror.mjs';
-import { FACTORY_HOME, pullKey } from './factory-records.mjs';
+import { FACTORY_HOME } from './factory-records.mjs';
 import { checkSteps } from './factory-repositories.mjs';
 import { command } from './run.mjs';
 
 const IMAGE_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), 'factory-image');
 const RUNS = join(FACTORY_HOME, 'runs');
 const BASE_PLACEHOLDER = '{base}';
-const STEP_TIMEOUT_MS = 20 * 60 * 1000;
 const ATTACKS = ['sh', '/factory/attacks.sh'];
 
 export function ensureImage() {
@@ -24,8 +24,8 @@ export function ensureImage() {
 }
 
 // The container is the boundary: no credential, no session file but the copy and the read-only image folder, no capability, and no network unless the step asks for it.
-function containerArguments({ image, workspace, base }, step, name) {
-  return ['run', '--rm', '--name', name, '--network', step.network ? 'bridge' : 'none',
+function containerArguments({ image, workspace, base }, step) {
+  return ['--network', step.network ? 'bridge' : 'none',
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '2048', '--memory', '6g',
     '--env', 'HOME=/work/home', '--env', 'CI=true',
     '--volume', `${workspace}:/work`, '--volume', `${IMAGE_DIRECTORY}:/factory:ro`, '--workdir', '/work/repository',
@@ -35,11 +35,10 @@ function containerArguments({ image, workspace, base }, step, name) {
 function runStep(context, step) {
   const log = join(context.logs, `${step.name}.log`);
   const output = openSync(log, 'w');
-  const name = `factory-${process.pid}-${step.name}`;
+  const name = `factory-${context.runId}-${step.name}`;
   try {
-    const run = spawnSync('docker', containerArguments(context, step, name), { stdio: ['ignore', output, output], timeout: STEP_TIMEOUT_MS });
-    if (run.error) spawnSync('docker', ['rm', '--force', name], { stdio: 'ignore' });
-    return { name: step.name, isPassed: run.status === 0, log };
+    const outcome = runOwnedContainer(context.jobs, context.runId, name, containerArguments(context, step), output);
+    return { name: step.name, isPassed: outcome === 'passed', outcome, log };
   } finally {
     closeSync(output);
   }
@@ -62,7 +61,7 @@ function probeBoundary(image) {
   const workspace = freshWorkspace(`probe-${process.pid}`);
   mkdirSync(join(workspace, 'repository'));
   try {
-    const probe = spawnSync('docker', containerArguments({ image, workspace }, { run: ATTACKS }, `factory-probe-${process.pid}`), { encoding: 'utf8' });
+    const probe = spawnSync('docker', ['run', '--rm', ...containerArguments({ image, workspace }, { run: ATTACKS })], { encoding: 'utf8' });
     return { isClosed: probe.status === 0, output: `${probe.stdout}${probe.stderr}`.trim() };
   } finally {
     removeWorkspace(workspace);
@@ -75,24 +74,36 @@ export function probe() {
   return result.output;
 }
 
-function runAll(context, steps) {
+function runCheckSteps(context, steps, progress) {
   const results = [];
   for (const step of steps) {
+    progress('step-start', { step: step.name });
     const result = runStep(context, step);
     results.push(result);
+    progress('step-end', { step: step.name, isPassed: result.isPassed, outcome: result.outcome });
     if (!result.isPassed) break;
   }
   return results;
 }
 
-export function runChecks(pull, base, logs) {
+export function runChecks(pull, base, logs, progress, jobs) {
   const image = ensureImage();
-  const workspace = freshWorkspace(pullKey(pull));
+  const runId = pull.generation;
+  const workspace = freshWorkspace(String(runId));
   mkdirSync(logs, { recursive: true });
   try {
+    mkdirSync(join(workspace, 'repository'));
+    const context = { image, workspace, base, logs, runId, jobs };
+    const boundary = runStep(context, { name: 'boundary', run: ATTACKS });
+    if (!boundary.isPassed) return [boundary];
+    removeWorkspace(join(workspace, 'repository'));
     copyAt(pull.repository, pull.head, join(workspace, 'repository'));
-    return runAll({ image, workspace, base, logs }, checkSteps(pull.repository));
+    return runCheckSteps(context, checkSteps(pull.repository), progress);
   } finally {
-    removeWorkspace(workspace);
+    if (!jobs.container(runId)) removeWorkspace(workspace);
   }
+}
+
+export function removeRunWorkspace(id) {
+  removeWorkspace(join(RUNS, String(id)));
 }

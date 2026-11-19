@@ -14,18 +14,21 @@ export function pullUrl({ repository, number }) {
   return `https://github.com/${repository}/pull/${number}`;
 }
 
-export function pullArguments([repository, number, head]) {
-  if (!/^[^/\s]+\/[a-zA-Z0-9_.-]+$/.test(repository ?? '')) throw new Error(`factory: expected OWNER/REPOSITORY, got ${repository}`);
+export function pullArguments([repository, number, head, generation]) {
+  if (!/^[a-zA-Z0-9-]+\/[a-zA-Z0-9_.-]+$/.test(repository ?? '')) throw new Error(`factory: expected OWNER/REPOSITORY, got ${repository}`);
   if (!/^[1-9][0-9]*$/.test(number ?? '')) throw new Error(`factory: expected a pull request number, got ${number}`);
   if (!FULL_SHA.test(head ?? '')) throw new Error(`factory: expected the head commit's full SHA, got ${head}`);
-  return { repository, number: Number(number), head };
+  if (!/^[1-9][0-9]*$/.test(generation ?? '') || !Number.isSafeInteger(Number(generation)) || !Number.isSafeInteger(Number(number))) {
+    throw new Error('factory: use the command from the current Factory wake.');
+  }
+  return { repository: repository.toLowerCase(), number: Number(number), head, generation: Number(generation) };
 }
 
 export function logDirectory(pull) {
-  return join(FACTORY_HOME, 'logs', pullKey(pull));
+  return join(FACTORY_HOME, 'logs', pullKey(pull), String(pull.generation));
 }
 
-const recordPath = pull => join(HEADS, `${pullKey(pull)}.json`);
+const recordPath = pull => join(HEADS, `${pullKey(pull)}-${pull.generation}.json`);
 
 export function readRecord(pull) {
   const path = recordPath(pull);

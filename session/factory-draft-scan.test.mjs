@@ -18,11 +18,12 @@ const facts = {
 const worker = { name: 'fixture', repository, branch: facts.headRefName, owner: 'nextnode' };
 const wakeCalls = [];
 let current;
+let isDraft;
 
 const page = (...nodes) => ({ data: { repository: { pullRequests: { nodes } } } });
 function github(args, options) {
   if (args[0] === 'repo') return [{ nameWithOwner: repository, repositoryTopics: [{ name: 'factory' }] }];
-  if (args[0] === 'pr' && args[1] === 'list') return [candidate, { number: 38, isDraft: false, mergeable: 'UNKNOWN' }];
+  if (args[0] === 'pr' && args[1] === 'list') return [{ ...candidate, isDraft }];
   assert.deepEqual(args.slice(0, 2), ['api', 'graphql']);
   assert.equal(options.env.GH_REPO, repository);
   if (args.includes('--paginate')) return [page({ ...candidate, isDraft: false }), page(candidate)];
@@ -41,7 +42,7 @@ mock.module('./run.mjs', { exports: {
     wakeCalls.push({ bot, from, id, note });
   },
 } });
-const { scan } = await import('./factory-scan.mjs');
+const { discoverReady, scan } = await import('./factory-scan.mjs');
 const { save, WORKERS } = await import('./workers.mjs');
 const { recordedHeads } = await import('./factory-records.mjs');
 
@@ -49,13 +50,27 @@ beforeEach(({ mock }) => {
   rmSync(WORKERS, { recursive: true, force: true });
   wakeCalls.length = 0;
   current = facts;
+  isDraft = true;
   mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-19T12:00:00Z') });
 });
 
-test('the periodic scan wakes the recorded owner for an old draft found on a later page', () => {
+test('discovery rechecks unknown mergeability within the same wake', async () => {
+  isDraft = false;
+  const subject = { repository, number: 37, mergeable: 'MERGEABLE' };
+  const observed = [];
+  const read = mock.fn(() => subject);
+  read.mock.mockImplementationOnce(() => ({ ...subject, mergeable: 'UNKNOWN' }));
+  const wait = mock.fn(async () => assert.deepEqual(observed, []));
+  await discoverReady({ observe: pull => observed.push(pull) }, [repository], read, wait);
+  assert.deepEqual(wait.mock.calls.map(call => call.arguments), [[5000]]);
+  assert.equal(read.mock.callCount(), 2);
+  assert.deepEqual(observed, [subject]);
+});
+
+test('the periodic scan wakes the recorded owner for an old draft found on a later page', async () => {
   save({ ...worker, repository: 'Example/Fixture' });
-  scan();
-  scan();
+  await scan();
+  await scan();
   assert.equal(wakeCalls.length, 2);
   assert.deepEqual(wakeCalls.map(wake => wake.bot), ['nextnode', 'nextnode']);
   assert.equal(wakeCalls[0].from, 'pr-factory');
@@ -72,24 +87,24 @@ for (const [requirement, fixture, records] of [
   ['a fork with the same branch name', { ...facts, isCrossRepository: true }, [worker]],
   ['a worker linked to a different pull request', facts, [{ ...worker, pullRequest: `https://github.com/${repository}/pull/38` }]],
 ]) {
-  test(`the scan wakes this sandbox's bot when there is ${requirement}`, () => {
+  test(`the scan wakes this sandbox's bot when there is ${requirement}`, async () => {
     current = fixture;
     records.forEach(save);
-    scan();
+    await scan();
     assert.deepEqual(wakeCalls.map(wake => wake.bot), [principal]);
   });
 }
 
-test('the scan rereads new body text and skips a draft that became ready or closed', () => {
+test('the scan rereads new body text and skips a draft that became ready or closed', async () => {
   current = { ...facts, body: 'BLOCKED UNTIL: 2026-11-20 — Waiting for access' };
-  scan();
+  await scan();
   assert.deepEqual(wakeCalls, []);
   current = facts;
-  scan();
+  await scan();
   assert.equal(wakeCalls.length, 1);
   current = { ...facts, isDraft: false };
-  scan();
+  await scan();
   current = { ...facts, state: 'CLOSED' };
-  scan();
+  await scan();
   assert.equal(wakeCalls.length, 1);
 });

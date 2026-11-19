@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FACTORY_BOT, factoryCommand, WATCH } from './factory-reports.mjs';
+import { FACTORY_BOT, reconcileCommand, WATCH } from './factory-reports.mjs';
 import { FACTORY_TOPIC } from './factory-github.mjs';
 import { linkFolder } from './link.mjs';
 import { main } from './main.mjs';
@@ -10,8 +10,8 @@ import { command } from './run.mjs';
 import { owners } from './sandbox.mjs';
 
 const VERSIONED = join(dirname(fileURLToPath(import.meta.url)), 'factory');
-const SCAN_EVERY = '1m';
-const SCAN_TIMEOUT = '30m';
+const SCAN_EVERY = '10m';
+const RECONCILE_TIMEOUT = '15s';
 const ABOUT = `checks, judges and merges ready pull requests in repositories with the ${FACTORY_TOPIC} topic`;
 const HOLD_SOURCE = 'factory-install';
 const HOLD_FOR = '365d';
@@ -45,6 +45,6 @@ main(import.meta, () => {
   linkFolder(VERSIONED, ensureRouterBot(FACTORY_BOT, ABOUT));
   waitUntilRunning();
   holdCheckIn();
-  pots(['routine', 'add', WATCH, '--bot', FACTORY_BOT.id, '--every', SCAN_EVERY, '--timeout', SCAN_TIMEOUT, '--run', factoryCommand('scan')]);
+  pots(['routine', 'add', WATCH, '--bot', FACTORY_BOT.id, '--every', SCAN_EVERY, '--timeout', RECONCILE_TIMEOUT, '--run', reconcileCommand]);
   process.stdout.write(`factory: ${FACTORY_BOT.name} follows ${VERSIONED} and scans repositories of ${owners.join(', ')} with the ${FACTORY_TOPIC} topic every ${SCAN_EVERY}\n`);
 });

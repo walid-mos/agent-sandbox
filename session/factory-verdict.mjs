@@ -23,6 +23,7 @@ function postVerdict(record, decision, notes) {
 }
 
 function land(record) {
+  requireActionable(record);
   const merge = squashMerge(record);
   const after = pullFacts(record);
   if (after.state !== MERGED) {
@@ -40,12 +41,12 @@ function reportFailure(record) {
 
 export function verdict(arguments_) {
   const pull = pullArguments(arguments_);
-  const [decision, notesFile] = arguments_.slice(3);
+  const [decision, notesFile] = arguments_.slice(4);
   if (!VERDICTS.includes(decision)) throw new Error(`factory: the verdict is one of ${VERDICTS.join(', ')}, got ${decision}`);
   const notes = notesFile ? readFileSync(notesFile, 'utf8').trim() : '';
   if (decision !== 'PASS' && !notes) throw new Error(`factory: ${decision} needs a notes file that says why.`);
   const record = requireRecord(pull, 'checked');
-  requireActionable(pull);
+  requireActionable(record);
   const judged = postVerdict(record, decision, notes);
   const outcome = decision === 'FAIL' ? reportFailure(judged) : land(judged);
   process.stdout.write(`factory: ${pullUrl(pull)} at ${pull.head}: ${outcome.stage}\n`);

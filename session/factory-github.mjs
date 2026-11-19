@@ -7,7 +7,19 @@ import { owners, sandbox } from './sandbox.mjs';
 
 export const FACTORY_TOPIC = 'factory';
 const REPOSITORY_LIMIT = '1000';
-const LIST_FIELDS = 'number,headRefOid,headRefName,baseRefName,isDraft,mergeable';
+const LIST_FIELDS = 'number,isDraft';
+const CALL_TIMEOUT_MS = 5_000;
+const REVIEW_FACTS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    nameWithOwner isArchived
+    pullRequest(number: $number) {
+      number state isDraft headRefOid headRefName baseRefOid baseRefName mergeable
+      timelineItems(last: 1, itemTypes: [CONVERT_TO_DRAFT_EVENT, READY_FOR_REVIEW_EVENT, CLOSED_EVENT, REOPENED_EVENT]) {
+        nodes { __typename ... on ConvertToDraftEvent { id } ... on ReadyForReviewEvent { id } ... on ReopenedEvent { id } }
+      }
+    }
+  }
+}`;
 const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeCommit';
 const DRAFT_LIST_QUERY = `query($owner: String!, $name: String!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
@@ -25,7 +37,7 @@ const DRAFT_FACTS_QUERY = `query($owner: String!, $name: String!, $number: Int!)
   }
 }`;
 
-const gh = (arguments_, options) => command('gh', arguments_, options);
+const gh = (arguments_, options) => command('gh', arguments_, { timeout: CALL_TIMEOUT_MS, killSignal: 'SIGKILL', ...options });
 const hasFactoryTopic = topicNames => topicNames.includes(FACTORY_TOPIC);
 
 // A listing names no repository, so GH_REPO tells the gh wrapper which owner's token to use.
@@ -48,8 +60,6 @@ function openPulls(repository) {
 
 export const readyPulls = repository => openPulls(repository).filter(pull => !pull.isDraft);
 
-export const draftPulls = repository => openPulls(repository).filter(pull => pull.isDraft);
-
 function queryPulls(repository, query, ...flags) {
   const [owner, name] = repository.split('/');
   return JSON.parse(gh(['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, ...flags],
@@ -70,9 +80,34 @@ export function pullFacts({ repository, number }) {
   return JSON.parse(gh(['pr', 'view', String(number), '--repo', repository, '--json', VIEW_FIELDS]));
 }
 
-function requireTopic(repository) {
-  const topicNames = JSON.parse(gh(['api', `repos/${repository}`, '--jq', '.topics']));
-  if (!hasFactoryTopic(topicNames)) throw new Error(`factory: ${repository} no longer has the ${FACTORY_TOPIC} topic, so the factory leaves its pull requests alone.`);
+export function reviewSubject(subject) {
+  const response = queryPulls(subject.repository, REVIEW_FACTS_QUERY, '-F', `number=${subject.number}`);
+  const result = response.data?.repository;
+  const facts = result?.pullRequest;
+  if (response.errors?.length || !facts || result.nameWithOwner.toLowerCase() !== subject.repository.toLowerCase()) {
+    throw new Error('factory: GitHub did not confirm repository and PR identity');
+  }
+  if (result.isArchived !== false || facts.state !== 'OPEN' || facts.isDraft !== false) return undefined;
+  const nodes = facts.timelineItems?.nodes;
+  if (!Array.isArray(nodes) || nodes.length > 1 || (nodes.length && (!['ReadyForReviewEvent', 'ReopenedEvent'].includes(nodes[0]?.__typename) || typeof nodes[0]?.id !== 'string' || !nodes[0].id))) {
+    throw new Error('factory: GitHub did not confirm a ready review transition');
+  }
+  const { headRefOid: head, baseRefOid: baseTip, baseRefName: base, mergeable } = facts;
+  if (![head, baseTip].every(sha => /^[0-9a-f]{40}$/.test(sha)) || typeof base !== 'string' || facts.number !== subject.number) {
+    throw new Error('factory: GitHub did not confirm the exact head and base');
+  }
+  return { repository: result.nameWithOwner.toLowerCase(), number: facts.number, head, base, baseTip, transition: nodes[0]?.id ?? '', mergeable };
+}
+
+export function isCurrentReview(subject) {
+  if (accorPublicationPolicy(sandbox)) return false;
+  const current = reviewSubject(subject);
+  return Boolean(current && ['head', 'base', 'baseTip', 'transition', 'mergeable'].every(key => current[key] === subject[key])
+    && hasFactoryTopic(JSON.parse(gh(['api', `repos/${subject.repository}`, '--jq', '.topics']))));
+}
+
+export function requireReviewSubject(subject) {
+  if (!isCurrentReview(subject)) throw new Error(`factory: ${pullUrl(subject)} no longer matches this review generation`);
 }
 
 export function requireActionable(pull) {
@@ -81,7 +116,7 @@ export function requireActionable(pull) {
   if (facts.state !== 'OPEN' || facts.isDraft || facts.headRefOid !== pull.head) {
     throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);
   }
-  requireTopic(pull.repository);
+  requireReviewSubject(pull);
   checkSteps(pull.repository);
   return facts;
 }

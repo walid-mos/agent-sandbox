@@ -12,24 +12,25 @@ const CONFLICT_MARKER = '^(<<<<<<<|>>>>>>>) ';
 const git = (workspace, arguments_) => command('git', ['-C', workspace, ...arguments_]);
 const unmergedPaths = workspace => git(workspace, ['diff', '--name-only', '--diff-filter=U']).split('\n').filter(Boolean);
 
-function startMerge(workspace, base) {
-  spawnSync('git', ['-C', workspace, 'merge', '--no-ff', '--no-edit', `origin/${base}`], { stdio: 'ignore' });
+function startMerge(workspace, baseTip) {
+  spawnSync('git', ['-C', workspace, 'merge', '--no-ff', '--no-edit', baseTip], { stdio: 'ignore' });
   return unmergedPaths(workspace);
 }
 
 export function resolve(arguments_) {
   const pull = pullArguments(arguments_);
   const record = requireRecord(pull, 'conflict');
-  const facts = requireActionable(pull);
+  const facts = requireActionable(record);
   if (facts.isCrossRepository) throw new Error(`factory: ${pullUrl(pull)} comes from a fork, where the factory cannot push. Escalate it.`);
   refreshMirror(pull.repository);
-  const workspace = join(RESOLUTIONS, pullKey(pull));
+  const baseTip = branchTip(pull.repository, facts.baseRefName);
+  if (baseTip !== record.baseTip) throw new Error('factory: the base moved since this review, wait for the next wake');
+  const workspace = join(RESOLUTIONS, pullKey(pull), String(pull.generation));
   rmSync(workspace, { recursive: true, force: true });
   copyAt(pull.repository, pull.head, workspace);
   git(workspace, ['checkout', '--quiet', '-B', facts.headRefName]);
   git(workspace, ['remote', 'set-url', 'origin', remoteUrl(pull.repository)]);
-  const baseTip = branchTip(pull.repository, facts.baseRefName);
-  const files = startMerge(workspace, facts.baseRefName);
+  const files = startMerge(workspace, baseTip);
   writeRecord({ ...record, resolution: { workspace, branch: facts.headRefName, baseTip, files } });
   process.stdout.write(`${workspace}\nMerging ${facts.baseRefName} at ${baseTip} into ${facts.headRefName} left ${files.length} conflicted files:\n${files.join('\n')}\n`);
 }
@@ -52,7 +53,7 @@ export function push(arguments_) {
   if (!record.resolution) throw new Error(`factory: ${pullUrl(pull)} has no resolution under way. Run resolve first.`);
   const { workspace, branch } = record.resolution;
   const commit = resolvedCommit(workspace, { head: pull.head, ...record.resolution });
-  requireActionable(pull);
+  requireActionable(record);
   git(workspace, ['push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`]);
   writeRecord({ ...record, stage: 'resolved', resolution: { ...record.resolution, commit } });
   rmSync(workspace, { recursive: true, force: true });

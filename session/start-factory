@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+session=$(dirname "$0")
+. "$session/lib.sh"
+if ! command -v node > /dev/null || ! command -v pots > /dev/null || ! command -v docker > /dev/null; then
+	idle_until_bootstrap pots-factory
+fi
+settings=/etc/agent-sandbox
+if ! jq -e '(.owners | length) > 0' "$settings/sandbox.json" > /dev/null; then
+	idle_until_bootstrap pots-factory
+fi
+cd "$session"
+if [ -s "$settings/factory-wake-socket" ]; then
+	IFS= read -r wake_socket < "$settings/factory-wake-socket"
+	set -- "$wake_socket"
+fi
+exec env -i HOME="$HOME" PATH="$PATH" node "$session/factory-controller.mjs" "$@"

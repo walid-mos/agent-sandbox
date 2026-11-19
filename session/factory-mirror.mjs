@@ -20,8 +20,8 @@ export function refreshMirror(repository) {
   command('git', ['clone', '--quiet', '--mirror', remoteUrl(repository), mirror]);
 }
 
-export function mergeBase(repository, baseBranch, head) {
-  return inMirror(repository, ['merge-base', `refs/heads/${baseBranch}`, head]);
+export function mergeBase(repository, baseTip, head) {
+  return inMirror(repository, ['merge-base', baseTip, head]);
 }
 
 export function branchTip(repository, branch) {

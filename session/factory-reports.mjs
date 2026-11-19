@@ -1,6 +1,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pullKey, pullUrl, writeRecord } from './factory-records.mjs';
+import { pullKey, pullUrl, readRecord, writeRecord } from './factory-records.mjs';
+import { bindReview } from './factory-review.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 import { botId } from './sandbox.mjs';
 
@@ -10,7 +11,9 @@ export const WATCH = 'factory-watch';
 const SESSION = dirname(fileURLToPath(import.meta.url));
 const PRINCIPAL_SOURCE = 'pr-factory';
 
-export const factoryCommand = (operation, ...arguments_) => [WITH_VAULT, 'node', join(SESSION, 'factory.mjs'), operation, ...arguments_].join(' ');
+const factoryCli = (operation, ...arguments_) => ['node', join(SESSION, 'factory.mjs'), operation, ...arguments_].join(' ');
+export const reconcileCommand = factoryCli('reconcile');
+export const factoryCommand = (operation, ...arguments_) => `${WITH_VAULT} ${factoryCli(operation, ...arguments_)}`;
 
 const COMMANDS = {
   checked: facts => ({
@@ -25,13 +28,14 @@ const COMMANDS = {
   }),
 };
 
-// Each wake of these two goes out before its record is written, and its ID, one per stage, pull request and head commit, makes a rerun after a crash wake nobody twice.
 export function handToFactory(record) {
-  const { stage: event, ...pull } = record;
-  const facts = [pull.repository, String(pull.number), pull.head];
-  const note = { event, pullRequest: pullUrl(pull), ...pull, commands: COMMANDS[event](facts) };
+  const saved = readRecord(record) ?? writeRecord(record);
+  if (saved.stage !== record.stage) return saved;
+  const { stage: event, ...pull } = saved;
+  const review = bindReview(pull);
+  const note = { event, pullRequest: pullUrl(pull), ...pull, review, commands: COMMANDS[event]([review]) };
   command('pots', ['wake', '--bot', FACTORY_BOT.id, '--from', WATCH, '--id', `factory-${event}-${pullKey(pull)}-${pull.generation ?? 0}`, '--note', JSON.stringify(note)]);
-  return writeRecord(record);
+  return saved;
 }
 
 export function reportToPrincipal(record, text) {
