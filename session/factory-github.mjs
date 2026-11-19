@@ -124,6 +124,21 @@ export function comment({ repository, number }, bodyFile) {
   gh(['pr', 'comment', String(number), '--repo', repository, '--body-file', bodyFile]);
 }
 
+export function commentAuthor({ repository }) {
+  const author = Number(gh(['api', 'user', '--jq', '.id'], { env: { ...process.env, GH_REPO: repository } }));
+  if (!Number.isSafeInteger(author) || author <= 0) throw new Error('factory: could not identify the GitHub verdict author.');
+  return author;
+}
+
+export function hasComment({ repository, number }, author, body) {
+  const pages = JSON.parse(gh(['api', `repos/${repository}/issues/${number}/comments?per_page=100`, '--paginate', '--slurp']));
+  if (!Array.isArray(pages) || !pages.length || !pages.every(Array.isArray)) {
+    throw new Error('factory: GitHub returned an invalid verdict comment listing.');
+  }
+  return pages.some(page => page.some(entry => entry?.user?.id === author
+    && typeof entry.body === 'string' && entry.body.trimEnd() === body));
+}
+
 export function squashMerge(record) {
   const { repository, number, head } = record;
   if (repository.toLowerCase() === landingRepository.toLowerCase()) {

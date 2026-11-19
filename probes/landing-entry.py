@@ -18,8 +18,8 @@ REVIEW_SOURCE = 'ea7e71c64d3e8da83b82bb6c52e8bb7d097651b6'
 
 
 class LandingEntry(POLICY['LandingPolicy']):
-    def __init__(self, output=None):
-        super().__init__()
+    def __init__(self, methodName='runTest', *, output=None):
+        super().__init__(methodName)
         self.output = output
 
     def runTest(self):
@@ -250,5 +250,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--export', type=lambda value: Path(value).resolve())
     args = parser.parse_args()
-    suite = unittest.TestSuite([LandingEntry(args.export)])
+    suite = unittest.TestSuite([LandingEntry(output=args.export)])
     raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())

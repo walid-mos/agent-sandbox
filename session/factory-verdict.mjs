@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isLandingPull } from './factory-authority.mjs';
-import { comment, pullFacts, squashMerge } from './factory-github.mjs';
+import { comment, commentAuthor, hasComment, pullFacts, squashMerge } from './factory-github.mjs';
 import { reviewFacts, startPublication } from './factory-publication.mjs';
 import { logDirectory, withRecord } from './factory-records.mjs';
 import { pullUrl } from './github-url.mjs';
@@ -17,13 +18,34 @@ function verdictBody(record, decision, notes) {
     .filter(Boolean).join('\n\n');
 }
 
-function postVerdict(record, decision, notes) {
+function writeVerdictBody(record, body) {
   const directory = logDirectory(record);
   mkdirSync(directory, { recursive: true });
   const bodyFile = join(directory, 'verdict.md');
-  writeFileSync(bodyFile, `${verdictBody(record, decision, notes)}\n`);
-  comment(record, bodyFile);
-  return { ...record, stage: 'judged', verdict: decision, notes };
+  writeFileSync(bodyFile, `${body}\n`);
+  return bodyFile;
+}
+
+function verdictComment(record, review, decision, notes, save) {
+  const body = verdictBody(record, decision, notes);
+  if (!isLandingPull(record)) return comment(record, writeVerdictBody(record, body));
+  const previous = record.verdictDelivery;
+  const marker = previous?.marker ?? randomUUID();
+  const markedBody = `${body}\n\n<!-- factory-verdict:${review}:${marker} -->`;
+  if (previous && (previous.review !== review || previous.body !== markedBody)) {
+    throw new Error('factory: retry the same bound verdict and notes as the saved attempt.');
+  }
+  if (previous?.isConfirmed) return;
+  const delivery = previous ?? { review, marker, author: commentAuthor(record), body: markedBody };
+  if (!previous) {
+    const bodyFile = writeVerdictBody(record, markedBody);
+    save({ ...record, verdictDelivery: delivery });
+    comment(record, bodyFile);
+  } else if (!hasComment(record, delivery.author, markedBody)) {
+    // An absent comment does not prove GitHub rejected the POST.
+    throw new Error('factory: the saved verdict comment is unconfirmed. Retry this bound verdict to check GitHub again.');
+  }
+  save({ ...record, verdictDelivery: { ...delivery, isConfirmed: true } });
 }
 
 function land(record) {
@@ -56,7 +78,9 @@ export function verdict(review, [decision, notesFile, ...extra]) {
   const outcome = withRecord(record, (_, save) => {
     const current = requireReview(review);
     reviewFacts(current);
-    const judged = postVerdict(current, decision, notes);
+    verdictComment(current, review, decision, notes, save);
+    const { verdictDelivery, ...checked } = current;
+    const judged = { ...checked, stage: 'judged', verdict: decision, notes };
     if (!current.recoveryOf && decision !== 'FAIL' && isLandingPull(judged)) return startPublication(judged, save);
     save(judged);
     if (current.recoveryOf && decision === 'FAIL') {

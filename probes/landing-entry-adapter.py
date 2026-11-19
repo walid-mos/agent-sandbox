@@ -49,6 +49,11 @@ def github(args):
         emit([{'nameWithOwner': REPOSITORY, 'repositoryTopics': [{'name': 'factory'}]}])
     elif args[:2] == ['api', 'graphql']:
         emit([{'data': {'repository': {'pullRequests': {'nodes': []}}}}])
+    elif args[:2] == ['api', 'user']:
+        assert os.environ['GH_REPO'] == REPOSITORY
+        print(17)
+    elif args[0] == 'api' and '/issues/' in args[1]:
+        return comment_listing(args)
     elif args[:2] == ['api', f'repos/{REPOSITORY}']:
         emit(['factory'])
     elif args[:2] == ['pr', 'list']:
@@ -57,6 +62,32 @@ def github(args):
     else:
         return pull_operation(args)
     return 0
+
+
+def comment_listing(args):
+    assert args[2:] == ['--paginate', '--slurp'], args
+    number = args[1].rsplit('/', 2)[1]
+    if (ROOT / 'fail-comment-readback').exists():
+        print('verdict comment readback unavailable', file=sys.stderr)
+        return 1
+    override = ROOT / 'comment-readback.json'
+    if override.exists():
+        emit(json.loads(override.read_text()))
+        return 0
+    comments = ROOT / f'comments-{number}.jsonl'
+    emit([[], [json.loads(line) for line in comments.read_text().splitlines()] if comments.exists() else []])
+    return 0
+
+
+def comment(pull, args):
+    body = Path(args[args.index('--body-file') + 1]).read_text()
+    log(f"comments-{pull['number']}.jsonl", {'body': body, 'user': {'id': 17}})
+    loss = ROOT / 'lose-comment-response'
+    if not loss.exists():
+        return 0
+    loss.unlink()
+    print('lost the verdict comment response', file=sys.stderr)
+    return 1
 
 
 def pull_operation(args):
@@ -74,6 +105,7 @@ def pull_operation(args):
         return merge(pull, args)
     else:
         assert args[1] == 'comment', args
+        return comment(pull, args)
     return 0
 
 
