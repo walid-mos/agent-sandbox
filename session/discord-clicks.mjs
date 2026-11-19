@@ -7,8 +7,8 @@ export function registerDiscordQuestion(registration, store, identity) {
   return saveRegistration(registration, store, identity, { savedRegistration: registration, registrationState: 'saved', registered: false });
 }
 
-export function registerOwnerQuestion(registration, store, ownerId) {
-  return saveRegistration(registration, store, undefined, { localAdmin: true, ownerId, registration, registrationState: 'acknowledged', registered: true });
+export function registerOwnerQuestion(registration, store, ownerId, purpose) {
+  return saveRegistration(registration, store, undefined, { localAdmin: true, ownerId, purpose, registration, registrationState: 'acknowledged', registered: true });
 }
 
 async function saveRegistration(registration, store, identity, state) {
@@ -99,7 +99,7 @@ export async function acceptDiscordClick(row, { store, identity, channelAccount,
     const evidence = discordEvidence({ userId: event.userId, guildId: event.guildId ?? record.registration.guildId, messageUrl, at }, identity, question.policy);
     const [answer] = answersOf([asked], [chosenAnswer(asked, event)]);
     const picks = { ...record.picks, [asked.id]: { question: asked.id, request: record.registration.request, messageUrl,
-      customId: event.customId, option: event.option, answer, evidence, at } };
+      customId: event.customId, option: event.option, answer, evidence, at, ...(record.localAdmin && { ownerDisplayVerified: true, handlerPid: process.pid }) } };
     const isComplete = question.questions.every(item => Object.hasOwn(picks, item.id));
     const outbox = isComplete ? packet('human.answer', { dialog: question.dialog, request: record.registration.request, digest: question.digest,
       answers: question.questions.map(item => picks[item.id].answer),

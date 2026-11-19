@@ -6,6 +6,7 @@ import { approvalControls, approvalMessage, canonicalJson, requireApprovalDispla
 import { snowflake } from './discord-admin-operations.mjs';
 
 export const DISCORD_ADMIN = { id: 'discord-admin', name: 'Discord Admin' };
+export const ACTIVATION_ACTION = 'discord-admin.activate';
 export const APPROVE = 'Approve this operation';
 export const DECLINE = 'Cancel';
 const QUESTION = 'operation';
@@ -21,16 +22,21 @@ const isWithinWindow = (prepared, pick) => prepared.expiresAt > Date.parse(pick.
 
 function approvalQuestion(id, request) {
   const scope = operationScope(request);
+  const isActivation = request.action === ACTIVATION_ACTION;
+  const prompt = isActivation ? 'Install and enable Discord Admin in Mastermind for this guild and application?' : `Apply ${request.action} once, exactly as scoped?`;
+  const detail = isActivation ? 'Installs the signed Discord Admin bot using the running Pots gateway.' : 'Applies only this guild, resource and payload, once.';
   return { id, kind: 'question', policy: 'ordinary', scope, context: `Discord Admin asks to apply one exact operation: ${scope}`,
-    questions: [{ id: QUESTION, prompt: `Apply ${request.action} once, exactly as scoped?`, multiple: false, options: [
-      { label: APPROVE, detail: 'Applies only this guild, resource and payload, once.', recommended: false },
+    questions: [{ id: QUESTION, prompt, multiple: false, options: [
+      { label: APPROVE, detail, recommended: false },
       { label: DECLINE, detail: 'Nothing changes.', recommended: false }] }] };
 }
 
 function registeredPick(record, question) {
   if (!record) return undefined;
   requireRegisteredApproval(record, question);
-  return record.picks[QUESTION];
+  const pick = record.picks[QUESTION];
+  if (pick && pick.ownerDisplayVerified !== true) throw new Error('discord-admin: the running handler did not verify the owner display. Verify its deployment and register a new question.');
+  return pick;
 }
 
 function requireRegisteredApproval(record, question) {
@@ -42,7 +48,7 @@ function requireRegisteredApproval(record, question) {
 function clickedLabel(pick, { ownerId, guildId }) {
   const [label] = pick.answer.labels;
   if (![pick.answer.labels.length === 1, pick.answer.text === '', [APPROVE, DECLINE].includes(label)].every(Boolean)) throw new Error('discord-admin: the approval answer is not one of its two buttons.');
-  if (pick.evidence.guildId !== guildId || pick.evidence.userId !== ownerId) throw new Error('discord-admin: only the server owner\'s click decides an irreversible operation. Ask for a new approval.');
+  if (pick.evidence.guildId !== guildId || pick.evidence.userId !== ownerId) throw new Error('discord-admin: only the server owner\'s click decides this approval. Ask for a new approval.');
   return label;
 }
 
@@ -72,7 +78,7 @@ async function decideApproval(request, ownerId, { pending, clicks, guildId }) {
     }
     if (!isWithinWindow(prepared, pick)) throw new Error(EXPIRED);
     const label = clickedLabel(pick, { ownerId, guildId });
-    save({ ...prepared, consumed: { at: new Date().toISOString(), label, evidence: pick.evidence } });
+    save({ ...prepared, consumed: { at: new Date().toISOString(), label, evidence: pick.evidence, ownerDisplayVerified: true, handlerPid: pick.handlerPid } });
     return { status: label === APPROVE ? 'authorized' : 'declined', approval: prepared.id, question: prepared.question, answer: pick.answer };
   }, request.approval);
 }
@@ -100,13 +106,14 @@ async function verifiedMessage(input, question, api) {
   return { ...expected, components: approvalControls(question) };
 }
 
-async function registerApproval(input, { pending, clicks, channelAccount, guildId, api }) {
+async function registerApproval(input, { pending, clicks, channelAccount, guildId, api, purpose }) {
   const prepared = pendingApproval(input?.dialog, pending);
   if (!isUnused(prepared) || prepared.expiresAt <= Date.now()) throw new Error(EXPIRED);
   const question = questionPacket(prepared.question);
+  if (JSON.parse(prepared.question.scope).guildId !== guildId) throw new Error('discord-admin: the registered question belongs to a different guild. Prepare a new question.');
   const message = await verifiedMessage(input, question, api);
   const registration = { question, request: requestId(prepared.id), pot: MASTERMIND_POT, channelAccount, guildId, messages: [message] };
-  const record = await registerOwnerQuestion(registration, clicks, prepared.ownerId);
+  const record = await registerOwnerQuestion(registration, clicks, prepared.ownerId, purpose);
   return { dialog: record.id, registered: true, state: record.registrationState };
 }
 
@@ -121,7 +128,25 @@ function approvedRequest(id, pending) {
   return { ...JSON.parse(prepared.question.scope), approval: id };
 }
 
-export const approvalWake = dialog => ['--from', DISCORD_ADMIN.id, '--note', `${DISCORD_ADMIN.name} dialog ${dialog} has a registered click. Delegate approve with this ID to ${DISCORD_ADMIN.id}. The command rechecks the exact operation and consumes it once.`];
+export function approvalWake({ id, purpose }) {
+  const instruction = purpose === ACTIVATION_ACTION
+    ? `Run the installed discord-admin-activate.mjs apply ${id} command as Mastermind.`
+    : `Delegate approve with this ID to ${DISCORD_ADMIN.id}.`;
+  return ['--from', DISCORD_ADMIN.id, '--note', `${DISCORD_ADMIN.name} dialog ${id} has a registered click. ${instruction}`];
+}
+
+export async function consumedActivation(request, { ownerId, pending, clicks }) {
+  const prepared = pendingApproval(request.approval, pending);
+  if (!prepared?.consumed) return undefined;
+  if (prepared.ownerId !== ownerId) throw new Error(EXPIRED);
+  if (request.action !== ACTIVATION_ACTION || prepared.question.scope !== operationScope(request)) throw new Error('discord-admin: the receipt covers a different activation.');
+  const { consumed } = prepared;
+  if (consumed.ownerDisplayVerified !== true) throw new Error('discord-admin: the receipt lacks the handler display verification. Register a new question.');
+  const answer = { id: QUESTION, labels: [consumed.label], text: '' };
+  const label = clickedLabel({ answer, evidence: consumed.evidence }, { ownerId, guildId: request.guildId });
+  const discordMessage = await closeApproval(prepared.id, prepared.question, answer, clicks);
+  return { status: label === APPROVE ? 'authorized' : 'declined', approval: prepared.id, discordMessage };
+}
 
 export function discordAdminApprovals(dependencies) {
   return { authorize: (request, identity) => authorize(request, identity, dependencies),
