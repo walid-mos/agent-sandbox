@@ -49,14 +49,17 @@ The rule always excludes the Mastermind bot's posts, interaction responses, forw
 
 | Event | Result |
 | --- | --- |
-| First activation, changed rules, or a replaced gateway log on restart | Start at the current log tail and require a source timestamp on or after activation. |
+| First activation, changed rules, or a replaced gateway log | Open the current file on the next poll, start at its tail, and require a source timestamp on or after that reset. Rows already in the replacement log are skipped. |
+| Unsupported gateway log schema | Pause automatic threads and log the schema error. Retry on later polls without advancing progress or claiming messages until a supported log is readable. |
 | Restart with the same active rules and log | Read retained rows after the saved cursor. A saved claim prevents another POST, including after a thread disappears. |
 | Existing thread or concurrent manual creation | Keep the existing thread. The message's thread flag and channel readback recognize it. After a POST error the service verifies the thread ID, guild, parent and type before accepting readback. |
 | Crash after claiming, rate limit, refused POST or unresolved response | The watcher may leave the post without a thread. It sends at most one automatic POST per claimed message and logs request failures it observes. Inspect Discord before manual action. |
 | A message never reaches the Pots log | A missing `MESSAGE_CREATE` cannot trigger the rule. A resumed gateway session can deliver missed events. Pots history backfill after a new session does not trigger the rule. |
 
-The watcher owns its own SQLite cursor and claims under `~/.config/agent-sandbox/discord-auto-threads/`. The write before the POST survives process restart. Discord still enforces one thread per source if the operator starts it at the same time. Disabling clears the cursor and preserves claims, so re-enabling neither backfills disabled time nor retries an earlier automatic claim.
+The watcher owns its SQLite cursor and claims under `~/.config/agent-sandbox/discord-auto-threads/`. A delayed poll cannot move a shared cursor backwards or change progress for a different log or activation. Run the watcher with one service configuration. The claim before the POST survives process restart, and Discord enforces one thread per source if the operator starts it at the same time. Disabling clears the cursor and preserves claims, so re-enabling skips disabled time and earlier claims. If Discord cannot resolve a protected thread or report its parent, the watcher skips creation under the same protection rules as Discord Admin.
 
 ## Offline verification
 
-Run `node --test session/discord-auto-thread.test.mjs session/discord-auto-thread-watcher.test.mjs` for eligibility, protected channels, fixed REST paths, archived threads, manual races, lost responses, restart and per-channel rule changes. The watcher tests use a disposable SQLite log and a fake Discord API. `./bin/check` includes both suites. Mastermind's actual gateway log and channel permissions require an authorized rollout check.
+Run `node --test session/discord-auto-thread.test.mjs session/discord-auto-thread-watcher.test.mjs session/discord-admin-thread-protection.test.mjs` for the offline regressions. `./bin/check` includes these suites.
+
+Pots v0.8.5 is the version verified offline. Run `node probes/discord-auto-thread-pots.mjs /path/to/pots /path/to/bot.sqlite` against that installed executable and a local log it created. The probe reads only the installed table definition and exercises the watcher query with synthetic rows in a disposable SQLite file. The tagged Discord adapter and gateway log writer define the dispatch, account and raw-message fields the probe uses. Other versions need the same contract check before enabling the rule. Verify Mastermind's event delivery and channel permissions in the authorized rollout window. [Pots Discord adapter](https://github.com/Crokily/pi-durable-bot/blob/v0.8.5/src/channels/discord/index.ts)
