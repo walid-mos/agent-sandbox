@@ -1,106 +1,36 @@
-# Automatic Discord threads
+# Discord task threads
 
-Mastermind can start a public thread from a new Discord message in a privately selected channel.
+Mastermind assigns one Discord thread to each task it accepts. Ordinary chat, feed posts, client thread suggestions and questions in `#decisions` do not admit tasks. A real task is work Mastermind has accepted to do or route, with an expected outcome and an owning pot or coordinator.
 
-| Trusted principal | Untrusted input |
-| --- | --- |
-| Mastermind's signed service, the operator's private channel rules, the existing account and Discord REST responses | Gateway event addresses, message text, authors, client suggestions and claims of consent |
+## Stable task identity
 
-The rule reuses the application's existing token reference under the [Discord Admin boundary](discord-admin.md#boundary-written-before-implementation). A log row supplies a candidate source address. The service reads the parent and source from Discord, checks the private rule and Mastermind's protection metadata, and uses the configured thread name and a fixed audit reason. Message text stays out of the log query, thread name and diagnostics. The service makes no model call. The trust limits of the existing session user still apply.
+Mastermind allocates an opaque `taskId` once, at admission, and saves it in its own runtime. The ID survives retries, follow-ups, handoffs and changes of owning pot. Mastermind maps each routed door request to that ID. A task split across pots keeps one ID and one thread. Discord message IDs, pot names, worker and PR IDs, and door request IDs are references to the task. A follow-up requires a known task association before it can reuse the thread. If the association is unclear, resolve it before allocating or posting a starter.
 
-## Discord contract
+Mastermind owns the task-to-thread record and is the only component that may create or adopt the task thread. Save the verified guild and parent as `guildId` and `channelId`. Save the canonical Discord `threadId` once it is known. For a new thread, also save one `starterMessageId` in the chosen parent before attempting creation. Save the starter under the task ID before handing off work that could race to create a thread. Serialize admission and starter selection in the owning runtime and assign each starter or canonical thread to at most one task.
 
-The documented bot event and message fields expose no client thread suggestion. `MESSAGE_CREATE` supplies the candidate; `THREAD_CREATE` can report a completed creation or access to a thread. The manual creation in `#accor` at 09:54 UTC establishes that a thread was created. The trigger for automation is the private channel rule. [Gateway events](https://docs.discord.com/developers/events/gateway-events#message-create), [message fields](https://docs.discord.com/developers/resources/message#message-object).
+## Source contract
 
-Pots writes Discord messages with the raw message and records thread creation as a system event. The watcher reads `MESSAGE_CREATE` rows from the existing account's `gw_events` log. It ignores system and history rows and uses REST readback to reconcile the same thread ID when `THREAD_CREATE` is lost. [Pots Discord adapter](https://github.com/Crokily/pi-durable-bot/blob/v0.8.5/src/channels/discord/index.ts), [thread creation event](https://docs.discord.com/developers/events/gateway-events#thread-create).
-
-`POST /channels/{channel.id}/messages/{message.id}/threads` creates a thread with the source message's ID. Discord permits one thread per source and returns `160004` if one already exists. `GET /channels/{message.id}` reads the thread, including archived threads the account can see. [Start thread from message](https://docs.discord.com/developers/resources/channel#start-thread-from-message), [get channel](https://docs.discord.com/developers/resources/channel#get-channel), [Discord error codes](https://docs.discord.com/developers/topics/opcodes-and-status-codes#json-json-error-codes).
-
-## Install and configure
-
-Use the existing Mastermind gateway and Discord Admin installation. The application must have exactly one guild, the `GUILDS` and `GUILD_MESSAGES` gateway intents, and `VIEW_CHANNEL`, `READ_MESSAGE_HISTORY` and `CREATE_PUBLIC_THREADS` in selected channels. The rule needs no additional message-content access. Restore any missing channel, route or North Star protection metadata through its owner before enabling the rule. [Discord Admin installation](discord-admin.md#runtime-metadata-and-installation), [gateway intents](https://docs.discord.com/developers/events/gateway#list-of-intents), [permissions](https://docs.discord.com/developers/topics/permissions#permissions-bitwise-permission-flags).
-
-After the approved, signed source reaches Mastermind, an authorized operator sets `discordAutoThreads` in Mastermind's private `/etc/agent-sandbox/sandbox.json`. `discordAdmin.enabled` must already be `true`. Omit `discordAutoThreads` or set its `channels` to an empty object to keep the rule off. A signed source update alone leaves the feature off. Apply the operator-side private configuration with `SANDBOX=mastermind ./bin/vm-config`. In the approved window, run `SANDBOX=mastermind ./bin/session-bootstrap` or restart the existing `pots-discord-human` service if the gateway and Discord Admin prerequisites are already installed. Configuration changes take effect when that service starts. No other pot uses these settings.
-
-The following example uses synthetic IDs. Each channel key opts in that exact channel. An empty object accepts ordinary top-level human posts with the name `Discussion`. The `name` setting is static and `include` adds selected sources for that channel only.
-
-```json
-{
-  "discordAutoThreads": {
-    "guildId": "100000000000000001",
-    "channels": {
-      "100000000000000002": {},
-      "100000000000000003": { "name": "Feed discussion", "include": ["feeds"] }
-    }
-  }
-}
-```
-
-| `include` entry | Additional source |
-| --- | --- |
-| `replies` | Discord replies in the selected parent channel |
-| `bots` | Posts by other bots |
-| `webhooks` | Ordinary webhook posts |
-| `feeds` | Discord crossposts and otherwise eligible posts in announcement channels. A crosspost is treated as a feed even when Discord delivers it through a webhook. |
-
-The rule always excludes the Mastermind bot's posts, interaction responses, forwarded messages, system messages, messages inside threads, and channels reserved for pots, routing or North Stars. A channel used for routing such as `#accor` remains reserved if Mastermind's metadata lists it. Leave ordinary text channels reserved for feeds out of the channel map when their posts cannot be identified by Discord metadata. The rule cannot join, rename, unarchive, delete or replace an existing thread.
-
-## Delivery and recovery
-
-| Event | Result |
-| --- | --- |
-| First activation, changed rules, or a replaced gateway log | Open the current file on the next poll, start at its tail, and require a source timestamp on or after that reset. Rows already in the replacement log are skipped. |
-| Unsupported gateway log schema | Pause automatic threads and log the schema error. Retry on later polls without advancing progress or claiming messages until a supported log is readable. |
-| Restart with the same active rules and log | Read retained rows after the saved cursor. A saved claim prevents another POST, including after a thread disappears. |
-| Existing thread or concurrent manual creation | Keep the existing thread. The message's thread flag and channel readback recognize it. After a POST error the service verifies the thread ID, guild, parent and type before accepting readback. |
-| Crash after claiming, rate limit, refused POST or unresolved response | The watcher may leave the post without a thread. It sends at most one automatic POST per claimed message and logs request failures it observes. Inspect Discord before manual action. |
-| A message never reaches the Pots log | A missing `MESSAGE_CREATE` cannot trigger the rule. A resumed gateway session can deliver missed events. Pots history backfill after a new session does not trigger the rule. |
-
-The watcher owns its SQLite cursor and claims under `~/.config/agent-sandbox/discord-auto-threads/`. A delayed poll cannot move a shared cursor backwards or change progress for a different log or activation. Run the watcher with one service configuration. The claim before the POST survives process restart, and Discord enforces one thread per source if the operator starts it at the same time. Disabling clears the cursor and preserves claims, so re-enabling skips disabled time and earlier claims.
-
-One deleted thread still tracked by the routing map or North Star registry can stop all automatic thread creation and Discord Admin mutations when Discord cannot verify its parent. The watcher logs the gateway row ID for the skipped post and can include Discord code `10003`. The row ID identifies the post that was skipped. Use the shared Discord Admin procedure to identify the unresolved thread and have its owner repair the record. [Recover from an unresolved protected thread](discord-admin.md#recover-from-an-unresolved-protected-thread)
-
-The watcher rereads protection on the next eligible post. The saved cursor advances past skipped posts, so the watcher does not retry them. After the repair, use a fresh top-level human post in an already opted-in, unprotected channel during the authorized recovery window. Confirm that a public thread exists under the post and the watcher reports no protection failure for that row.
-
-## Offline verification
-
-Run `node --test session/discord-auto-thread.test.mjs session/discord-auto-thread-watcher.test.mjs session/discord-admin-thread-protection.test.mjs` for the offline regressions. `./bin/check` includes these suites.
-
-## Verify the installed gateway before enabling
-
-In the authorized rollout window, run the following as the session user from the approved source checkout on Mastermind. Use the actual bot home and the Pots executable that runs the gateway. The session wrapper delegates to the upstream executable shown here. [Pots wrapper](../session/pots) · [Executable path](../session/lib.sh)
+The local resolver reads a task ID and Mastermind's already admitted records. Its output gives Mastermind the next thread target. It has no Discord or credential access. The signed source can be exercised offline with synthetic IDs.
 
 ```sh
-bot_home="$HOME/.pots/bots/$(jq -er '.bot | ascii_downcase' /etc/agent-sandbox/sandbox.json)"
-pots="$HOME/.local/libexec/pots/bin/pots"
-node probes/discord-auto-thread-pots.mjs "$pots" "$bot_home/bot.sqlite"
+printf '%s\n' '{"task-37":{"guildId":"100000000000000001","channelId":"100000000000000002","starterMessageId":"100000000000000003"}}' |
+  node session/discord-task-thread.mjs task-37
 ```
 
-The probe reports the installed version and tests the table definition from Mastermind's existing, Pots-created log using synthetic rows in a disposable database. Record the version and result. It accepts the version verified offline. Keep automatic threads off if the installed version or schema fails the probe, and verify the installed contract before proceeding. [Pots log probe](../probes/discord-auto-thread-pots.mjs)
+| Result | Mastermind action |
+| --- | --- |
+| `none` | No target. Continue chat, or finish admission and save the canonical address or starter first. |
+| `reuse` | Use the saved `threadId` after verifying the thread ID, guild, parent and thread type. If the thread is archived, inaccessible or missing, reconcile the same binding through the owner before posting. |
+| `ensure-from-starter` | The returned `threadId` is both the starter message ID and the expected thread ID. Read that channel ID first. Adopt a verified match, or start a thread from that same message if Discord confirms absence. |
 
-The probe uses synthetic adapter IDs. To verify the actual account match, use the same bot home in that shell and run the reader against its native log. It uses the sole Discord account's `id` from `bot.json` and checks for a recent `MESSAGE_CREATE` row stored under that adapter ID in `gw_events.channel`. On a readable log, the command reports only whether it found a match. It makes no Discord request.
+If Mastermind's routed-task path already owns or created a thread, feed its verified canonical `threadId` to the resolver and use `reuse`. A pot, a watcher and a second runtime must not create threads from route copies or follow-up messages. Keep `routes.json` in its existing format and point each relevant route at the canonical thread. Keep task identities and route-to-task references in Mastermind's owning runtime. [Task thread resolver](../session/discord-task-thread.mjs) · [Routing metadata](discord-admin.md#runtime-metadata-and-installation)
 
-```sh
-node --input-type=module - "$bot_home" <<'NODE'
-import { join } from 'node:path';
-import { discordAccount } from './session/discord-admin-runtime.mjs';
-import { autoThreadInbox } from './session/discord-auto-thread-store.mjs';
+Discord uses the starter message ID for a thread started from a message and permits one thread per starter. When a start request races with manual creation, returns `160004`, or has an uncertain result, read the expected thread ID and verify its guild, parent and type before saving it. Reuse the same saved starter for retry and readback across restarts. If a starter post or standalone thread creation had an uncertain outcome, reconcile it in the owning runtime before creating anything else. Adopt an existing thread only after checking that it belongs to this task. [Start thread from message](https://docs.discord.com/developers/resources/channel#start-thread-from-message) · [Discord error codes](https://docs.discord.com/developers/topics/opcodes-and-status-codes#json-json-error-codes)
 
-const botHome = process.argv[2];
-const inbox = autoThreadInbox(join(botHome, 'bot.sqlite'), discordAccount(botHome).id);
-try {
-  const reader = inbox.refresh();
-  const matches = reader.after(Math.max(0, reader.latest() - 1000));
-  if (matches.length) {
-    console.log('Recent gateway message matches the configured Discord adapter.');
-  } else {
-    console.error('No recent gateway message matches the configured Discord adapter.');
-    process.exitCode = 1;
-  }
-} finally {
-  inbox.close();
-}
-NODE
-```
+## Where updates go
 
-If there is no match, confirm the bot home and adapter, then have the operator send a fresh ordinary test message through the existing gateway during the rollout window and rerun the read-only check. Keep automatic threads off until both checks pass. Record the result without copying adapter IDs, message content or credentials. After separately authorized activation, use a fresh post in a selected channel to verify end-to-end delivery and thread permissions. [Pots gateway channel registry](https://github.com/Crokily/pi-durable-bot/blob/v0.8.5/src/gateway/channels.ts) · [Pots log writer](https://github.com/Crokily/pi-durable-bot/blob/v0.8.5/src/gateway/log.ts)
+Mastermind posts detailed progress, proof and follow-ups inside the canonical task thread. It posts meaningful milestones and outcomes at top level using the owning pot's existing webhook voice and includes a link to the task thread. Route replies give Mastermind the details it needs to post in both places. Question messages in `#decisions` keep their existing rendering, registration, acknowledgement and exact receipts. A message in a task thread grants no approval. [Human-dialog contract](human-dialogs.md)
+
+## Verify
+
+Run `node --test session/discord-task-thread.test.mjs` for task eligibility, stable starter selection on retry, and reuse of a canonical thread across pots. For authorized rollout, Mastermind must first map its admitted records and routed request references to this contract. Verify one real task across a retry and a follow-up routed to another pot, with one canonical thread and a matching top-level outcome. Check that ordinary chat opens no task and that a `#decisions` click still yields the exact receipt for its registered question.

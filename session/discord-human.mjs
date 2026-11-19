@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { approvalWake } from './discord-admin-approvals.mjs';
-import { startAutoThreads } from './discord-auto-thread-watcher.mjs';
 import { acceptDiscordClick, closeDiscordQuestion, registeredPot, registrationOf } from './discord-clicks.mjs';
 import { discordInbox } from './discord-inbox.mjs';
 import { ANSWERED, RECEIVED, REFUSED } from './door-requests.mjs';
@@ -148,7 +147,4 @@ main(import.meta, async () => {
     return;
   }
   startDiscordHuman({ onError: message => process.stderr.write(`discord-human: ${message}\n`) });
-  const reportAutoThread = message => process.stderr.write(`discord-auto-threads: ${message}\n`);
-  try { startAutoThreads(sandbox, botHome, reportAutoThread); }
-  catch { reportAutoThread('Cannot start. Check the private channel rules and local state.'); }
 });

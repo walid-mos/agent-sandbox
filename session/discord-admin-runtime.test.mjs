@@ -3,7 +3,7 @@ import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { discoverProtection, discoverThreadOwnership, discordAccount } from './discord-admin-runtime.mjs';
+import { discoverProtection, discordAccount } from './discord-admin-runtime.mjs';
 import { fixture, guildId, protectedId, threadId } from '../probes/fixtures/discord-admin.mjs';
 
 function runtime(t) {
@@ -29,31 +29,6 @@ test('protection comes from owning maps and keeps cached pot IDs after renames',
   assert.equal(first.channelIds.includes('100000000000000092'), false);
   proof.dependencies.channels.find(channel => channel.id === protectedId).name = 'renamed';
   assert.deepEqual(await discoverProtection(proof), first);
-});
-
-test('automatic threads protect the parent of an archived routing thread omitted from guild listing', async t => {
-  const proof = runtime(t);
-  const archivedParent = '100000000000000076';
-  const remoteChannels = proof.dependencies.channels;
-  remoteChannels.splice(remoteChannels.findIndex(channel => channel.id === threadId), 1);
-  const api = proof.api;
-  proof.api = async (method, path) => path === `/channels/${threadId}`
-    ? { id: threadId, guild_id: guildId, type: 11, parent_id: archivedParent, thread_metadata: { archived: true } }
-    : api(method, path);
-  const ownership = await discoverThreadOwnership(proof);
-  assert.deepEqual(ownership.channelIds, [protectedId, threadId, archivedParent]);
-});
-
-test('automatic thread ownership refuses an unresolved archived routing thread', async t => {
-  const proof = runtime(t);
-  const channels = proof.dependencies.channels;
-  channels.splice(channels.findIndex(channel => channel.id === threadId), 1);
-  const api = proof.api;
-  proof.api = async (method, path) => {
-    if (path === `/channels/${threadId}`) throw Object.assign(new Error('discord-admin: Discord HTTP 404, code 10003.'), { discordCode: 10003 });
-    return api(method, path);
-  };
-  await assert.rejects(discoverThreadOwnership(proof), /HTTP 404, code 10003/);
 });
 
 test('all configured pot channels including Personal are protected and cached by ID', async t => {
