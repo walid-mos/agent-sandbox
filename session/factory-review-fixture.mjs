@@ -8,11 +8,11 @@ import { fileURLToPath } from 'node:url';
 export const factory = fileURLToPath(new URL('./factory.mjs', import.meta.url));
 export const head = '0123456789abcdef0123456789abcdef01234567';
 export const otherHead = 'abcdef0123456789abcdef0123456789abcdef01';
-export const checked = { repository: 'NextNodeSolutions/agent-sandbox', number: 22, head, generation: 0, stage: 'checked', base: 'main', branch: 'fix/example', mergeBase: otherHead, checks: [{ name: 'check', isPassed: true }] };
-export const ready = { state: 'OPEN', isDraft: false, headRefOid: head, headRefName: checked.branch, baseRefName: checked.base, mergeable: 'MERGEABLE' };
+export const checked = { repository: 'nextnodesolutions/agent-sandbox', number: 22, head, generation: 1, stage: 'checked', base: 'main', branch: 'fix/example', mergeBase: otherHead, checks: [{ name: 'check', isPassed: true }] };
+export const ready = { number: checked.number, baseRefOid: otherHead, timelineItems: { nodes: [] }, state: 'OPEN', isDraft: false, headRefOid: head, headRefName: checked.branch, baseRefName: checked.base, mergeable: 'MERGEABLE' };
 export const resolvedHead = 'fedcba9876543210fedcba9876543210fedcba98';
-export const retargeted = { ...ready, baseRefName: 'release' };
 export const releaseBase = '0123456789abcdefabcdef0123456789abcdef01';
+export const retargeted = { ...ready, baseRefName: 'release', baseRefOid: releaseBase };
 const draftScan = [{ number: checked.number, headRefOid: head, isDraft: true }];
 
 export function fixture(t, { facts = ready, scanFacts = draftScan } = {}) {
@@ -22,7 +22,7 @@ export function fixture(t, { facts = ready, scanFacts = draftScan } = {}) {
   const failWakeFile = join(home, 'fail-wake');
   const lockFactsFile = join(home, 'lock-facts.json');
   const realFlock = execFileSync('which', ['flock'], { encoding: 'utf8' }).trim();
-  const sandbox = encodeURIComponent('export const botId = "principal", owners = ["walid-mos"], sandbox = {};');
+  const sandbox = encodeURIComponent('export const botId = "principal", owners = ["walid-mos"], sandbox = { factoryDurable: true };');
   const loader = `import { registerHooks } from 'node:module'; registerHooks({ resolve(specifier, context, next) {
     if (specifier === './sandbox.mjs') return { url: 'data:text/javascript,${sandbox}', shortCircuit: true };
     return next(specifier, context);
@@ -33,6 +33,11 @@ export function fixture(t, { facts = ready, scanFacts = draftScan } = {}) {
     [loaderFlag, ...args], {
       encoding: 'utf8', env: { HOME: home, PATH: home, CALLS: callsFile, FACTS: JSON.stringify(liveFacts), TOPICS: JSON.stringify(topics), REENTRY: reentryFile, FAIL_WAKE: failWakeFile, SCAN_FACTS: JSON.stringify(scanFacts), REPOSITORY: checked.repository, LOCK_FACTS: lockFactsFile, FLOCK: realFlock },
     });
+  const reconcile = () => {
+    const requested = run([factory, 'reconcile']);
+    assert.equal(requested.status, 0, requested.stderr);
+    return run([factory, 'scan']);
+  };
   const reenterOn = (match, command, ...args) => {
     writeFileSync(reentryFile, JSON.stringify({ match, args: [loaderFlag, ...command.split(' ').slice(2), ...args] }));
   };
@@ -57,7 +62,9 @@ if (existsSync(file)) {
   const reentry = JSON.parse(readFileSync(file, 'utf8'));
   if (reentry.match.every((part, index) => part === [command, ...args][index])) {
     unlinkSync(file);
-    const nested = spawnSync(process.execPath, reentry.args, { encoding: 'utf8', timeout: 5000 });
+    const isDraftScan = reentry.args.includes('--fixture-draft');
+    const env = isDraftScan ? { ...process.env, FACTS: JSON.stringify({ ...JSON.parse(process.env.FACTS), isDraft: true }) } : process.env;
+    const nested = spawnSync(process.execPath, reentry.args.filter(arg => arg !== '--fixture-draft'), { encoding: 'utf8', timeout: 5000, env });
     appendFileSync(process.env.CALLS, JSON.stringify(['reentry', nested.status, nested.stderr]) + '\\n');
   }
 }
@@ -78,14 +85,25 @@ if (command === 'gh' && args[0] === 'repo' && args[1] === 'list') {
   process.stdout.write(JSON.stringify([{ nameWithOwner: process.env.REPOSITORY, repositoryTopics: [{ name: 'factory' }] }]));
 }
 if (command === 'gh' && args[0] === 'api' && args[1] === 'graphql') {
-  process.stdout.write(JSON.stringify([{ data: { repository: { pullRequests: { nodes: [] } } } }]));
+  if (args.includes('--paginate')) process.stdout.write(JSON.stringify([{ data: { repository: { pullRequests: { nodes: [] } } } }]));
+  else {
+    const active = existsSync(process.env.LOCK_FACTS) ? readFileSync(process.env.LOCK_FACTS, 'utf8') : process.env.FACTS;
+    const owner = args.find(arg => arg.startsWith('owner=')).slice(6);
+    const name = args.find(arg => arg.startsWith('name=')).slice(5);
+    process.stdout.write(JSON.stringify({ data: { repository: { nameWithOwner: owner + '/' + name, isArchived: false, pullRequest: JSON.parse(active) } } }));
+  }
 } else if (command === 'gh' && args[0] === 'api') process.stdout.write(process.env.TOPICS);
+if (command === 'docker') {
+  if (args[0] === 'image' && args.includes('--format')) process.stdout.write('sha256:' + 'a'.repeat(64));
+  if (args[0] === 'create') process.stdout.write('c'.repeat(64));
+  if (args[0] === 'inspect' && args.includes('{{.State.Status}} {{.State.ExitCode}}')) process.stdout.write('exited 0');
+}
 if (command === 'git') {
   const verb = args[2];
   if (verb === 'diff' && !args.includes('--diff-filter=U')) process.stdout.write('Fixture diff');
   if (verb === 'rev-parse') process.stdout.write('${otherHead}');
   if (verb === 'rev-list') process.stdout.write('${resolvedHead} ${head} ${otherHead}');
-  if (verb === 'merge-base' && args[3] === 'refs/heads/${retargeted.baseRefName}') process.stdout.write('${releaseBase}');
+  if (verb === 'merge-base' && args[3] === '${releaseBase}') process.stdout.write('${releaseBase}');
 }
 `, { mode: 0o700 });
   for (const name of ['gh', 'git', 'pots', 'flock', 'docker']) symlinkSync(fake, join(home, name));
@@ -95,16 +113,29 @@ if (command === 'git') {
     writeFileSync(lockFactsFile, JSON.stringify(facts));
     return () => rmSync(lockFactsFile);
   };
-  return { home, run, calls, reenterOn, changePullAtLock, failNextReport: () => writeFileSync(failWakeFile, '') };
+  return { home, run, calls, reconcile, reenterOn, changePullAtLock, failNextReport: () => writeFileSync(failWakeFile, '') };
 }
 
 export function handoff({ run, calls }, record) {
   const reports = new URL('./factory-reports.mjs', import.meta.url);
   const records = new URL('./factory-records.mjs', import.meta.url);
+  const state = new URL('./factory-state.mjs', import.meta.url);
+  const checks = new URL('./factory-checks.mjs', import.meta.url);
+  const repositories = new URL('./factory-repositories.mjs', import.meta.url);
   const result = run(['--input-type=module', '-e', `import { deliverWakes, queueFactoryWake } from ${JSON.stringify(reports)};
     import { withRecord } from ${JSON.stringify(records)};
+    import { withJobs } from ${JSON.stringify(state)};
+    import { effectiveCheckRevision } from ${JSON.stringify(checks)};
+    import { hasChecks } from ${JSON.stringify(repositories)};
     const record = JSON.parse(process.argv[1]);
-    deliverWakes(withRecord(record, (_, save) => save(queueFactoryWake(record))));`, JSON.stringify(record)]);
+    const subject = { repository: record.repository, number: record.number, head: record.head, base: record.base,
+      baseTip: record.mergeBase, transition: record.generation === 1 ? '' : 'ready-again', mergeable: record.stage === 'conflict' ? 'CONFLICTING' : 'MERGEABLE' };
+    if (record.stage === 'checked' && hasChecks(record.repository)) subject.inputRevision = effectiveCheckRevision(record.repository);
+    await withJobs(jobs => {
+      const { id } = jobs.observe(subject);
+      const current = { ...record, ...subject, generation: id };
+      deliverWakes(withRecord(current, (_, save) => save(queueFactoryWake(current))));
+    });`, JSON.stringify(record)]);
   assert.equal(result.status, 0, result.stderr);
   return reviewWakes({ calls }).at(-1).commands;
 }
