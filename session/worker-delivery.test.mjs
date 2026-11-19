@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, beforeEach, mock, test } from 'node:test';
+import { healthyWorkerMemory } from '../probes/fixtures/worker-memory.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'pots-delivery-'));
 process.env.HOME = scratch;
@@ -14,6 +15,7 @@ process.env.POTS_TEST_BOUNDARY = boundaryPath;
 mock.module('./sandbox.mjs', { exports: { botId: 'nextnode' } });
 const { inspectWorker } = await import('./inspect-worker.mjs');
 const { serveQueue } = await import('./serve-queue.mjs');
+const { createAdmission } = await import('./worker-admission.mjs');
 const { acknowledgeResult } = await import('./worker-results.mjs');
 const { enqueue, queued, QUEUE } = await import('./queue.mjs');
 const { receiptPath, statePath, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
@@ -69,7 +71,8 @@ function inspect() {
   inspectWorker(workers()[0], { terminals: boundary().terminals, now: Date.now(), queue: queued(), pending: new Set() });
 }
 function serve() {
-  serveQueue(boundary().terminals, (_subject, error) => { throw error; });
+  const logFailure = (_subject, error) => { throw error; };
+  serveQueue(boundary().terminals, logFailure, createAdmission({ logFailure, readText: healthyWorkerMemory }));
 }
 
 beforeEach(() => {
@@ -195,16 +198,14 @@ test('first launch preallocates one exact session identity before starting Pi', 
   assert.equal(queued().length, 0);
 });
 
-test('one pass starts every queued worker even when another worker is live', () => {
-  const names = ['queued-first', 'queued-second'];
-  for (const name of names) {
-    save({ name, owner: worker.owner, worktree: worker.worktree, brief: '/brief.md' });
-    writePrivateJson(join(QUEUE, `${name}-1.json`), { worker: name });
-    writePrivateJson(join(QUEUE, `${name}-2.json`), { worker: name, message: 'Follow up' });
-  }
+test('a queued launch can start alongside a live worker and retains its follow-up', () => {
+  const name = 'queued-first';
+  save({ name, owner: worker.owner, worktree: worker.worktree, brief: '/brief.md' });
+  enqueue({ worker: name });
+  enqueue({ worker: name, message: 'Follow up' });
   serve();
-  assert.deepEqual(boundary().terminals.map(terminal => terminal.name).sort(), [worker.name, ...names]);
-  assert.deepEqual(queued().map(request => request.message), ['Follow up', 'Follow up']);
+  assert.deepEqual(boundary().terminals.map(terminal => terminal.name), [worker.name, name]);
+  assert.deepEqual(queued().map(({ worker, message }) => ({ worker, message })), [{ worker: name, message: 'Follow up' }]);
 });
 
 test('follow-up stays durable until Pi accepts it and is sent only once per launch', () => {

@@ -1,7 +1,7 @@
 import { dequeue, queued, updateRequest } from './queue.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { isStopped, launch, terminalOf, workers } from './workers.mjs';
+import { isStopped, launch, liveTerminals, terminalOf, workers } from './workers.mjs';
 import { lifecycleOf, wrappedFollowUp } from './worker-lifecycle.mjs';
 
 function conversationOf(worker) {
@@ -51,28 +51,59 @@ function workerForRequest(request, records) {
   return worker;
 }
 
+function startWaiting(request, worker, view) {
+  if (view.retryAfter !== undefined) return;
+  view.retryAfter = view.admission.check(view);
+  if (view.retryAfter !== undefined) return;
+  let needsSpacing = true;
+  try {
+    // hc can open the terminal and fail before returning its address.
+    needsSpacing = start(request, worker) || liveTerminals().some(terminal => terminal.name === worker.name);
+  } finally {
+    if (needsSpacing) view.retryAfter = view.admission.attempted();
+  }
+}
+
 function deliverRequest(request, terminal, worker) {
   if (!request.message) return dequeue(request);
   deliver(request, terminal, worker);
 }
 
-function serve(request, { records, terminals, started }) {
+function serve(request, view) {
+  const { records, terminals } = view;
   const worker = workerForRequest(request, records);
   if (!worker) return;
   const terminal = terminalOf(worker, terminals);
   if (terminal) return deliverRequest(request, terminal, worker);
   if (terminals.some(candidate => candidate.name === worker.name)) throw new Error('dispatch: terminal ownership changed. Inspect it before sending.');
-  if (!started.has(worker.name) && start(request, worker)) started.add(worker.name);
+  startWaiting(request, worker, view);
 }
 
-export function serveQueue(terminals, logFailure) {
+function launchAges(records, terminals) {
+  const now = Date.now();
+  let latestLaunchAge = Infinity;
+  let pendingStatusAge = Infinity;
+  for (const worker of records.values()) {
+    if (worker.owner !== botId) continue;
+    const terminal = terminalOf(worker, terminals);
+    const startedAt = terminal?.created_ms ?? worker.startedAt;
+    if ((!terminal && !worker.terminal) || !Number.isFinite(startedAt)) continue;
+    const age = Math.max(0, now - startedAt);
+    latestLaunchAge = Math.min(latestLaunchAge, age);
+    if (terminal && !terminal.status) pendingStatusAge = Math.min(pendingStatusAge, age);
+  }
+  return { latestLaunchAge, pendingStatusAge };
+}
+
+export function serveQueue(terminals, logFailure, admission) {
   const records = new Map(workers().map(worker => [worker.name, worker]));
-  const started = new Set();
+  const view = { records, terminals, ...launchAges(records, terminals), admission };
   for (const request of queued()) {
     try {
-      serve(request, { records, terminals, started });
+      serve(request, view);
     } catch (error) {
       logFailure(request.worker, error);
     }
   }
+  return view.retryAfter;
 }

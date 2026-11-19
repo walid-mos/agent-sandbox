@@ -85,7 +85,7 @@ function queueWorker(worker, text) {
   const brief = writeBrief(worker.name, text);
   save({ ...worker, brief });
   enqueue({ worker: worker.name });
-  process.stdout.write(`${JSON.stringify({ ...worker, brief })}\n`);
+  process.stdout.write(`${JSON.stringify({ ...worker, brief, admission: 'memory' })}\n`);
 }
 
 function taskDirectory(directory, resultFile) {
