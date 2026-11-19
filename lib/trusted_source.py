@@ -8,10 +8,10 @@ import sys
 
 BUNDLE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUNDLE / "lib"))
-from launch import LAUNCH
 from signed_commit import Untrusted, read_signers, require_signed
 from source_refresh import GIT_OPTIONS, SAFE_CONFIG, git_environment, refresh
 
+LAUNCH = dict(line.split("=", 1) for line in (BUNDLE / "session/launch.env").read_text().splitlines() if line)
 CLONE = Path(LAUNCH["POTS_SESSION_REPOSITORY"])
 SIGNERS = LAUNCH["POTS_TRUSTED_SIGNERS"]
 SOURCE_URL = LAUNCH["POTS_SOURCE_URL"]
