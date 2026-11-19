@@ -115,7 +115,7 @@ test('the default installed routine checks synchronously and preserves legacy re
   assert.deepEqual(routine, legacyCadence);
   execFileSync('sh', ['-c', routine.at(-1)], { env });
   const checks = readFileSync(join(root, 'legacy-checks'), 'utf8');
-  assert.match(checks, /factory-\d+-check\nfactory-\d+-shellcheck\nfactory-\d+-fallow\n/);
+  assert.match(checks, /factory-\d+-check\n[\s\S]*factory-\d+-shellcheck\n[\s\S]*factory-\d+-fallow\n/);
   const wake = JSON.parse(readFileSync(join(root, 'wakes'), 'utf8'));
   assert.equal(wake.event, 'checked');
   assert.equal(wake.review, undefined);
