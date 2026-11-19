@@ -81,6 +81,9 @@ export function requireActionable(pull) {
   if (facts.state !== 'OPEN' || facts.isDraft || facts.headRefOid !== pull.head) {
     throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);
   }
+  if (facts.baseRefName !== pull.base) {
+    throw new Error(`factory: ${pullUrl(pull)} now targets ${facts.baseRefName}, and this step covers ${pull.base} only. The next scan takes this head against its new base.`);
+  }
   requireTopic(pull.repository);
   checkSteps(pull.repository);
   return facts;

@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 export const factory = fileURLToPath(new URL('./factory.mjs', import.meta.url));
 export const head = '0123456789abcdef0123456789abcdef01234567';
 export const otherHead = 'abcdef0123456789abcdef0123456789abcdef01';
-export const checked = { repository: 'walid-mos/agent-sandbox', number: 22, head, generation: 0, stage: 'checked', mergeBase: otherHead, checks: [{ name: 'check', isPassed: true }] };
-export const ready = { state: 'OPEN', isDraft: false, headRefOid: head };
+export const checked = { repository: 'walid-mos/agent-sandbox', number: 22, head, generation: 0, stage: 'checked', base: 'main', branch: 'fix/example', mergeBase: otherHead, checks: [{ name: 'check', isPassed: true }] };
+export const ready = { state: 'OPEN', isDraft: false, headRefOid: head, baseRefName: 'main' };
 
 export function fixture(t) {
   const home = mkdtempSync(join(tmpdir(), 'factory-review-'));

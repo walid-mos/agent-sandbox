@@ -195,6 +195,7 @@ test('bound actions still refuse a changed head, draft, closed PR, or removed to
   expectRefusal(submit({ ...ready, headRefOid: otherHead }), /this step covers/);
   expectRefusal(submit({ ...ready, isDraft: true }), /a draft/);
   expectRefusal(submit({ ...ready, state: 'CLOSED' }), /CLOSED/);
+  expectRefusal(submit({ ...ready, baseRefName: 'release' }), /now targets release/);
   expectRefusal(submit(ready, []), /no longer has the factory topic/);
   const unconfigured = handoff(rig, { ...checked, repository: 'walid-mos/unconfigured' });
   expectRefusal(action(rig, unconfigured.verdict.replace(' VERDICT NOTES_FILE', ''), 'PASS'), /defines no checks/);
