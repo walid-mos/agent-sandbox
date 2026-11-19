@@ -21,6 +21,7 @@ const { receiveMessage } = await import('../session/door-deliveries.mjs');
 const { dialogDoors } = await import('../session/human-doors.mjs');
 const { humanNeed } = await import('../session/human-door-packets.mjs');
 const { questionPacket, openDialog } = await import('../session/human-dialogs.mjs');
+const { reconcileHuman } = await import('../session/human-relay.mjs');
 const { humanStore } = await import('../session/human-store.mjs');
 const { registerQuestion, REGISTRATION_EXIT, reconcileRegistrations } = await import('../session/discord-registration.mjs');
 const { acceptDiscordClick, closeDiscordQuestion } = await import('../session/discord-clicks.mjs');
@@ -28,18 +29,24 @@ const { reconcilePosted } = await import('../session/human-posted.mjs');
 const { sandbox } = await import('../session/sandbox.mjs');
 let sequence = 0;
 const store = () => humanStore(join(home, `store-${++sequence}`));
-const clear = () => { all().forEach(request => remove(request.id)); sandbox.role = 'mastermind'; wakes.length = 0; sent.length = 0; };
+const OPERATOR = '10000000000000004';
+const GUILD = '10000000000000001';
+const CHANNEL = '10000000000000002';
+const MESSAGE = '10000000000000003';
+const IDENTITY = { pushApprovalsEnabled: true, userId: OPERATOR };
+const clear = () => { all().forEach(request => remove(request.id)); sandbox.role = 'mastermind'; sandbox.humanDiscord = IDENTITY; wakes.length = 0; sent.length = 0; };
 const incoming = (body, header = 'dialog nextnode.12345678', caller = 'nextnode') => receiveMessage(caller, Buffer.from(`${header}\n${body}`));
 const secret = { type: 'human.secret-link', version: 1, dialog: 'a'.repeat(32), purpose: 'Supply test input', url: 'https://owner.example.test/s/reference', expiresAt: 0 };
 
-async function fixture() {
+async function fixture(policy = 'ordinary') {
   const owner = store();
   const discord = store();
-  const dialog = await openDialog({ kind: 'question', source: { type: 'bot', message: `question-${++sequence}` }, policy: 'ordinary', questions: [{ id: 'pick', prompt: 'Choose', options: ['Yes'] }] }, owner);
+  const dialog = await openDialog({ kind: 'question', source: { type: 'bot', message: `question-${++sequence}` }, policy, scope: policy === 'push' ? 'one exact disposable push' : undefined, questions: [{ id: 'pick', prompt: 'Choose', options: ['Yes'] }] }, owner);
   const question = questionPacket(dialog);
   const original = { id: 'nextnode.12345678', kind: 'dialog', direction: 'received', pot: 'nextnode', need: humanNeed(question) };
   const registration = { request: original.id, pot: 'nextnode', channelAccount: 'discord', guildId: '10000000000000001', question,
-    messages: [{ channelId: '10000000000000002', messageId: '10000000000000003', components: [] }] };
+    messages: [{ channelId: '10000000000000002', messageId: '10000000000000003', components: [{ type: 1, components: [{ type: 2, style: 1,
+      label: 'Yes', custom_id: `human:${dialog.id}:0:0` }] }] }] };
   let posted;
   let state = 'open';
   let reply;
@@ -50,7 +57,7 @@ async function fixture() {
     transmit: deliver,
     transmitAsync: async request => deliver(request),
   };
-  return { discord, registration, doors, set: (next, answer) => { state = next; reply = answer; if (posted) Object.assign(posted, { state, reply }); } };
+  return { owner, dialog, discord, registration, doors, set: (next, answer) => { state = next; reply = answer; if (posted) Object.assign(posted, { state, reply }); } };
 }
 
 test('a prose dialog reply is refused locally without closing the request for the human answer', async () => {
@@ -146,6 +153,66 @@ for (const state of ['unknown', 'undelivered', 'refused', 'open']) {
     assert.notEqual(REGISTRATION_EXIT[result.state], 0);
     assert.equal(f.discord.get(result.dialog).registration, undefined);
     assert.equal(f.discord.get(result.dialog).registered, false);
+  });
+}
+
+async function registeredAnswer(policy) {
+  clear();
+  const f = await fixture(policy);
+  const pending = await registerQuestion(f.registration, { store: f.discord, identity: IDENTITY, doors: f.doors });
+  assert.equal(pending.registered, false);
+  await f.owner.patch(f.dialog.id, { delivery: { id: f.registration.request } });
+  const postedPacket = { type: 'human.posted', version: 1, dialog: f.dialog.id, request: f.registration.request,
+    digest: f.registration.question.digest, guildId: f.registration.guildId, at: '2026-11-18T12:00:00Z',
+    messages: [{ question: 'pick', messageUrl: `https://discord.com/channels/${GUILD}/${CHANNEL}/${MESSAGE}` }] };
+  const postedRequest = { id: 'mastermind.87654321', kind: 'dialog', direction: 'received', pot: 'mastermind', need: JSON.stringify(postedPacket), state: 'open' };
+  const acknowledgements = [];
+  const ownerDoors = { all: () => [postedRequest], acknowledge: request => acknowledgements.push(request.id) };
+  if (policy === 'push') {
+    sandbox.humanDiscord = { userId: OPERATOR };
+    await reconcilePosted({ store: f.owner, doors: ownerDoors, onError: () => {} });
+    assert.deepEqual(acknowledgements, []);
+    assert.equal(f.owner.get(f.dialog.id).posted, undefined);
+  }
+  const row = { channel: 'discord', text: `clicked button "Yes" (custom_id human:${pending.dialog}:0:0)`, person: `discord:@${OPERATOR}`, place: CHANNEL,
+    raw: JSON.stringify({ type: 3, guild_id: GUILD, channel_id: CHANNEL, member: { user: { id: OPERATOR } }, message: { id: MESSAGE },
+      data: { custom_id: `human:${pending.dialog}:0:0` } }) };
+  assert.deepEqual(await acceptDiscordClick(row, { store: f.discord, identity: IDENTITY, channelAccount: 'discord' }), { status: 'unhandled' });
+  assert.deepEqual(f.discord.get(pending.dialog).picks, {});
+  sandbox.humanDiscord = IDENTITY;
+  await reconcilePosted({ store: f.owner, doors: ownerDoors, onError: assert.fail });
+  assert.deepEqual(acknowledgements, [postedRequest.id]);
+  f.set('answered', '{"type":"human.posted-ack","version":1}');
+  await reconcileRegistrations(f.discord, assert.fail, f.doors);
+  assert.equal(f.discord.get(pending.dialog).registered, true);
+  const clicked = await acceptDiscordClick(row, { store: f.discord, identity: IDENTITY, channelAccount: 'discord' });
+  assert.equal(clicked.status, 'accepted');
+  const answer = { pot: 'mastermind', direction: 'asked', state: 'answered', id: f.registration.request, reply: JSON.stringify(f.discord.get(pending.dialog).outbox) };
+  const doors = { all: () => [], find: id => id === answer.id ? answer : undefined,
+    prepare: () => ({ id: 'nextnode.11111111', state: 'open' }), transmit: request => request };
+  return { ...f, ownerDoors: doors };
+}
+
+for (const { policy, change, settings, refusal } of [
+  { policy: 'push', change: 'push approval is revoked', settings: { userId: OPERATOR }, refusal: /push approvals stay off/ },
+  { policy: 'push', change: 'the operator changes', settings: { ...IDENTITY, userId: '10000000000000005' }, refusal: /configured operator/ },
+  { policy: 'ordinary', change: 'push approval is revoked and the operator changes', settings: { userId: '10000000000000005' } },
+]) {
+  test(`the owner relay ${refusal ? 'refuses the' : 'records the'} ${policy} answer when ${change} at the dialog lock`, async () => {
+    const { owner, ownerDoors, dialog } = await registeredAnswer(policy);
+    const store = { ...owner, locked: (operation, id) => owner.locked(access => {
+      sandbox.humanDiscord = settings;
+      try { return operation(access); } finally { sandbox.humanDiscord = IDENTITY; }
+    }, id) };
+    await reconcileHuman({ store, doors: ownerDoors, onError: (_id, error) => assert.fail(error) });
+    const { result, issue } = owner.get(dialog.id);
+    if (refusal) {
+      assert.equal(result, undefined);
+      return assert.match(issue, refusal);
+    }
+    assert.equal(issue, undefined);
+    assert.equal(result.origin, 'discord');
+    assert.deepEqual(result.answers, [{ id: 'pick', labels: ['Yes'], text: '' }]);
   });
 }
 

@@ -44,6 +44,12 @@ A changed source, including a factory-merged change, leaves loaded rules unchang
 
 This keeps the operator activation step. Removing that step needs an explicit trust decision. Possible designs are operator-signed rule artifacts verified against the existing trusted keys, or a separate human-controlled approval service and identity. An unsigned source watched by the session is insufficient while workers and the factory share the writer account. A merge or an account name does not prove human approval.
 
+## Accor publication policy
+
+The [copyable Accor example](../sandboxes.example/accor/sandbox.json) selects the `accor` source and leaves `rules` and `publicationPolicy` unset. In the operator's private `sandbox.json`, keep the installed `rules` path or, for a new pot, set `rules` to `/etc/agent-sandbox/accor-rules.md` before importing the private rules. Change only the approved private push and PR instructions to point to the [current Accor publication procedure](worker-delegation.md#accor-first-publication). If there is no canonical file, use the owner-reviewed import recipe above. Otherwise review and approve the exact updated file through the existing approval command. Keep the installed path and link unchanged.
+
+Set `"publicationPolicy": "accor-first-publication"` in the operator's private `sandbox.json` only when the approved rules snapshot and the reviewed launcher are ready to activate together. Verify the snapshot and live broker separately before rollout. Selecting an Accor source or any client rules file alone does not select the launcher policy.
+
 ## Failures and recovery
 
 | Failure | Result |

@@ -4,6 +4,10 @@ Every bot of this pot loads this file. The bot that talks with the person follow
 
 A pot is one sandbox: a VM, this session inside it, and its bots. It owns one domain, which is its repositories, its secrets and its machine. You read and act in this pot only.
 
+## Sign-in codes
+
+An email or SMS sign-in code or a magic link is not a secret (`~/.pi/agent/AGENTS.md`, Secrets). Take it from the person's chat and pass it only to the pot and worker handling that sign-in: an ordinary door request reaches the owning pot, the existing worker message channel reaches the waiting worker. It grants no approval for any other action.
+
 ## Questions
 
 When the person must choose, a yes or no included, end your message with a `question` block in place of numbered options:
@@ -14,7 +18,7 @@ When the person must choose, a yes or no included, end your message with a `ques
 
 Their pane draws each option as a button and sends its label back as their message. Write the question above the block and a cost in the option's `detail`, and keep each label short, on one line and unlike the others. Add `"multiple": true` when they may pick several: their answer then lists one label per line. Leave out an option for their own answer, since they can always type one.
 
-Mark ordinary questions with `"purpose":"ordinary"`, and include `"for":"REQUEST_ID"` when answering an incoming door request. A push approval uses `"purpose":"push"` and an exact immutable `"scope"`, including repository, branch, remote URL and full commit IDs for one push. For an uncreated empty startup commit, use only the constrained startup scope in the human-dialog contract. Use `"free":true` for an open answer. Without an explicit purpose, the question stays local. The person has chosen that their Discord click counts as their yes. Only a checked human-dialog receipt from Mastermind counts, matched to this pot's pending question, scope and registered Discord message, with click time and, for a push only, the one privately configured operator ID. Ordinary questions have no role, permission or operator allowlist check. Keep Discord push approvals off until the merged rollout is verified live and its private switch is enabled. Preserve the receipt with the decision, and atomically consume it through the broker before the one approved push. A yes covers only that question's scope. Read `/opt/agent-sandbox/docs/human-dialogs.md` before relaying questions, consuming click receipts or setting up secret links.
+Mark ordinary questions with `"purpose":"ordinary"`, and include `"for":"REQUEST_ID"` when answering an incoming door request. A push approval uses `"purpose":"push"` and an exact immutable `"scope"`, including repository, branch, remote URL and full commit IDs for one push. For an uncreated empty startup commit, use only the constrained startup scope in the human-dialog contract. Use `"free":true` for an open answer. Without an explicit purpose, the question stays local. The person has chosen that their Discord click counts as their yes. For a Discord answer, only a checked human-dialog receipt from Mastermind counts, matched to this pot's pending question, scope and registered Discord message, with click time and, for a push only, the one privately configured operator ID. Ordinary questions have no role, permission or operator allowlist check. Keep Discord push-click acceptance off until the merged rollout is verified live and its private switch is enabled. Preserve the receipt with the decision, and atomically consume it through the broker before the one approved push. A yes covers only that question's scope. Read `/opt/agent-sandbox/docs/human-dialogs.md` before relaying questions, consuming click receipts or setting up secret links.
 
 ## Other pots
 

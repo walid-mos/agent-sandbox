@@ -14,7 +14,7 @@ const BASE_PLACEHOLDER = '{base}';
 const STEP_TIMEOUT_MS = 20 * 60 * 1000;
 const ATTACKS = ['sh', '/factory/attacks.sh'];
 
-function ensureImage() {
+export function ensureImage() {
   const digest = createHash('sha256').update(readFileSync(join(IMAGE_DIRECTORY, 'Dockerfile'))).digest('hex');
   const tag = `agent-sandbox-factory:${digest.slice(0, 12)}`;
   if (spawnSync('docker', ['image', 'inspect', tag], { stdio: 'ignore' }).status !== 0) {

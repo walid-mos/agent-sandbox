@@ -1,0 +1,19 @@
+{
+  "mastermind.aaaaaaaaaaaaaaaa": {
+    "pot": "accor",
+    "channel": "100000000000000002",
+    "message": "100000000000000090",
+    "thread": "100000000000000010",
+    "at": "2026-11-17T10:57:28.058Z",
+    "answered": "2026-11-17T11:31:07.065Z"
+  },
+  "mastermind.bbbbbbbbbbbbbbbb": {
+    "pot": "nextnode",
+    "channel": "100000000000000010",
+    "message": "100000000000000010",
+    "thread": "100000000000000010",
+    "origin": { "channel": "100000000000000002", "message": "100000000000000091" },
+    "at": "2026-11-17T11:05:48.900Z",
+    "answered": null
+  }
+}
