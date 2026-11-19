@@ -3,7 +3,7 @@ import { rmSync, watch } from 'node:fs';
 import { basename } from 'node:path';
 import { allTerminals } from './workers.mjs';
 import { hasQueued } from './queue.mjs';
-import { canFinish, followUp, isPublished, LIFECYCLE, publication, receiptPath, resultId, statePath } from './worker-lifecycle.mjs';
+import { canFinish, completionFacts, followUp, isPublished, LIFECYCLE, receiptPath, resultId, statePath } from './worker-lifecycle.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
@@ -146,7 +146,7 @@ export class WorkerRuntime {
     const terminals = allTerminals();
     const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
     if (!terminal) return false;
-    return canFinish(this.#state, terminal, terminals, Date.now()) && isPublished(publication(context.cwd));
+    return canFinish(this.#state, terminal, terminals, Date.now()) && isPublished(completionFacts(this.#worker, context.cwd));
   }
 
   stop() {

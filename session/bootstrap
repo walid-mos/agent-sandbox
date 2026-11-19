@@ -10,7 +10,7 @@ INFISICAL_VERSION=0.45.10
 # The release-wide checksums file's own sha256, fetched 2026-11-17; a new INFISICAL_VERSION needs its new value.
 INFISICAL_CHECKSUMS_SHA256=cb92960eb47f041ead7b3fc60e48f2642badd11b0f712696cfa8be33a69ddf5f
 MAGPIE_VERSION=0.1.4340
-CODEX_VERSION=0.169.0
+CODEX_VERSION=0.169.1
 MAGPIE_RELEASES=https://github.com/yetone/magpie-releases/releases/download
 CLAUDE_CODE_VERSION=2.1.325
 POTS_PACKAGE=pi-durable-bot

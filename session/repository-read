@@ -1,0 +1,27 @@
+#!/usr/bin/python3 -I
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(ROOT / 'lib'), str(ROOT / 'vm')]
+from repository_git import GitFailure
+from repository_import import import_repository
+from vault_policy import Refused
+
+
+def main():
+    if len(sys.argv) < 3:
+        raise Refused('usage: repository-read OWNER/REPOSITORY NEW_DESTINATION [COMMIT...]')
+    settings = dict(line.split('=', 1) for line in (ROOT / 'session/launch.env').read_text().splitlines() if line)
+    repository, destination, *commits = sys.argv[1:]
+    request = {'kind': 'read', 'repository': repository, 'commits': commits}
+    for commit, kind in import_repository(request, destination, settings['POTS_VAULT_SOCKET']):
+        print(commit, kind)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (Refused, GitFailure, OSError) as error:
+        print(f'repository-read: {error}', file=sys.stderr)
+        sys.exit(1)

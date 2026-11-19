@@ -72,8 +72,8 @@ async function reconcileDialog(initial, options) {
   return sendNotice(dialog, 'delivery', dialog.kind === 'question' ? questionNeed(dialog) : secretNeed(dialog), options);
 }
 
-export async function reconcileHuman({ store = humanStore(), doors = dialogDoors, identity = sandbox.humanDiscord, pages = { ensure: ensureSecretPage, sync: syncSecretPage }, now = Date.now(), onError = () => {} } = {}) {
-  const options = { store, doors, identity, pages, now };
+export async function reconcileHuman({ store = humanStore(), doors = dialogDoors, pages = { ensure: ensureSecretPage, sync: syncSecretPage }, now = Date.now(), onError = () => {} } = {}) {
+  const options = { store, doors, pages, now };
   await reconcilePosted({ store, doors, onError });
   for (const dialog of store.all()) {
     try { await reconcileDialog(dialog, options); } catch (error) { onError(dialog.id, error); }
