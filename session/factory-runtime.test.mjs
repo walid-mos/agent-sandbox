@@ -183,7 +183,9 @@ test('authenticated wake starts one check that survives discovery and controller
   assert.equal((await once(stale, 'close'))[0], 1);
   assert.match(Buffer.concat(errors).toString(), /no longer matches this review generation/);
   assert.doesNotMatch(readFileSync(join(root, 'calls'), 'utf8'), /pr (comment|merge)/);
-  assert.equal(readFileSync(join(root, 'calls'), 'utf8').match(/^repo list$/gm).length, 1);
+  const calls = readFileSync(join(root, 'calls'), 'utf8');
+  assert.equal(calls.match(/^repo list$/gm).length, 1);
+  assert.doesNotMatch(calls, /^draft pagination$/m);
   resumed.destroy();
 });
 
@@ -202,6 +204,19 @@ test('a successful exit after the step deadline records failure and confirms rem
   assert.match(readFileSync(join(root, 'removed'), 'utf8'), /^factory-1-check c{64}$/m);
   await waitFor(root, 'wakes', t.signal);
   events.destroy();
+});
+
+test('routine discovery handles a failing repository and checks ready work before drafts', { timeout: fixtureTimeout }, async t => {
+  const { root, directory, env } = setup(t);
+  writeFileSync(join(root, 'failing-repository'), '');
+  await controller(t, root, directory, env);
+  const events = await stream(join(directory, 'events.sock'), t.signal);
+  execFileSync(process.execPath, [join(session, 'factory.mjs'), 'reconcile'], { env });
+  const complete = await eventFrom(events.iterator(), event => event.type === 'complete');
+  assert.equal(complete.detail.stage, 'checked');
+  const calls = readFileSync(join(root, 'calls'), 'utf8');
+  assert.match(calls, /pr list\npr list\napi graphql[\s\S]*draft pagination/);
+  await waitFor(root, 'wakes', t.signal);
 });
 
 test('discovery requeues the unchanged head after mergeability was briefly unknown at execution', { timeout: fixtureTimeout }, async t => {

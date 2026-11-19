@@ -17,6 +17,8 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, job INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS wake (slot INTEGER PRIMARY KEY CHECK (slot = 1), revision INTEGER NOT NULL, consumed INTEGER NOT NULL);
   INSERT OR IGNORE INTO wake VALUES (1, 0, 0);
+  CREATE TABLE IF NOT EXISTS reconciliation (slot INTEGER PRIMARY KEY CHECK (slot = 1), revision INTEGER NOT NULL, consumed INTEGER NOT NULL);
+  INSERT OR IGNORE INTO reconciliation VALUES (1, 0, 0);
 `;
 // A PR whose runner is live or whose last runner could not be proven gone starts no other runner.
 const NO_LIVE_RUNNER = `NOT EXISTS (SELECT 1 FROM jobs live WHERE live.repository = jobs.repository
@@ -42,6 +44,9 @@ const STATEMENTS = {
   wake: 'UPDATE wake SET revision = revision + 1',
   pendingWake: 'SELECT revision FROM wake WHERE revision > consumed',
   consumeWake: 'UPDATE wake SET consumed = max(consumed, ?)',
+  reconcile: 'UPDATE reconciliation SET revision = revision + 1',
+  pendingReconciliation: 'SELECT revision FROM reconciliation WHERE revision > consumed',
+  consumeReconciliation: 'UPDATE reconciliation SET consumed = max(consumed, ?)',
 };
 const MAX_ATTEMPTS = 2;
 const RETRYABLE_STAGES = new Set(['superseded', 'checks-missing']);
@@ -200,12 +205,20 @@ export class FactoryJobs {
     this.#notify();
   }
 
-  pendingWake() {
-    return this.#sql.pendingWake.get()?.revision;
+  reconcile() {
+    this.#sql.reconcile.run();
+    this.#notify();
   }
 
-  consumeWake(revision) {
-    this.#sql.consumeWake.run(revision);
+  pendingWake() {
+    const webhook = this.#sql.pendingWake.get()?.revision ?? 0;
+    const routine = this.#sql.pendingReconciliation.get()?.revision ?? 0;
+    if (webhook || routine) return { webhook, routine };
+  }
+
+  consumeWake({ webhook, routine }) {
+    this.#sql.consumeWake.run(webhook);
+    this.#sql.consumeReconciliation.run(routine);
   }
 
   close() {

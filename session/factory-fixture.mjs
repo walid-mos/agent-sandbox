@@ -18,14 +18,21 @@ const containerId = 'c'.repeat(64);
 function github(args) {
   appendFileSync(file('calls'), `${args[0]} ${args[1]}\n`);
   const facts = read('facts');
-  if (args[0] === 'repo') return json([{ nameWithOwner: repository, repositoryTopics: [{ name: 'factory' }] }]);
+  if (args[0] === 'repo') {
+    const names = existsSync(file('failing-repository')) ? ['walid-mos/failing', repository] : [repository];
+    return json(names.map(nameWithOwner => ({ nameWithOwner, repositoryTopics: [{ name: 'factory' }] })));
+  }
+  if (args.includes('walid-mos/failing')) process.exit(1);
   if (args[0] === 'pr') return githubPull(args[1], facts);
   if (args[1] !== 'graphql') return json(['factory']);
   return githubGraphql(args, facts);
 }
 
 function githubGraphql(args, facts) {
-  if (args.includes('--paginate')) return json([{ data: { repository: { pullRequests: { nodes: [] } } } }]);
+  if (args.includes('--paginate')) {
+    appendFileSync(file('calls'), 'draft pagination\n');
+    return json([{ data: { repository: { pullRequests: { nodes: [] } } } }]);
+  }
   return json({ data: { repository: { nameWithOwner: repository, isArchived: false, pullRequest: facts } } });
 }
 

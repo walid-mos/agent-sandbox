@@ -73,8 +73,8 @@ test('discovery rechecks unknown mergeability within the same wake', async () =>
 
 test('the periodic scan wakes the recorded owner for an old draft found on a later page', async () => {
   save({ ...worker, repository: 'Example/Fixture' });
-  await scan();
-  await scan();
+  await scan({ routine: 1 });
+  await scan({ routine: 1 });
   assert.equal(wakeCalls.length, 2);
   assert.deepEqual(wakeCalls.map(wake => wake.bot), ['nextnode', 'nextnode']);
   assert.equal(wakeCalls[0].from, 'pr-factory');
@@ -94,21 +94,21 @@ for (const [requirement, fixture, records] of [
   test(`the scan wakes this sandbox's bot when there is ${requirement}`, async () => {
     current = fixture;
     records.forEach(save);
-    await scan();
+    await scan({ routine: 1 });
     assert.deepEqual(wakeCalls.map(wake => wake.bot), [principal]);
   });
 }
 
 test('the scan rereads new body text and skips a draft that became ready or closed', async () => {
   current = { ...facts, body: 'BLOCKED UNTIL: 2026-11-20 — Waiting for access' };
-  await scan();
+  await scan({ routine: 1 });
   assert.deepEqual(wakeCalls, []);
   current = facts;
-  await scan();
+  await scan({ routine: 1 });
   assert.equal(wakeCalls.length, 1);
   current = { ...facts, isDraft: false };
-  await scan();
+  await scan({ routine: 1 });
   current = { ...facts, state: 'CLOSED' };
-  await scan();
+  await scan({ routine: 1 });
   assert.equal(wakeCalls.length, 1);
 });

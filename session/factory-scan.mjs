@@ -26,12 +26,17 @@ function recordObservation(pull, jobs) {
 }
 
 function readySubjects(repository) {
-  return readyPulls(repository).map(({ number }) => ({ repository, number }));
+  try {
+    return readyPulls(repository).map(({ number }) => ({ repository, number }));
+  } catch (error) {
+    logScanFailure(`${repository} ready discovery`, error);
+    return [];
+  }
 }
 
 export async function discoverReady(jobs, repositories, read = reviewSubject, wait = delay) {
   const discover = subject => inspectPull(subject, jobs, read);
-  const unknown = repositories.flatMap(readySubjects).map(discover).filter(Boolean).slice(0, MAX_MERGEABILITY_RETRIES);
+  const unknown = repositories.flatMap(repository => readySubjects(repository).map(discover)).filter(Boolean).slice(0, MAX_MERGEABILITY_RETRIES);
   if (unknown.length === 0) return;
   await wait(MERGEABILITY_RETRY_MS);
   unknown.forEach(discover);
@@ -83,10 +88,10 @@ export function scanStaleDrafts(repositories) {
   for (const repository of repositories) scanRepositoryDrafts(repository, now, readWorkers);
 }
 
-export function scan() {
+export function scan({ routine }) {
   return withJobs(async jobs => {
     const repositories = watchedRepositories();
-    scanStaleDrafts(repositories);
     await discoverReady(jobs, repositories);
+    if (routine) scanStaleDrafts(repositories);
   });
 }

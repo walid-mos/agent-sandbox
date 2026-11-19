@@ -74,14 +74,14 @@ function publishResult(record) {
 export function publishJob([identifier]) {
   return withJobs(jobs => {
     const id = jobId(identifier);
-    const job = jobs.get(id);
-    if (!job || job.isReported || !['complete', 'uncertain', 'interrupted'].includes(job.status)) return;
     const unlock = tryFactoryLock(JOB_DIRECTORY, `report-${id}`);
     if (!unlock) {
       process.exitCode = LOCK_BUSY;
       return;
     }
     try {
+      const job = jobs.get(id);
+      if (!job || job.isReported || !['complete', 'uncertain', 'interrupted'].includes(job.status)) return;
       publish(jobs, job);
       jobs.markReported(id);
     } finally {

@@ -4,13 +4,13 @@ import { FACTORY_HOME } from './factory-records.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 
 const REVIEWS = join(FACTORY_HOME, 'reviews');
-const reviewId = ({ repository, number, head, generation }) => createHash('sha256')
-  .update(JSON.stringify([repository, number, head, generation])).digest('hex');
+const reviewId = ({ repository, number, head, base, baseTip, transition, generation }) => createHash('sha256')
+  .update(JSON.stringify([repository, number, head, base, baseTip, transition, generation])).digest('hex');
 const bindingPath = id => join(REVIEWS, `${id}.json`);
 
 export function bindReview(pull) {
-  const { repository, number, head, generation } = pull;
-  const binding = { repository, number, head, generation };
+  const { repository, number, head, base, baseTip, transition, generation } = pull;
+  const binding = { repository, number, head, base, baseTip, transition, generation };
   const id = reviewId(binding);
   writePrivateJson(bindingPath(id), binding);
   return id;

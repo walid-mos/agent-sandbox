@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { probe } from './factory-checks.mjs';
 import { executeJob, publishJob, recoverExecution } from './factory-execution.mjs';
-import { requireActionable } from './factory-github.mjs';
+import { requireActionable, requireReviewSubject } from './factory-github.mjs';
 import { scanLegacy } from './factory-legacy-scan.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 import { changeText } from './factory-mirror.mjs';
@@ -36,6 +36,7 @@ function escalate(arguments_) {
   if (!record) throw new Error(`factory: ${pullUrl(pull)} at ${pull.head} was never scanned.`);
   const note = readFileSync(arguments_[PULL_ARGUMENT_COUNT] ?? '', 'utf8').trim();
   if (!note) throw new Error('factory: write what Principal must decide in the note file, then escalate again.');
+  if (isDurableFactory) requireReviewSubject(record);
   reportToPrincipal({ ...record, stage: 'escalated', note }, `PR factory needs a decision on ${pullUrl(pull)} at head ${pull.head}: ${note}`);
 }
 
@@ -57,7 +58,10 @@ async function discover() {
   const unlock = tryFactoryLock(JOB_DIRECTORY, 'discovery');
   if (!unlock) throw new Error('factory: discovery already running');
   try {
-    await withJobs(jobs => jobs.pendingWake() ? scan() : undefined);
+    await withJobs(jobs => {
+      const wake = jobs.pendingWake();
+      return wake ? scan(wake) : undefined;
+    });
   } finally {
     unlock();
   }
@@ -68,7 +72,7 @@ const legacy = { ...common, scan: scanLegacy, show, verdict, resolve, push, esca
 const durable = {
   ...common,
   scan: discover,
-  reconcile: () => withJobs(jobs => jobs.wake()),
+  reconcile: () => withJobs(jobs => jobs.reconcile()),
   show: review(show),
   verdict: review(verdict),
   resolve: review(resolve),

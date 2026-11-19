@@ -57,7 +57,10 @@ function scheduleDiscovery(jobs, refresh) {
     next = Date.now() + WAKE_GAP_MS;
     void launch('scan', [], { budget: DISCOVERY_BUDGET_MS }).then(status => {
       if (status === 0) jobs.consumeWake(revision);
-      else if (jobs.pendingWake() === revision) next = Date.now() + LOCAL_BACKSTOP_MS;
+      else {
+        const pending = jobs.pendingWake();
+        if (pending?.webhook === revision.webhook && pending.routine === revision.routine) next = Date.now() + LOCAL_BACKSTOP_MS;
+      }
     }).catch(() => process.stderr.write('factory: failed to record discovery completion\n')).finally(() => {
       isDiscovering = false;
       refresh();

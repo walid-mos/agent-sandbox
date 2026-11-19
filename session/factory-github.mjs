@@ -10,6 +10,7 @@ export const FACTORY_TOPIC = 'factory';
 const REPOSITORY_LIMIT = '1000';
 const LIST_FIELDS = isDurableFactory ? 'number,isDraft' : 'number,headRefOid,headRefName,baseRefName,isDraft,mergeable';
 const CALL_TIMEOUT_MS = 5_000;
+const LIST_TIMEOUT_MS = 15_000;
 const REVIEW_FACTS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     nameWithOwner isArchived
@@ -45,7 +46,7 @@ const hasFactoryTopic = topicNames => topicNames.includes(FACTORY_TOPIC);
 // A listing names no repository, so GH_REPO tells the gh wrapper which owner's token to use.
 function topicRepositories(owner) {
   const listing = gh(['repo', 'list', owner, '--no-archived', '--limit', REPOSITORY_LIMIT, '--json', 'nameWithOwner,repositoryTopics'],
-    { env: { ...process.env, GH_REPO: owner } });
+    { env: { ...process.env, GH_REPO: owner }, ...(isDurableFactory && { timeout: LIST_TIMEOUT_MS }) });
   const repositories = JSON.parse(listing);
   if (repositories.length >= Number(REPOSITORY_LIMIT)) {
     throw new Error(`factory: ${owner} reached the ${REPOSITORY_LIMIT}-repository discovery limit. The listing may be incomplete, so no recorded head can be held. Increase the limit or use complete pagination before scanning again.`);
@@ -66,7 +67,7 @@ export const draftPulls = repository => openPulls(repository).filter(pull => pul
 function queryPulls(repository, query, ...flags) {
   const [owner, name] = repository.split('/');
   return JSON.parse(gh(['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, ...flags],
-    { env: { ...process.env, GH_REPO: repository } }));
+    { env: { ...process.env, GH_REPO: repository }, ...(isDurableFactory && flags.includes('--paginate') && { timeout: LIST_TIMEOUT_MS }) }));
 }
 
 export function draftCandidates(repository) {
