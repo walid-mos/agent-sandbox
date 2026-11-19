@@ -92,6 +92,9 @@ fi
 if [ -n "${FACTORY_RELEASE_SERIES:-}" ]; then
 	python3 -B "$root/probes/factory-receiver-series.py"
 fi
+if [ -n "${FACTORY_RELEASE_SQUASH:-}" ]; then
+	python3 -B "$root/probes/factory-receiver-squash.py"
+fi
 python3 -B "$root/probes/repository-read-policy.py"
 python3 -B "$root/probes/repository-read.py"
 python3 -B "$root/probes/repository-read-supervision.py"

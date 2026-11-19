@@ -4,8 +4,10 @@
 0644 lib/agent_sources.py
 0644 lib/managed_update.py
 0644 lib/factory_candidate.py
+0644 lib/factory_squash.py
 0644 lib/managed_receiver.py
 0644 lib/receiver_staging.py
+0644 lib/signed_tag.py
 0644 lib/receiver_state.py
 0644 lib/receiver_vm.py
 0644 lib/sandbox.sh

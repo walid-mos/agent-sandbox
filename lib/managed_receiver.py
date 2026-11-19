@@ -11,6 +11,7 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_candidate import verify_publication
+from factory_squash import verify_factory_release
 from managed_update import (Blocked, SANDBOX, SHA1, checkout_revision, read_git, require_protected,
                             require_receiver, restrict_environment, source_origin, verify_signature)
 from receiver_staging import fetch_tip, materialize, verify_series
@@ -41,8 +42,11 @@ class Receiver:
         checkout = self.checkout(revision)
         if checkout_revision(checkout, self.origin) != revision:
             raise Blocked('release-checkout-mismatch')
-        signers = 'trusted-signers.asc' if checkout == self.root / 'checkout' else 'factory-signers.asc'
-        trust = self.root / signers
+        if checkout != self.root / 'checkout':
+            require_protected(self.root / 'factory-signers.asc', stat.S_ISREG, (os.geteuid(),))
+            verify_factory_release(self.root, self.origin, checkout, revision)
+            return checkout
+        trust = self.root / 'trusted-signers.asc'
         require_protected(trust, stat.S_ISREG, (os.geteuid(),))
         verify_signature(checkout, revision, trust, 'release-signature-unverified')
         return checkout
