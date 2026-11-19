@@ -56,10 +56,51 @@ The rule always excludes the Mastermind bot's posts, interaction responses, forw
 | Crash after claiming, rate limit, refused POST or unresolved response | The watcher may leave the post without a thread. It sends at most one automatic POST per claimed message and logs request failures it observes. Inspect Discord before manual action. |
 | A message never reaches the Pots log | A missing `MESSAGE_CREATE` cannot trigger the rule. A resumed gateway session can deliver missed events. Pots history backfill after a new session does not trigger the rule. |
 
-The watcher owns its SQLite cursor and claims under `~/.config/agent-sandbox/discord-auto-threads/`. A delayed poll cannot move a shared cursor backwards or change progress for a different log or activation. Run the watcher with one service configuration. The claim before the POST survives process restart, and Discord enforces one thread per source if the operator starts it at the same time. Disabling clears the cursor and preserves claims, so re-enabling skips disabled time and earlier claims. If Discord cannot resolve a protected thread or report its parent, the watcher skips creation under the same protection rules as Discord Admin.
+The watcher owns its SQLite cursor and claims under `~/.config/agent-sandbox/discord-auto-threads/`. A delayed poll cannot move a shared cursor backwards or change progress for a different log or activation. Run the watcher with one service configuration. The claim before the POST survives process restart, and Discord enforces one thread per source if the operator starts it at the same time. Disabling clears the cursor and preserves claims, so re-enabling skips disabled time and earlier claims.
+
+One deleted thread still tracked by the routing map or North Star registry can stop all automatic thread creation and Discord Admin mutations when Discord cannot verify its parent. The watcher logs the gateway row ID for the skipped post and can include Discord code `10003`. The row ID identifies the post that was skipped. Use the shared Discord Admin procedure to identify the unresolved thread and have its owner repair the record. [Recover from an unresolved protected thread](discord-admin.md#recover-from-an-unresolved-protected-thread)
+
+The watcher rereads protection on the next eligible post. The saved cursor advances past skipped posts, so the watcher does not retry them. After the repair, use a fresh top-level human post in an already opted-in, unprotected channel during the authorized recovery window. Confirm that a public thread exists under the post and the watcher reports no protection failure for that row.
 
 ## Offline verification
 
 Run `node --test session/discord-auto-thread.test.mjs session/discord-auto-thread-watcher.test.mjs session/discord-admin-thread-protection.test.mjs` for the offline regressions. `./bin/check` includes these suites.
 
-Pots v0.8.5 is the version verified offline. Run `node probes/discord-auto-thread-pots.mjs /path/to/pots /path/to/bot.sqlite` against that installed executable and a local log it created. The probe reads only the installed table definition and exercises the watcher query with synthetic rows in a disposable SQLite file. The tagged Discord adapter and gateway log writer define the dispatch, account and raw-message fields the probe uses. Other versions need the same contract check before enabling the rule. Verify Mastermind's event delivery and channel permissions in the authorized rollout window. [Pots Discord adapter](https://github.com/Crokily/pi-durable-bot/blob/v0.8.5/src/channels/discord/index.ts)
+## Verify the installed gateway before enabling
+
+In the authorized rollout window, run the following as the session user from the approved source checkout on Mastermind. Use the actual bot home and the Pots executable that runs the gateway. The session wrapper delegates to the upstream executable shown here. [Pots wrapper](../session/pots) · [Executable path](../session/lib.sh)
+
+```sh
+bot_home="$HOME/.pots/bots/$(jq -er '.bot | ascii_downcase' /etc/agent-sandbox/sandbox.json)"
+pots="$HOME/.local/libexec/pots/bin/pots"
+node probes/discord-auto-thread-pots.mjs "$pots" "$bot_home/bot.sqlite"
+```
+
+The probe reports the installed version and tests the table definition from Mastermind's existing, Pots-created log using synthetic rows in a disposable database. Record the version and result. It accepts the version verified offline. Keep automatic threads off if the installed version or schema fails the probe, and verify the installed contract before proceeding. [Pots log probe](../probes/discord-auto-thread-pots.mjs)
+
+The probe uses synthetic adapter IDs. To verify the actual account match, use the same bot home in that shell and run the reader against its native log. It uses the sole Discord account's `id` from `bot.json` and checks for a recent `MESSAGE_CREATE` row stored under that adapter ID in `gw_events.channel`. On a readable log, the command reports only whether it found a match. It makes no Discord request.
+
+```sh
+node --input-type=module - "$bot_home" <<'NODE'
+import { join } from 'node:path';
+import { discordAccount } from './session/discord-admin-runtime.mjs';
+import { autoThreadInbox } from './session/discord-auto-thread-store.mjs';
+
+const botHome = process.argv[2];
+const inbox = autoThreadInbox(join(botHome, 'bot.sqlite'), discordAccount(botHome).id);
+try {
+  const reader = inbox.refresh();
+  const matches = reader.after(Math.max(0, reader.latest() - 1000));
+  if (matches.length) {
+    console.log('Recent gateway message matches the configured Discord adapter.');
+  } else {
+    console.error('No recent gateway message matches the configured Discord adapter.');
+    process.exitCode = 1;
+  }
+} finally {
+  inbox.close();
+}
+NODE
+```
+
+If there is no match, confirm the bot home and adapter, then have the operator send a fresh ordinary test message through the existing gateway during the rollout window and rerun the read-only check. Keep automatic threads off until both checks pass. Record the result without copying adapter IDs, message content or credentials. After separately authorized activation, use a fresh post in a selected channel to verify end-to-end delivery and thread permissions. [Pots gateway channel registry](https://github.com/Crokily/pi-durable-bot/blob/v0.8.5/src/gateway/channels.ts) · [Pots log writer](https://github.com/Crokily/pi-durable-bot/blob/v0.8.5/src/gateway/log.ts)
