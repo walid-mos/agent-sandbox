@@ -1,7 +1,7 @@
 const APPROVED = new Set(['PASS', 'PASS+NOTES']);
 const COMMIT_ID = /^[a-f0-9]{40}$/;
 
-function releaseRequest(record, { repository, ref, git }) {
+export function releaseRequest(record, { repository, ref, git }) {
   const { repository: reviewedRepository, number, generation, base, head, mergeBase, checks, verdict } = record;
   if (reviewedRepository !== repository || `refs/heads/${base}` !== ref || !APPROVED.has(verdict)
       || !Number.isSafeInteger(number) || number < 1 || !Number.isSafeInteger(generation) || generation < 0

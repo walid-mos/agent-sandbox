@@ -83,6 +83,10 @@ The one-parent fixture remains the receiver contract pending the owner's decisio
 
 ### Separate signed evidence for native squashes
 
+The durable publication probe runs as part of `python3 -B probes/landing-policy.py --release REVIEW_COMMIT`. Under the pinned review source's record lock, it saves a merge intent before the simulated merge. It binds the merge readback to the reviewed repository, PR, head and ref, then fetches the target and checks the squash's actual parent and tree. The root signer independently checks the configured origin and accepts only a structured request for its fixed tag format. It saves the exact tag before returning. The producer saves that receipt before publishing both evidence refs atomically. It checks both refs on every retry and queues the existing Principal report only after readback confirms publication.
+
+The GitHub read adapter and report delivery in this probe are disposable. The protected signer has no independent GitHub API credential. It can verify Git objects and refs but relies on the isolated Factory to authorize the review and correlate GitHub's merged PR with the landed commit. The live squash handler, publication dispatcher and signer socket still gate this path. The durable transition certifies ordinary squash evidence only. The recovery probe below demonstrates the separate authorization needed when the parent or tree differs.
+
 `python3 -B probes/landing-squash-proof.py --review-source REVIEW_COMMIT --export DIRECTORY` builds three simulated native squashes on a disposable remote. Use the exact #55 source commit as `REVIEW_COMMIT`. The probe binds each checked review through that revision's shared record code, simulates GitHub's `MERGED` response and verifies the landed tree from Git objects. Run `python3 -B probes/landing-squash-proof.py --verify DIRECTORY` to verify `squashes.bundle`, the scoped public keys and the review assertions in `squashes.json`. Each run generates fresh disposable keys and object IDs. Keep all four exported files together.
 
 #### Recovery of an uncertified squash

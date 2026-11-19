@@ -184,8 +184,14 @@ def run_release(fixture, shared_revision, scenario, *, merge_commit=None, reques
     shared = fixture.root / "review-source"
     if not shared.exists():
         shared.mkdir()
-        for name in ("factory-records.mjs", "factory-review.mjs", "private-json.mjs"):
+        files = ["factory-records.mjs", "factory-review.mjs", "private-json.mjs"]
+        if scenario == "durable-squash":
+            files.append("factory-reports.mjs")
+        for name in files:
             (shared / name).write_text(run("git", "-C", str(REPOSITORY), "show", f"{shared_revision}:session/{name}") + "\n")
+    if scenario == "durable-squash":
+        (shared / "sandbox.mjs").write_text("export const botId = 'fixture-principal';\n")
+        shutil.copyfile(policy.with_name("landing-report-fixture.mjs"), shared / "run.mjs")
     (fixture.root / "request.json").write_text(json.dumps(fixture.request if request is None else request))
     node = shutil.which("node")
     if node is None:
@@ -220,7 +226,7 @@ def release_main():
     parser.add_argument("--export", type=Path)
     arguments = parser.parse_args()
     revision = run("git", "-C", str(REPOSITORY), "rev-parse", "--verify", f"{arguments.release}^{{commit}}")
-    for scenario in ("retargeted", "moved", "ambiguous", "complete"):
+    for scenario in ("retargeted", "moved", "ambiguous", "complete", "durable-squash"):
         fixture = LandingPolicy()
         try:
             fixture.setUp()
@@ -239,8 +245,10 @@ def release_main():
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["--sign"]:
-        print(json.dumps(load_signer(Path(sys.argv[2])).Signer().sign(json.load(sys.stdin))))
+    if sys.argv[1:2] in (["--sign"], ["--sign-squash"]):
+        module = load_signer(Path(sys.argv[2]))
+        signer = module.SquashSigner if sys.argv[1] == "--sign-squash" else module.Signer
+        print(json.dumps(signer().sign(json.load(sys.stdin))))
     elif "--release" in sys.argv[1:]:
         release_main()
     else:

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { releaseGit } from '../session/factory-release-git.mjs';
 import { publishReviewedRelease } from '../session/factory-release.mjs';
+import { runDurableSquash } from './landing-durable-squash.mjs';
 
 const [root, sharedRecord, remote, clone, policy, source, scenario, mergeCommit] = process.argv.slice(2);
 const { withRecord, readRecord } = await import(pathToFileURL(`${sharedRecord}/factory-records.mjs`));
@@ -57,7 +58,9 @@ withRecord(checked, (_, save) => {
 });
 const publish = overrides => withRecord(checked, (record, save) => publishReviewedRelease(record, save, { ...authority, ...overrides }));
 
-if (scenario === 'squash-record') {
+if (scenario === 'durable-squash') {
+  await runDurableSquash({ root, sharedRecord, clone, remote, checked, proof, policy, source, git, requireReady, withRecord, readRecord });
+} else if (scenario === 'squash-record') {
   withRecord(checked, (record, save) => {
     assert.equal(record.stage, 'judged');
     save({ ...record, stage: 'merged', mergeCommit });

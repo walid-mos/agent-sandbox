@@ -18,6 +18,9 @@ LANDING_REF = "refs/heads/main"
 REQUEST_FIELDS = {"repository", "number", "generation", "ref", "head", "base", "tree"}
 MAX_SAFE_INTEGER = (1 << 53) - 1
 PROVENANCE_HEADER = "Factory landing v1"
+SQUASH_HEADER = "Factory squash evidence v1"
+SQUASH_TAG = "factory-release/"
+REVIEWED_TAG = "refs/tags/factory-reviewed/"
 IDENTITY_NAME = "PR factory"
 IDENTITY_EMAIL = "factory@agent-sandbox.invalid"
 
@@ -37,11 +40,13 @@ def created_key(home):
 
 
 class Signer:
+    RECEIPT = "release.json"
+
     def __init__(self):
         self.home = Path(LAUNCH["POTS_LANDING_KEY_HOME"])
         self.state = Path(LAUNCH["POTS_LANDING_STATE"])
         self.store = self.state / "objects.git"
-        self.receipt = self.state / "release.json"
+        self.receipt = self.state / self.RECEIPT
         self.origin = LAUNCH["POTS_SOURCE_URL"]
         self.repository = LAUNCH["POTS_LANDING_REPOSITORY"]
         self.operator_trust = Path(LAUNCH["POTS_TRUSTED_SIGNERS"])
@@ -104,12 +109,17 @@ class Signer:
         except Refused as error:
             raise Refused("landing: the checked base does not advance the saved candidate's base.") from error
 
+    def signing_environment(self):
+        return {**ENVIRONMENT, "GNUPGHOME": str(self.home), "GIT_AUTHOR_NAME": IDENTITY_NAME, "GIT_AUTHOR_EMAIL": IDENTITY_EMAIL, "GIT_COMMITTER_NAME": IDENTITY_NAME, "GIT_COMMITTER_EMAIL": IDENTITY_EMAIL}
+
+    def encode_object(self, kind, object_id):
+        raw = execute(["/usr/bin/git", *GIT_OPTIONS, "--git-dir", str(self.store), "cat-file", kind, object_id])
+        return base64.b64encode(raw).decode()
+
     def construct(self, request):
         message = f"{PROVENANCE_HEADER}\n\n{json.dumps(request, sort_keys=True, separators=(',', ':'))}\n"
-        environment = {**ENVIRONMENT, "GNUPGHOME": str(self.home), "GIT_AUTHOR_NAME": IDENTITY_NAME, "GIT_AUTHOR_EMAIL": IDENTITY_EMAIL, "GIT_COMMITTER_NAME": IDENTITY_NAME, "GIT_COMMITTER_EMAIL": IDENTITY_EMAIL}
-        commit = self.git("-c", "gpg.format=openpgp", "-c", "gpg.program=/usr/bin/gpg", "commit-tree", request["tree"], "-p", request["base"], f"-S{self.key}", input=message.encode(), environment=environment)
-        encoded = base64.b64encode(execute(["/usr/bin/git", *GIT_OPTIONS, "--git-dir", str(self.store), "cat-file", "commit", commit])).decode()
-        return {"commit": commit, "object": encoded, "fingerprint": self.key, "request": request}
+        commit = self.git("-c", "gpg.format=openpgp", "-c", "gpg.program=/usr/bin/gpg", "commit-tree", request["tree"], "-p", request["base"], f"-S{self.key}", input=message.encode(), environment=self.signing_environment())
+        return {"commit": commit, "object": self.encode_object("commit", commit), "fingerprint": self.key, "request": request}
 
     def save(self, release):
         pending = self.receipt.with_suffix(".next")
@@ -135,3 +145,52 @@ class Signer:
             raise Refused("landing: the target moved from the checked base. Nothing was signed.")
         self.verify_release(request, previous)
         return self.save(self.construct(request))
+
+
+class SquashSigner(Signer):
+    RECEIPT = "squash-release.json"
+
+    def require_landed(self, request, squash):
+        if self.git("show", "-s", "--format=%P%n%T", squash).splitlines() != [request["base"], request["tree"]]:
+            raise Refused("landing: the squash differs from the checked parent or tree.")
+        history = self.git("rev-list", "--first-parent", LANDING_REF, f"^{request['base']}").splitlines()
+        if squash not in history:
+            raise Refused("landing: the squash is outside the target first-parent history.")
+
+    def require_previous_squash(self, request, previous):
+        squash = previous["request"]["squash"]
+        if request["base"] != squash or previous["fingerprint"] != self.key:
+            raise Refused("landing: the squash must extend the preceding signed checkpoint.")
+        tag, head = f"refs/tags/{SQUASH_TAG}{squash}", REVIEWED_TAG + squash
+        expected = {f"{previous['tag']}\t{tag}", f"{previous['request']['head']}\t{head}"}
+        if set(self.git("ls-remote", "--refs", self.origin, tag, head).splitlines()) != expected:
+            raise Refused("landing: the preceding squash evidence has not been confirmed on the origin.")
+
+    def construct_tag(self, request):
+        name = SQUASH_TAG + request["squash"]
+        message = f"{SQUASH_HEADER}\n\n{json.dumps(request, sort_keys=True, separators=(',', ':'))}\n"
+        self.git("-c", "gpg.format=openpgp", "-c", "gpg.program=/usr/bin/gpg", "tag", "--force", "--cleanup=verbatim",
+                 "-u", self.key, "-F", "-", name, request["squash"], input=message.encode(), environment=self.signing_environment())
+        tag = self.git("rev-parse", f"refs/tags/{name}")
+        return {"tag": tag, "object": self.encode_object("tag", tag), "fingerprint": self.key, "request": request}
+
+    def sign(self, evidence):
+        if not isinstance(evidence, dict):
+            raise Refused("landing: expected a squash evidence request.")
+        request = {key: value for key, value in evidence.items() if key != "squash"}
+        self.validate(request)
+        squash = evidence.get("squash")
+        if not isinstance(squash, str) or not OBJECT_ID.fullmatch(squash):
+            raise Refused("landing: expected the full landed squash object ID.")
+        self.fetch(request)
+        self.require_landed(request, squash)
+        previous = self.previous()
+        if previous.get("request") == evidence and previous.get("fingerprint") == self.key:
+            return previous
+        if previous:
+            self.require_previous_squash(request, previous)
+            prior = {**previous, "commit": previous["request"]["squash"]}
+        else:
+            prior = previous
+        self.verify_release(request, prior)
+        return self.save(self.construct_tag(evidence))
