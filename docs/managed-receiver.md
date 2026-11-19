@@ -6,11 +6,15 @@ The receiver stages a Factory-signed candidate, asks a runtime adapter to switch
 stateDiagram-v2
     [*] --> Ready: initialize
     Ready --> Ready: advance, blocked before the switch
-    Ready --> Switching: advance, candidate verified and runtime idle
-    Switching --> Ready: candidate healthy, known good moves
-    Switching --> Restoring: restart or health failed, or process killed
-    Restoring --> Ready: previous release healthy again
+    Ready --> Quiescing: candidate verified, hold recorded
+    Quiescing --> Switching: intake paused, turns drained, workers idle
+    Quiescing --> Resuming: pause or drain failed, or updater interrupted
+    Switching --> Resuming: candidate healthy
+    Switching --> Restoring: restart or health failed
+    Restoring --> Resuming: previous release healthy
     Restoring --> Restoring: previous release unavailable
+    Resuming --> Ready: healthy release resumed, hold released
+    Resuming --> Resuming: resume unconfirmed
 ```
 
 `dispatch` runs only in `Ready` with the loaded release equal to the known-good release. Any other phase answers `admission-closed`.
@@ -52,9 +56,9 @@ A missing or invalid tag anywhere in the range, including at an unsigned tip, bl
 
 1. Check the known-good release and its health.
 2. Verify the candidate, then the `releases/REVISION` checkout and its tree.
-3. Ask the runtime whether work is idle. A busy runtime stops here with `runtime-busy` and changes nothing, so a later run retries.
+3. When a supported gateway adapter exists, record its hold ID, pause new turns, drain active turns and verify workers are idle. Without that operation, stop with `gateway-drain-unavailable` and keep serving the current release.
 4. Record `switching`, restart the named consumers on the candidate, and require a health report that names the candidate as loaded.
-5. On failure, record `restoring`, restart the known-good release and require its health. The previous checkout is never modified.
+5. After the candidate or a restored release is healthy, resume the gateway with the same hold ID and confirm the response before reopening worker admission. If any restart or health check fails, restore the known-good release first. The previous checkout is never modified.
 
 `dispatch` takes the lock shared, so it cannot start during a switch, and it re-checks health before handing the call to the runtime. A killed process leaves `switching`. The next `advance` restores the known-good release before anything else.
 
