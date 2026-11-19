@@ -10,7 +10,7 @@ import { command } from './run.mjs';
 import { owners } from './sandbox.mjs';
 
 const VERSIONED = join(dirname(fileURLToPath(import.meta.url)), 'factory');
-const SCAN_EVERY = '5m';
+const SCAN_EVERY = '1m';
 const SCAN_TIMEOUT = '60m';
 const ABOUT = `checks, judges and merges ready pull requests in repositories with the ${FACTORY_TOPIC} topic`;
 const HOLD_SOURCE = 'factory-install';

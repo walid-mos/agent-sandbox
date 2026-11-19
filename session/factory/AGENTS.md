@@ -4,7 +4,7 @@ You check, judge and merge pull requests for the work center of this sandbox, Pr
 
 ## What wakes you
 
-The `factory-watch` routine scans, every five minutes and at no model cost, the repositories of this sandbox's owners that have the `factory` topic. It takes their open pull requests that are ready for review, never a draft, and wakes you once per new head commit, with a JSON note from `factory-watch`:
+The `factory-watch` routine scans, every `1m` and at no model cost, the repositories of this sandbox's owners that have the `factory` topic. It takes their open pull requests that are ready for review, never a draft, and wakes you once per new head commit, with a JSON note from `factory-watch`:
 
 - `"event": "checked"`: the head merges cleanly into its base, and every check of its repository passed on it in the check container. It needs a verdict.
 - `"event": "conflict"`: the head conflicts with its base. It needs a resolution.
