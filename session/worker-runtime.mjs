@@ -12,6 +12,7 @@ const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubsc
 const PROTOCOL_VERSION = 1;
 const CLOSE_ATTEMPTS = 3;
 const CLOSE_RETRY_MS = 1000;
+const PROMPT_TIMING_ENTRY = 'pi-hud-telemetry-prompt-timing-v2';
 
 function hasOpenGoal(branch) {
   const goal = branch.findLast(entry => entry.type === 'custom' && entry.customType === 'pi-goal-state-v1');
@@ -42,6 +43,16 @@ export function hasFinalReply(branch) {
   if (hasOpenGoal(branch)) return false;
   const entry = branch.findLast(candidate => candidate.type === 'message');
   return Boolean(entry && isFinalMessage(entry));
+}
+
+function isUnchangedResult(sessionManager, settledLeaf) {
+  const currentLeaf = sessionManager.getLeafId();
+  if (currentLeaf === settledLeaf) return true;
+  const branch = sessionManager.getBranch();
+  const settledIndex = branch.findIndex(entry => entry.id === settledLeaf);
+  if (settledIndex < 0 || branch.at(-1)?.id !== currentLeaf) return false;
+  const added = branch.slice(settledIndex + 1);
+  return added.every(entry => entry.type === 'custom' && entry.customType === PROMPT_TIMING_ENTRY);
 }
 
 function hasNoPendingWork(pi) {
@@ -199,8 +210,11 @@ export class WorkerRuntime {
   }
 
   #isSameSession({ sessionManager }) {
-    return [sessionManager.getLeafId() === this.#state.leaf,
-      sessionManager.getSessionFile() === this.#state.sessionFile, sessionManager.getSessionId() === this.#state.sessionId].every(Boolean);
+    return this.#matchesSessionIdentity(sessionManager) && sessionManager.getLeafId() === this.#state.leaf;
+  }
+
+  #matchesSessionIdentity(sessionManager) {
+    return sessionManager.getSessionFile() === this.#state.sessionFile && sessionManager.getSessionId() === this.#state.sessionId;
   }
 
   #isDone(context) {
@@ -212,8 +226,9 @@ export class WorkerRuntime {
   }
 
   #hasFinishedSession(context) {
-    return [context.isIdle(), !context.hasPendingMessages(), !context.ui.getEditorText().trim(),
-      context.sessionManager.getLeafId() === this.#state.leaf, this.#isDone(context)].every(Boolean);
+    const { sessionManager, ui } = context;
+    return context.isIdle() && !context.hasPendingMessages() && !ui.getEditorText().trim()
+      && this.#matchesSessionIdentity(sessionManager) && isUnchangedResult(sessionManager, this.#state.leaf) && this.#isDone(context);
   }
 
   #canClose(context) {
