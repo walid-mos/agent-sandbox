@@ -93,13 +93,18 @@ export function withRecord(pull, operation) {
   try {
     const result = spawnSync('flock', ['--exclusive', '--wait', '30', '3'], { stdio: ['ignore', 'ignore', 'ignore', lock] });
     if (result.status !== 0) throw new Error('factory: could not lock the shared review record');
-    return operation(readRecord(pull), writeRecord);
+    return operation(readRecord(pull), saveRecord);
   } finally {
     closeSync(lock);
   }
 }
 
 export function writeRecord(record) {
+  if (usesSharedRecord(record)) throw new Error('factory: shared records must be written under their record lock');
+  return saveRecord(record);
+}
+
+function saveRecord(record) {
   mkdirSync(HEADS, { recursive: true });
   const path = recordPath(record);
   writeFileSync(`${path}.tmp`, `${JSON.stringify(record, null, 2)}\n`);

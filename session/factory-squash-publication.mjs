@@ -29,11 +29,24 @@ function observeMerge(record, request, authority) {
   return squash;
 }
 
+function hasCurrentInputs(record, authority) {
+  if (!authority.currentInputRevision) return true;
+  return Boolean(record.inputRevision && record.inputRevision === authority.currentInputRevision(record.repository));
+}
+
+function requireOperatorRecovery(record, save, authority) {
+  const { landed } = record.squashPublication;
+  const disposition = { ...record, stage: 'squash-recovery-required' };
+  return save(authority.queueReport(disposition,
+    `PR factory paused publication for ${record.repository}#${record.number} at landed squash ${landed.head} because check inputs changed. The operator must review the recorded parent and tree with current checks before certifying this squash.`));
+}
+
 function publishEvidence(record, save, request, authority) {
   const release = record.stage === SIGNED ? record.squashPublication.release : authority.sign(request);
   const tag = authority.git.storeSquashEvidence(release, request);
   const signed = record.stage === SIGNED ? record
     : save({ ...record, stage: SIGNED, squashPublication: { ...record.squashPublication, release } });
+  if (!hasCurrentInputs(signed, authority)) return requireOperatorRecovery(signed, save, authority);
   authority.git.publishSquashEvidence(tag, request);
   return signed;
 }
@@ -49,9 +62,11 @@ export function finishSquashPublication(record, save, authority) {
   if (raced && !authority.recovery) authority.git.requireLandedSquash(squash, request);
   const observed = record.stage === PENDING ? save({ ...record, stage: OBSERVED, squashPublication: { request, squash, landed } }) : record;
   if (!isDeepStrictEqual(observed.squashPublication.landed, landed)) throw new Error('factory: the saved landed tuple differs from Git.');
+  if (!hasCurrentInputs(observed, authority)) return requireOperatorRecovery(observed, save, authority);
   const evidence = raced ? authority.recovery(observed, landed) : { ...request, squash };
   if (!evidence) return observed;
   const signed = publishEvidence(observed, save, evidence, authority);
+  if (signed.stage !== SIGNED) return signed;
   const published = { ...signed, stage: PUBLISHED, mergeCommit: squash };
   return save(authority.queueReport(published, `PR factory verified ${request.repository}#${request.number} merged into ${record.base} as ${squash} and confirmed its signed release evidence.`));
 }

@@ -199,7 +199,6 @@ export function requireReviewPolicy(pull) {
   requireLandingAuthority(pull.repository);
   if (accorPublicationPolicy(sandbox)) throw new Error('factory: publication requires a human decision');
   requireWatchedTopic(pull.repository);
-  checkSteps(pull.repository);
 }
 
 export function squashMerge(record) {

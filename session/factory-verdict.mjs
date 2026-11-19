@@ -6,7 +6,7 @@ import { requireCheckRevision } from './factory-execution.mjs';
 import { comment, commentAuthor, hasComment, pullFacts, requireActionable, squashMerge } from './factory-github.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 import { reviewFacts, startPublication } from './factory-publication.mjs';
-import { logDirectory, PULL_ARGUMENT_COUNT, pullArguments, pullUrl, requireRecord, withRecord, writeRecord } from './factory-records.mjs';
+import { logDirectory, PULL_ARGUMENT_COUNT, pullArguments, pullUrl, requireRecord, usesSharedRecord, withRecord, writeRecord } from './factory-records.mjs';
 import { deliverWakes, queueReport, reportToPrincipal } from './factory-reports.mjs';
 import { reviewId } from './factory-review.mjs';
 
@@ -27,9 +27,9 @@ function writeVerdictBody(record, body) {
   return bodyFile;
 }
 
-function postVerdict(record, decision, notes) {
+function postVerdict(record, decision, notes, save) {
   comment(record, writeVerdictBody(record, verdictBody(record, decision, notes)));
-  return writeRecord({ ...record, stage: 'judged', verdict: decision, notes });
+  return save({ ...record, stage: 'judged', verdict: decision, notes });
 }
 
 function confirmLandingComment(record, decision, notes, save) {
@@ -63,7 +63,7 @@ function signedVerdict(record, decision, notes) {
   return deliverWakes(outcome);
 }
 
-function land(record) {
+function land(record, report) {
   if (isDurableFactory) {
     requireActionable(record);
     requireCheckRevision(record);
@@ -71,16 +71,16 @@ function land(record) {
   const merge = squashMerge(record);
   const after = pullFacts(record);
   if (after.state !== MERGED) {
-    return reportToPrincipal({ ...record, stage: 'refused', mergeOutput: merge.output },
+    return report({ ...record, stage: 'refused', mergeOutput: merge.output },
       `PR factory could not merge ${pullUrl(record)} at head ${record.head} after its ${record.verdict} verdict. GitHub answered: ${merge.output || after.state}. The factory does not retry this head.`);
   }
   const mergeCommit = after.mergeCommit?.oid;
-  return reportToPrincipal({ ...record, stage: 'merged', mergeCommit },
+  return report({ ...record, stage: 'merged', mergeCommit },
     `PR factory merged ${pullUrl(record)} into ${after.baseRefName} as ${mergeCommit}, after a ${record.verdict} verdict on head ${record.head}.`);
 }
 
-function reportFailure(record) {
-  return reportToPrincipal({ ...record, stage: 'failed' }, `PR factory judged ${pullUrl(record)} FAIL at head ${record.head}, so it stays unmerged. The verdict says: ${record.notes}`);
+function reportFailure(record, report) {
+  return report({ ...record, stage: 'failed' }, `PR factory judged ${pullUrl(record)} FAIL at head ${record.head}, so it stays unmerged. The verdict says: ${record.notes}`);
 }
 
 function readNotes(decision, path) {
@@ -89,10 +89,25 @@ function readNotes(decision, path) {
   return notes;
 }
 
-function ordinaryVerdict(record, decision, notes) {
+function ordinaryVerdict(record, decision, notes, save, report) {
   requireActionable(record);
-  const judged = postVerdict(record, decision, notes);
-  return decision === 'FAIL' ? reportFailure(judged) : land(judged);
+  if (isDurableFactory) requireCheckRevision(record);
+  const judged = postVerdict(record, decision, notes, save);
+  return decision === 'FAIL' ? reportFailure(judged, report) : land(judged, report);
+}
+
+function sharedOrdinaryVerdict(record, decision, notes) {
+  const outcome = withRecord(record, (current, save) => {
+    if (current?.generation !== record.generation || current.stage !== 'checked') throw new Error('factory: checked review changed');
+    return ordinaryVerdict(current, decision, notes, save, (result, text) => save(queueReport(result, text)));
+  });
+  return deliverWakes(outcome);
+}
+
+function recordVerdict(record, decision, notes) {
+  if (isLandingPull(record)) return signedVerdict(record, decision, notes);
+  if (usesSharedRecord(record)) return sharedOrdinaryVerdict(record, decision, notes);
+  return ordinaryVerdict(record, decision, notes, writeRecord, reportToPrincipal);
 }
 
 export function verdict(arguments_) {
@@ -102,6 +117,6 @@ export function verdict(arguments_) {
   const notes = readNotes(decision, notesFile);
   const record = requireRecord(pull, 'checked');
   requireLandingAuthority(record.repository);
-  const outcome = isLandingPull(record) ? signedVerdict(record, decision, notes) : ordinaryVerdict(record, decision, notes);
+  const outcome = recordVerdict(record, decision, notes);
   process.stdout.write(`factory: ${pullUrl(pull)} at ${pull.head}: ${outcome.stage}\n`);
 }

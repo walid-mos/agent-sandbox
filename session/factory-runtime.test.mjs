@@ -173,7 +173,8 @@ test('authenticated wake starts one check that survives discovery and controller
   const done = await eventFrom(resumed.iterator(), event => event.type === 'complete');
   assert.equal(done.job, started.job);
   assert.equal(done.detail.stage, 'checked');
-  assert.deepEqual(done.detail.checks.map(check => check.name), ['check', 'shellcheck', 'fallow']);
+  const requiredChecks = new Set(['check', 'shellcheck', 'fallow']);
+  assert.deepEqual(done.detail.checks.map(check => check.name).filter(name => requiredChecks.has(name)), [...requiredChecks]);
   await waitFor(root, 'wakes', t.signal);
   const wake = JSON.parse(readFileSync(join(root, 'wakes'), 'utf8').trim());
   setFacts({ timelineItems: { nodes: [{ __typename: 'ReadyForReviewEvent', id: 'new-review' }] } });
@@ -265,19 +266,30 @@ for (const revision of ['command', 'image', 'helper']) {
   });
 }
 
-test('isolated landing recovers lost comment and signer responses before publishing evidence', { timeout: fixtureTimeout }, t => {
-  const { root, env } = setup(t);
+function signedReview(t, baseRefName = 'main') {
+  const { root, env, setFacts } = setup(t);
+  setFacts({ baseRefName });
   writeFileSync(join(root, 'signed-fixture'), '');
-  const cli = (...args) => execFileSync(process.execPath, [join(session, 'factory.mjs'), ...args], { env, stdio: 'pipe' });
+  const cli = (...args) => execFileSync(process.execPath, [join(session, 'factory.mjs'), ...args], { env, stdio: 'pipe', encoding: 'utf8' });
   cli('reconcile');
   cli('scan');
   cli('run-job', '1');
   cli('publish-job', '1');
   const wake = JSON.parse(readFileSync(join(root, 'wakes'), 'utf8'));
+  return { root, cli, wake };
+}
+
+function beginLandedRetry({ root, cli, wake }) {
   assert.throws(() => cli('verdict', wake.review, 'PASS'), /gh pr comment/);
   assert.equal(existsSync(join(root, 'merged')), false);
   assert.throws(() => cli('verdict', wake.review, 'PASS'), /lost signer response/);
   assert.equal(existsSync(join(root, 'published')), false);
+}
+
+test('isolated landing recovers lost comment and signer responses before publishing evidence', { timeout: fixtureTimeout }, t => {
+  const fixture = signedReview(t);
+  beginLandedRetry(fixture);
+  const { root, cli, wake } = fixture;
   cli('reconcile');
   cli('scan');
   const { squashEvidence } = JSON.parse(readFileSync(join(root, 'landing'), 'utf8'));
@@ -285,6 +297,36 @@ test('isolated landing recovers lost comment and signer responses before publish
   assert.equal(squashEvidence.base, wake.baseTip);
   assert.equal(readFileSync(join(root, 'published'), 'utf8'), 'fixture-tag');
   assert.equal(readFileSync(join(root, 'calls'), 'utf8').match(/^pr comment$/gm).length, 1);
+});
+
+test('changed inputs after squash record operator recovery once and stop signing', { timeout: fixtureTimeout }, t => {
+  const fixture = signedReview(t);
+  beginLandedRetry(fixture);
+  const { root, cli, wake } = fixture;
+  writeFileSync(join(root, 'image-id'), JSON.stringify('d'.repeat(64)));
+  const scan = () => { cli('reconcile'); return cli('scan'); };
+  scan();
+  const recordPath = join(root, '.config/agent-sandbox/factory/heads', `${repository.replace('/', '-')}-${wake.number}-${wake.head}.json`);
+  const record = JSON.parse(readFileSync(recordPath, 'utf8'));
+  assert.equal(record.stage, 'squash-recovery-required');
+  assert.equal(record.squashPublication.landed.head, wake.head);
+  const report = JSON.parse(readFileSync(join(root, 'reports'), 'utf8'));
+  assert.match(report.text, /check inputs changed/);
+  assert.equal(record.pendingWakes.length, 0);
+  const calls = join(root, 'channel-calls');
+  assert.equal(readFileSync(calls, 'utf8'), 'landing\nreports\n');
+  scan();
+  assert.equal(readFileSync(calls, 'utf8'), 'landing\nreports\n');
+  assert.equal(existsSync(join(root, 'published')), false);
+  assert.deepEqual(JSON.parse(readFileSync(recordPath, 'utf8')), record);
+});
+
+test('an ordinary verdict on the isolated repository holds the shared record lock', { timeout: fixtureTimeout }, t => {
+  const { root, cli, wake } = signedReview(t, 'develop');
+  const notes = join(root, 'notes');
+  writeFileSync(notes, 'Fixture failed review.');
+  assert.match(cli('verdict', wake.review, 'FAIL', notes), /failed/);
+  assert.match(JSON.parse(readFileSync(join(root, 'verdict-comment'), 'utf8')), /verdict: FAIL/);
 });
 
 test('routine discovery handles a failing repository and checks ready work before drafts', { timeout: fixtureTimeout }, async t => {

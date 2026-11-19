@@ -1,10 +1,11 @@
-import { isIsolatedFactory } from './factory-authority.mjs';
+import { isIsolatedFactory, isLandingPull, requireLandingAuthority } from './factory-authority.mjs';
 import { effectiveCheckRevision } from './factory-checks.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { draftCandidates, draftFacts, readyPulls, reviewSubject, watchedRepositories } from './factory-github.mjs';
 import { finishPublication } from './factory-publication.mjs';
 import { pullUrl, recordedHeads } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
+import { isPendingSquash } from './factory-squash-publication.mjs';
 import { deliverWakes, reportStaleDraft } from './factory-reports.mjs';
 import { isOldDraft, staleDraftWakeId } from './factory-stale-draft.mjs';
 import { withJobs } from './factory-state.mjs';
@@ -93,6 +94,7 @@ export function scanStaleDrafts(repositories) {
 }
 
 function observeInputs(pull, revisions) {
+  if (pull && isLandingPull(pull)) requireLandingAuthority(pull.repository);
   if (pull?.mergeable !== 'MERGEABLE' || !hasChecks(pull.repository)) return pull;
   if (!revisions.has(pull.repository)) revisions.set(pull.repository, effectiveCheckRevision(pull.repository));
   return { ...pull, inputRevision: revisions.get(pull.repository) };
@@ -100,7 +102,8 @@ function observeInputs(pull, revisions) {
 
 function recoverPublications(repositories) {
   const watched = new Set(repositories.map(repository => repository.toLowerCase()));
-  for (const record of recordedHeads().filter(record => record.squashPublication && watched.has(record.repository.toLowerCase()))) {
+  for (const record of recordedHeads()) {
+    if ((!isPendingSquash(record) && !record.pendingWakes?.length) || !watched.has(record.repository.toLowerCase())) continue;
     try {
       deliverWakes(finishPublication(record) ?? record);
     } catch (error) {

@@ -1,7 +1,8 @@
+import { isLandingPull, requireLandingAuthority } from './factory-authority.mjs';
 import { probe, runLegacyChecks } from './factory-checks.mjs';
 import { draftPulls, FACTORY_TOPIC, readyPulls, watchedRepositories } from './factory-github.mjs';
 import { branchTip, mergeBase, refreshMirror } from './factory-mirror.mjs';
-import { logDirectory, pullUrl, readRecord, recordedHeads, writeRecord } from './factory-records.mjs';
+import { logDirectory, pullUrl, readRecord, recordedHeads, withRecord } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { handToFactory, reportToPrincipal } from './factory-reports.mjs';
 import { logScanFailure, scanStaleDrafts } from './factory-scan.mjs';
@@ -22,6 +23,7 @@ function nextGeneration(record) {
 
 function newHead(pull, isChecked) {
   if (!DECIDABLE.has(pull.mergeable)) return undefined;
+  if (isLandingPull(pull)) requireLandingAuthority(pull.repository);
   const record = readRecord(pull);
   if (isNew(record, isChecked)) return { ...pull, generation: nextGeneration(record) };
 }
@@ -33,7 +35,10 @@ function newHeads(repository, isChecked) {
 }
 
 function hold(record) {
-  if (record && record.stage !== HELD) writeRecord({ ...record, stage: HELD });
+  if (!record || record.stage === HELD) return;
+  withRecord(record, (current, save) => {
+    if (current && current.stage !== HELD && !current.squashPublication) save({ ...current, stage: HELD });
+  });
 }
 
 function holdDrafts(repository) {

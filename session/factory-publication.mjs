@@ -6,6 +6,7 @@ import { openJobs } from './factory-jobs.mjs';
 import { JOB_DIRECTORY, requireCurrent } from './factory-state.mjs';
 import { landingGit, mergeBase } from './factory-mirror.mjs';
 import { withRecord } from './factory-records.mjs';
+import { hasChecks } from './factory-repositories.mjs';
 import { queueReport } from './factory-reports.mjs';
 import { beginSquashPublication, finishSquashPublication, isPendingSquash, PENDING } from './factory-squash-publication.mjs';
 import { requireRecoveryReview, reviewSquashRecovery } from './factory-squash-recovery.mjs';
@@ -14,7 +15,8 @@ function authority(record) {
   requireLandingAuthority(record.repository);
   if (!isLandingPull(record)) throw new Error('factory: squash publication needs the enrolled repository and target.');
   return { repository: landingRepository, ref: `refs/heads/${LANDING_BRANCH}`, git: landingGit(), requireReady: requireLandingReview,
-    readMerge: mergeReadback, sign: squashEvidence => askFactory('landing', { squashEvidence }), queueReport, recovery: reviewSquashRecovery };
+    readMerge: mergeReadback, sign: squashEvidence => askFactory('landing', { squashEvidence }), queueReport,
+    currentInputRevision: repository => hasChecks(repository) ? effectiveCheckRevision(repository) : undefined, recovery: reviewSquashRecovery };
 }
 
 function requireLandingReview(record) {
@@ -43,9 +45,6 @@ function continuePublication(record, save, adapters) {
     if (adapters.git.tip(request.ref) !== request.base) throw new Error('factory: the target moved before the pending squash could be sent.');
     squashMerge(record);
     return finishSquashPublication(record, save, adapters);
-  }
-  if (record.inputRevision !== effectiveCheckRevision(record.repository)) {
-    throw new Error('factory: pending squash needs recovery with current check inputs');
   }
   return finishSquashPublication(record, save, { ...adapters, readMerge: () => facts });
 }

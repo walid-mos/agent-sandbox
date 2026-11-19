@@ -40,7 +40,7 @@ function wakeFactory(record, fields, arguments_) {
 export function handToFactory(record) {
   if (!isDurableFactory) {
     wakeFactory(record, {}, [record.repository, String(record.number), record.head]);
-    return writeRecord(record);
+    return usesSharedRecord(record) ? withRecord(record, (_, save) => save(record)) : writeRecord(record);
   }
   if (usesSharedRecord(record)) return deliverWakes(withRecord(record, (prior, save) => {
     if (prior?.generation >= record.generation || prior?.squashPublication) return prior;

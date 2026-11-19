@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { basename, join } from 'node:path';
@@ -39,8 +39,15 @@ function signedGithub(args, facts) {
     json({ number: facts.number, state: isMerged ? 'closed' : 'open', merged: isMerged, merge_commit_sha: facts.headRefOid,
       base: { repo: { full_name: repository }, ref: facts.baseRefName }, head: { sha: facts.headRefOid } });
   } else if (args[0] === 'pr' && args[1] === 'comment') {
-    write('verdict-comment', readFileSync(args.at(-1), 'utf8'));
-    process.exit(1);
+    if (facts.baseRefName !== 'main') {
+      const lock = file(`.config/agent-sandbox/factory/heads/${repository.replace('/', '-')}-${facts.number}-${facts.headRefOid}.json.lock`);
+      const attempt = spawnSync('flock', ['--nonblock', lock, 'true']);
+      if (attempt.status !== 1) throw new Error('ordinary verdict comment ran outside the shared record lock');
+      write('verdict-comment', readFileSync(args.at(-1), 'utf8'));
+    } else {
+      write('verdict-comment', readFileSync(args.at(-1), 'utf8'));
+      process.exit(1);
+    }
   } else if (args[0] === 'api' && args[1].includes('/comments?')) json([[{ user: { id: 123 }, body: read('verdict-comment') }]]);
   else if (args[0] === 'pr' && args[1] === 'merge') write('merged', true);
   else return { isHandled: false };
@@ -52,7 +59,8 @@ function githubGraphql(args, facts) {
     appendFileSync(file('calls'), 'draft pagination\n');
     return json([{ data: { repository: { pullRequests: { nodes: [] } } } }]);
   }
-  return json({ data: { repository: { nameWithOwner: repository, isArchived: false, pullRequest: facts } } });
+  const pullRequest = existsSync(file('merged')) ? { ...facts, state: 'MERGED' } : facts;
+  return json({ data: { repository: { nameWithOwner: repository, isArchived: false, pullRequest } } });
 }
 
 function githubPull(operation, facts) {
@@ -199,6 +207,7 @@ function signedModule(url) {
   if (url.endsWith('/factory-channel.mjs')) return `${preamble}
     export function askFactory(kind, request) {
       const path = root + '/' + kind;
+      writeFileSync(root + '/channel-calls', kind + '\\n', { flag: 'a' });
       if (kind !== 'landing') return writeFileSync(path, JSON.stringify(request));
       try { writeFileSync(path, JSON.stringify(request), { flag: 'wx' }); }
       catch (error) { if (error.code !== 'EEXIST') throw error; return { request: request.squashEvidence, tag: 'fixture-tag' }; }
