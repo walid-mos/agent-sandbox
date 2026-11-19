@@ -44,6 +44,18 @@ test('automatic threads protect the parent of an archived routing thread omitted
   assert.deepEqual(ownership.channelIds, [protectedId, threadId, archivedParent]);
 });
 
+test('automatic thread ownership refuses an unresolved archived routing thread', async t => {
+  const proof = runtime(t);
+  const channels = proof.dependencies.channels;
+  channels.splice(channels.findIndex(channel => channel.id === threadId), 1);
+  const api = proof.api;
+  proof.api = async (method, path) => {
+    if (path === `/channels/${threadId}`) throw Object.assign(new Error('discord-admin: Discord HTTP 404, code 10003.'), { discordCode: 10003 });
+    return api(method, path);
+  };
+  await assert.rejects(discoverThreadOwnership(proof), /HTTP 404, code 10003/);
+});
+
 test('all configured pot channels including Personal are protected and cached by ID', async t => {
   const proof = runtime(t);
   proof.config = { bot: 'Mastermind', doors: { nextnode: 'Development', accor: 'Client', personal: 'Personal' } };
