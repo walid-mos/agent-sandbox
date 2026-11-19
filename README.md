@@ -438,6 +438,8 @@ The grant restricts this operation, not the token's GitHub permissions. A read-c
 
 The GitHub CLI wrapper selects a credential by repository owner, from the sandbox's `owners`. Git uses the same selection through an HTTPS credential helper with `useHttpPath` enabled. Only variable names belong in a sandbox's file and in documentation. Use HTTPS Git remotes and supply the repository to `gh` with `--repo`, a `repos/OWNER/REPOSITORY` API endpoint or `GH_REPO`. Otherwise, the wrapper uses the current checkout's `origin`. Outside a checkout, it reads the owner from a GitHub URL argument, such as a pull request's. Unsupported owners and missing credentials fail explicitly.
 
+`contributions` in a sandbox's file lets [`session/contribute`](docs/upstream-contributions.md) fork, file issues and open draft cross-fork pull requests for an upstream outside `owners`, through one named fork and the credential of the fork's owner. The wrapper and the owner map stay as they are.
+
 This read-only probe checks API access and HTTPS Git access for the repositories it is given:
 
 ```sh
