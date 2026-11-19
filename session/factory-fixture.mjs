@@ -30,7 +30,7 @@ function githubGraphql(args, facts) {
 }
 
 function githubPull(operation, facts) {
-  if (operation === 'list') return json([{ number: facts.number, isDraft: facts.isDraft }]);
+  if (operation === 'list') return json([facts]);
   if (operation === 'view') return json(facts);
   throw new Error('unexpected pull request operation');
 }
@@ -61,6 +61,9 @@ async function simulateCheck(container) {
 
 const dockerOperations = {
   image() {},
+  run(flags) {
+    appendFileSync(file('legacy-checks'), `${flags[2]}\n`);
+  },
   create(flags) {
     write('container', { name: flags[1], job: flags[3].split('=')[1], state: 'created' });
     process.stdout.write(containerId);
@@ -112,10 +115,14 @@ export function launchController(directory, program, env, wakeSocket) {
 function preload() {
   registerHooks({ load(url, context, next) {
     if (url.endsWith('/sandbox.mjs')) {
-      return { format: 'module', shortCircuit: true, source: `export const owners = ['walid-mos'], sandbox = {}, botId = 'principal';` };
+      if (existsSync(file('sandbox.json'))) {
+        const loaded = next(url, context);
+        return { ...loaded, source: String(loaded.source).replace("'/etc/agent-sandbox/sandbox.json'", JSON.stringify(file('sandbox.json'))) };
+      }
+      return { format: 'module', shortCircuit: true, source: `export const owners = ['walid-mos'], sandbox = { factoryDurable: true }, botId = 'principal';` };
     }
     if (url.endsWith('/vault.mjs')) {
-      return { format: 'module', shortCircuit: true, source: `process.execve(process.argv[2], process.argv.slice(2), process.env);` };
+      return { format: 'module', shortCircuit: true, source: `process.execve('/bin/sh', ['sh', '-c', 'exec "$@"', 'fixture', ...process.argv.slice(2)], process.env);` };
     }
     return next(url, context);
   } });
@@ -131,14 +138,18 @@ function preload() {
   };
 }
 
+function pots(args) {
+  if (args[0] === 'routine') return write('routine', args);
+  if (args.includes('--list')) return json([{ source: 'factory-install' }]);
+  const prior = existsSync(file('wakes')) ? readFileSync(file('wakes'), 'utf8') : '';
+  writeFileSync(file('wakes.staging'), `${prior}${args.at(-1)}\n`);
+  renameSync(file('wakes.staging'), file('wakes'));
+}
+
 if (root && !import.meta.main) preload();
 if (import.meta.main) {
   const [command, ...args] = process.argv.slice(2);
   if (command === 'gh') github(args);
   if (command === 'docker') await docker(args);
-  if (command === 'pots') {
-    const prior = existsSync(file('wakes')) ? readFileSync(file('wakes'), 'utf8') : '';
-    writeFileSync(file('wakes.staging'), `${prior}${args.at(-1)}\n`);
-    renameSync(file('wakes.staging'), file('wakes'));
-  }
+  if (command === 'pots') pots(args);
 }

@@ -2,11 +2,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { requireActionable } from './factory-github.mjs';
+import { isDurableFactory } from './factory-mode.mjs';
 import { branchTip, copyAt, refreshMirror, remoteUrl } from './factory-mirror.mjs';
-import { FACTORY_HOME, pullArguments, pullKey, pullUrl, requireRecord, writeRecord } from './factory-records.mjs';
+import { pullArguments, pullUrl, pullWorkspace, requireRecord, writeRecord } from './factory-records.mjs';
 import { command } from './run.mjs';
 
-const RESOLUTIONS = join(FACTORY_HOME, 'resolutions');
 const CONFLICT_MARKER = '^(<<<<<<<|>>>>>>>) ';
 
 const git = (workspace, arguments_) => command('git', ['-C', workspace, ...arguments_]);
@@ -24,8 +24,8 @@ export function resolve(arguments_) {
   if (facts.isCrossRepository) throw new Error(`factory: ${pullUrl(pull)} comes from a fork, where the factory cannot push. Escalate it.`);
   refreshMirror(pull.repository);
   const baseTip = branchTip(pull.repository, facts.baseRefName);
-  if (baseTip !== record.baseTip) throw new Error('factory: the base moved since this review, wait for the next wake');
-  const workspace = join(RESOLUTIONS, pullKey(pull), String(pull.generation));
+  requireReviewBase(record, baseTip);
+  const workspace = pullWorkspace('resolutions', pull);
   rmSync(workspace, { recursive: true, force: true });
   copyAt(pull.repository, pull.head, workspace);
   git(workspace, ['checkout', '--quiet', '-B', facts.headRefName]);
@@ -33,6 +33,10 @@ export function resolve(arguments_) {
   const files = startMerge(workspace, baseTip);
   writeRecord({ ...record, resolution: { workspace, branch: facts.headRefName, baseTip, files } });
   process.stdout.write(`${workspace}\nMerging ${facts.baseRefName} at ${baseTip} into ${facts.headRefName} left ${files.length} conflicted files:\n${files.join('\n')}\n`);
+}
+
+function requireReviewBase(record, baseTip) {
+  if (isDurableFactory && baseTip !== record.baseTip) throw new Error('factory: the base moved since this review, wait for the next wake');
 }
 
 function requireCommittedMerge(workspace) {

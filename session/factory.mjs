@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs';
 import { probe } from './factory-checks.mjs';
 import { executeJob, publishJob, recoverExecution } from './factory-execution.mjs';
 import { requireActionable } from './factory-github.mjs';
+import { scanLegacy } from './factory-legacy-scan.mjs';
+import { isDurableFactory } from './factory-mode.mjs';
 import { changeText } from './factory-mirror.mjs';
-import { pullArguments, pullUrl, readRecord, requireRecord } from './factory-records.mjs';
+import { PULL_ARGUMENT_COUNT, pullArguments, pullUrl, readRecord, requireRecord } from './factory-records.mjs';
 import { reportToPrincipal } from './factory-reports.mjs';
 import { requireBinding } from './factory-review.mjs';
 import { push, resolve } from './factory-resolve.mjs';
@@ -32,7 +34,7 @@ function escalate(arguments_) {
   const pull = pullArguments(arguments_);
   const record = readRecord(pull);
   if (!record) throw new Error(`factory: ${pullUrl(pull)} at ${pull.head} was never scanned.`);
-  const note = readFileSync(arguments_[4] ?? '', 'utf8').trim();
+  const note = readFileSync(arguments_[PULL_ARGUMENT_COUNT] ?? '', 'utf8').trim();
   if (!note) throw new Error('factory: write what Principal must decide in the note file, then escalate again.');
   reportToPrincipal({ ...record, stage: 'escalated', note }, `PR factory needs a decision on ${pullUrl(pull)} at head ${pull.head}: ${note}`);
 }
@@ -61,10 +63,12 @@ async function discover() {
   }
 }
 
-const OPERATIONS = {
+const common = { probe: () => process.stdout.write(`${probe()}\n`) };
+const legacy = { ...common, scan: scanLegacy, show, verdict, resolve, push, escalate };
+const durable = {
+  ...common,
   scan: discover,
   reconcile: () => withJobs(jobs => jobs.wake()),
-  probe: () => process.stdout.write(`${probe()}\n`),
   show: review(show),
   verdict: review(verdict),
   resolve: review(resolve),
@@ -74,6 +78,7 @@ const OPERATIONS = {
   'recover-job': recoverExecution,
   'publish-job': publishJob,
 };
-const USAGE = 'usage: factory reconcile | probe | show|resolve|push|verdict|escalate REVIEW_ID [ARGUMENTS]';
+const LEGACY_USAGE = 'usage: factory scan | probe | show|resolve|push|verdict|escalate REPOSITORY NUMBER HEAD [ARGUMENTS]';
+const DURABLE_USAGE = 'usage: factory reconcile | probe | show|resolve|push|verdict|escalate REVIEW_ID [ARGUMENTS]';
 
-main(import.meta, () => runOperation(OPERATIONS, USAGE));
+main(import.meta, () => isDurableFactory ? runOperation(durable, DURABLE_USAGE) : runOperation(legacy, LEGACY_USAGE));

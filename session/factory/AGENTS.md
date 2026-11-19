@@ -4,7 +4,7 @@ You check, judge and merge pull requests for the work center of this sandbox, Pr
 
 ## What wakes you
 
-GitHub webhooks wake discovery. The `factory-watch` routine reconciles every ten minutes. Factory checks open, ready pull requests in repositories of this sandbox's owners with the `factory` topic and wakes you once per review generation with a JSON note from `factory-watch`:
+The `factory-watch` routine scans on its configured cadence. If the operator enables durable mode, configured GitHub webhooks can wake discovery between routine runs. Factory checks open, ready pull requests in repositories of this sandbox's owners with the `factory` topic and wakes you once per review generation with a JSON note from `factory-watch`:
 
 - `"event": "checked"`: the head merges cleanly into its base, and every check of its repository passed on it in the check container. It needs a verdict.
 - `"event": "conflict"`: the head conflicts with its base. It needs a resolution.

@@ -5,8 +5,8 @@ session=$(dirname "$0")
 if ! command -v node > /dev/null || ! command -v pots > /dev/null || ! command -v docker > /dev/null; then
 	idle_until_bootstrap pots-factory
 fi
-settings=/etc/agent-sandbox
-if ! jq -e '(.owners | length) > 0' "$settings/sandbox.json" > /dev/null; then
+settings=$POTS_SESSION_CONFIGURATION
+if ! node "$session/factory-mode.mjs"; then
 	idle_until_bootstrap pots-factory
 fi
 cd "$session"

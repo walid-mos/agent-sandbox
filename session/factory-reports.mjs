@@ -1,4 +1,5 @@
 import { dirname, join } from 'node:path';
+import { isDurableFactory } from './factory-mode.mjs';
 import { fileURLToPath } from 'node:url';
 import { pullKey, pullUrl, readRecord, writeRecord } from './factory-records.mjs';
 import { bindReview } from './factory-review.mjs';
@@ -28,13 +29,21 @@ const COMMANDS = {
   }),
 };
 
+function wakeFactory(record, fields, arguments_) {
+  const { stage: event, ...pull } = record;
+  const note = { event, pullRequest: pullUrl(pull), ...pull, ...fields, commands: COMMANDS[event](arguments_) };
+  command('pots', ['wake', '--bot', FACTORY_BOT.id, '--from', WATCH, '--id', `factory-${event}-${pullKey(pull)}-${pull.generation ?? 0}`, '--note', JSON.stringify(note)]);
+}
+
 export function handToFactory(record) {
+  if (!isDurableFactory) {
+    wakeFactory(record, {}, [record.repository, String(record.number), record.head]);
+    return writeRecord(record);
+  }
   const saved = readRecord(record) ?? writeRecord(record);
   if (saved.stage !== record.stage) return saved;
-  const { stage: event, ...pull } = saved;
-  const review = bindReview(pull);
-  const note = { event, pullRequest: pullUrl(pull), ...pull, review, commands: COMMANDS[event]([review]) };
-  command('pots', ['wake', '--bot', FACTORY_BOT.id, '--from', WATCH, '--id', `factory-${event}-${pullKey(pull)}-${pull.generation ?? 0}`, '--note', JSON.stringify(note)]);
+  const review = bindReview(saved);
+  wakeFactory(saved, { review }, [review]);
   return saved;
 }
 

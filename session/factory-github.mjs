@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { accorPublicationPolicy } from './accor-publication-policy.mjs';
+import { isDurableFactory } from './factory-mode.mjs';
 import { pullUrl } from './factory-records.mjs';
 import { checkSteps } from './factory-repositories.mjs';
 import { command } from './run.mjs';
@@ -7,7 +8,7 @@ import { owners, sandbox } from './sandbox.mjs';
 
 export const FACTORY_TOPIC = 'factory';
 const REPOSITORY_LIMIT = '1000';
-const LIST_FIELDS = 'number,isDraft';
+const LIST_FIELDS = isDurableFactory ? 'number,isDraft' : 'number,headRefOid,headRefName,baseRefName,isDraft,mergeable';
 const CALL_TIMEOUT_MS = 5_000;
 const REVIEW_FACTS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -37,7 +38,8 @@ const DRAFT_FACTS_QUERY = `query($owner: String!, $name: String!, $number: Int!)
   }
 }`;
 
-const gh = (arguments_, options) => command('gh', arguments_, { timeout: CALL_TIMEOUT_MS, killSignal: 'SIGKILL', ...options });
+const gh = (arguments_, options) => command('gh', arguments_, isDurableFactory
+  ? { timeout: CALL_TIMEOUT_MS, killSignal: 'SIGKILL', ...options } : options);
 const hasFactoryTopic = topicNames => topicNames.includes(FACTORY_TOPIC);
 
 // A listing names no repository, so GH_REPO tells the gh wrapper which owner's token to use.
@@ -59,6 +61,7 @@ function openPulls(repository) {
 }
 
 export const readyPulls = repository => openPulls(repository).filter(pull => !pull.isDraft);
+export const draftPulls = repository => openPulls(repository).filter(pull => pull.isDraft);
 
 function queryPulls(repository, query, ...flags) {
   const [owner, name] = repository.split('/');
@@ -142,15 +145,25 @@ export function requireReviewSubject(subject) {
   if (!isCurrentReview(subject)) throw new Error(`factory: ${pullUrl(subject)} no longer matches this review generation`);
 }
 
+function requireWatchedTopic(repository) {
+  const topics = JSON.parse(gh(['api', `repos/${repository}`, '--jq', '.topics']));
+  if (!hasFactoryTopic(topics)) throw new Error(`factory: ${repository} no longer has the ${FACTORY_TOPIC} topic, so the factory leaves its pull requests alone.`);
+}
+
 export function requireActionable(pull) {
   if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
   const facts = pullFacts(pull);
   if (!isReady(facts) || facts.headRefOid !== pull.head) {
     throw new Error(`factory: ${pullUrl(pull)} no longer has open, ready head ${pull.head}. Wait for its next review wake.`);
   }
-  requireReviewSubject(pull);
+  requireModeReview(pull);
   checkSteps(pull.repository);
   return facts;
+}
+
+function requireModeReview(pull) {
+  if (isDurableFactory) requireReviewSubject(pull);
+  else requireWatchedTopic(pull.repository);
 }
 
 export function comment({ repository, number }, bodyFile) {

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { streamFactoryEvents } from './factory-events.mjs';
 import { CHANGE_FILE, openJobs } from './factory-jobs.mjs';
+import { isDurableFactory } from './factory-mode.mjs';
 import { tryFactoryLock } from './factory-runner.mjs';
 import { JOB_DIRECTORY } from './factory-state.mjs';
 import { main } from './main.mjs';
@@ -179,5 +180,6 @@ main(import.meta, () => {
   if (wakeSocket !== undefined && (!wakeSocket.startsWith('/') || wakeSocket === EVENTS_SOCKET)) {
     throw new Error('usage: factory-controller.mjs [ABSOLUTE_WAKE_SOCKET]');
   }
+  if (!isDurableFactory) throw new Error('factory: durable mode is disabled');
   startController(wakeSocket);
 });

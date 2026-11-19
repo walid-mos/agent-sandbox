@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { comment, pullFacts, requireActionable, squashMerge } from './factory-github.mjs';
-import { logDirectory, pullArguments, pullUrl, requireRecord, writeRecord } from './factory-records.mjs';
+import { isDurableFactory } from './factory-mode.mjs';
+import { logDirectory, PULL_ARGUMENT_COUNT, pullArguments, pullUrl, requireRecord, writeRecord } from './factory-records.mjs';
 import { reportToPrincipal } from './factory-reports.mjs';
 
 const VERDICTS = ['PASS', 'PASS+NOTES', 'FAIL'];
@@ -23,7 +24,7 @@ function postVerdict(record, decision, notes) {
 }
 
 function land(record) {
-  requireActionable(record);
+  if (isDurableFactory) requireActionable(record);
   const merge = squashMerge(record);
   const after = pullFacts(record);
   if (after.state !== MERGED) {
@@ -47,7 +48,7 @@ function readNotes(decision, path) {
 
 export function verdict(arguments_) {
   const pull = pullArguments(arguments_);
-  const [decision, notesFile] = arguments_.slice(4);
+  const [decision, notesFile] = arguments_.slice(PULL_ARGUMENT_COUNT);
   if (!VERDICTS.includes(decision)) throw new Error(`factory: the verdict is one of ${VERDICTS.join(', ')}, got ${decision}`);
   const notes = readNotes(decision, notesFile);
   const record = requireRecord(pull, 'checked');

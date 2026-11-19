@@ -37,7 +37,7 @@ export async function discoverReady(jobs, repositories, read = reviewSubject, wa
   unknown.forEach(discover);
 }
 
-function logScanFailure(subject, error) {
+export function logScanFailure(subject, error) {
   process.stderr.write(`factory: ${subject}: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 }
@@ -59,7 +59,7 @@ function wakeStaleDraft(subject, now, readWorkers) {
   if (id) reportStaleDraft(pull, id, draftOwner(pull, readWorkers));
 }
 
-function scanStaleDrafts(repository, now, readWorkers) {
+function scanRepositoryDrafts(repository, now, readWorkers) {
   let candidates;
   try {
     candidates = draftCandidates(repository).filter(pull => isOldDraft(pull, now));
@@ -76,13 +76,17 @@ function scanStaleDrafts(repository, now, readWorkers) {
   }
 }
 
+export function scanStaleDrafts(repositories) {
+  const now = Date.now();
+  let workerRecords;
+  const readWorkers = () => (workerRecords ??= workers());
+  for (const repository of repositories) scanRepositoryDrafts(repository, now, readWorkers);
+}
+
 export function scan() {
   return withJobs(async jobs => {
     const repositories = watchedRepositories();
-    const now = Date.now();
-    let workerRecords;
-    const readWorkers = () => (workerRecords ??= workers());
-    for (const repository of repositories) scanStaleDrafts(repository, now, readWorkers);
+    scanStaleDrafts(repositories);
     await discoverReady(jobs, repositories);
   });
 }

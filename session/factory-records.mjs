@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { isDurableFactory } from './factory-mode.mjs';
 
 export const FACTORY_HOME = join(homedir(), '.config/agent-sandbox/factory');
 const HEADS = join(FACTORY_HOME, 'heads');
@@ -14,7 +15,14 @@ export function pullUrl({ repository, number }) {
   return `https://github.com/${repository}/pull/${number}`;
 }
 
+export const PULL_ARGUMENT_COUNT = isDurableFactory ? 4 : 3;
+
 export function pullArguments([repository, number, head, generation]) {
+  if (isDurableFactory) return durablePull(repository, number, head, generation);
+  return legacyPull(repository, number, head);
+}
+
+function durablePull(repository, number, head, generation) {
   const name = repositoryName(repository);
   const pullNumber = positiveInteger(number);
   if (pullNumber === undefined) throw new Error(`factory: expected a pull request number, got ${number}`);
@@ -22,6 +30,13 @@ export function pullArguments([repository, number, head, generation]) {
   const reviewGeneration = positiveInteger(generation);
   if (reviewGeneration === undefined) throw new Error('factory: use the command from the current Factory wake.');
   return { repository: name, number: pullNumber, head, generation: reviewGeneration };
+}
+
+function legacyPull(repository = '', number = '', head) {
+  if (!/^[^/\s]+\/[a-zA-Z0-9_.-]+$/.test(repository)) throw new Error(`factory: expected OWNER/REPOSITORY, got ${repository}`);
+  if (!/^[1-9][0-9]*$/.test(number)) throw new Error(`factory: expected a pull request number, got ${number}`);
+  requireFullHead(head);
+  return { repository, number: Number(number), head };
 }
 
 function repositoryName(repository = '') {
@@ -39,10 +54,16 @@ function positiveInteger(text = '') {
 }
 
 export function logDirectory(pull) {
-  return join(FACTORY_HOME, 'logs', pullKey(pull), String(pull.generation));
+  return pullWorkspace('logs', pull);
 }
 
-const recordPath = pull => join(HEADS, `${pullKey(pull)}-${pull.generation}.json`);
+export function pullWorkspace(folder, pull) {
+  const path = join(FACTORY_HOME, folder, pullKey(pull));
+  return isDurableFactory ? join(path, String(pull.generation)) : path;
+}
+
+const recordPath = pull => join(HEADS, `${pullKey(pull)}${isDurableFactory ? `-${pull.generation}` : ''}.json`);
+const isLegacyRecord = name => /-[a-f0-9]{40}\.json$/.test(name);
 
 export function readRecord(pull) {
   const path = recordPath(pull);
@@ -51,7 +72,7 @@ export function readRecord(pull) {
 
 export function recordedHeads() {
   if (!existsSync(HEADS)) return [];
-  return readdirSync(HEADS).filter(name => name.endsWith('.json'))
+  return readdirSync(HEADS).filter(isLegacyRecord)
     .map(name => JSON.parse(readFileSync(join(HEADS, name), 'utf8')));
 }
 
