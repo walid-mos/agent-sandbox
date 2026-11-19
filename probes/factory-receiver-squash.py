@@ -239,9 +239,14 @@ class ReceiverSquashRecovery(RecoveryCases, SquashFixture):
 @unittest.skipUnless(ENTRY_EXPORT, 'provide the disposable #30 entry-point export')
 class ReceiverEntry(RecoveryCases, SquashFixture):
     archive = ENTRY_EXPORT
-    anchor = '39278ca09224d0e3539fbfd2cb3ddc22bb3cbad4'
-    tip = '542823a09dee7e38f16d71426ce1dad3798ca755'
-    recovered = '4c7128480dd444ec3bb6aa40f8288f6c0f84a342'
+    def prepare_export(self):
+        proof = json.loads((Path(self.archive) / 'squashes.json').read_text())
+        rows = proof['checkpoints']
+        self.assertEqual(len(rows), 4)
+        self.assertEqual([row['request']['number'] for row in rows], [30, 32, 31, 33])
+        self.assertEqual([row['request']['number'] for row in rows if 'landed' in row], [31])
+        self.anchor, self.tip, self.recovered = proof['anchor'], proof['tip'], rows[2]['squash']
+        super().prepare_export()
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
