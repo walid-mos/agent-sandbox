@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { streamFactoryEvents } from './factory-events.mjs';
 import { CHANGE_FILE, openJobs } from './factory-jobs.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
-import { tryFactoryLock } from './factory-runner.mjs';
+import { LOCK_BUSY, tryFactoryLock } from './factory-runner.mjs';
 import { JOB_DIRECTORY } from './factory-state.mjs';
 import { main } from './main.mjs';
 import { WITH_VAULT } from './run.mjs';
@@ -16,6 +16,7 @@ const LOCAL_BACKSTOP_MS = 10 * 60_000;
 const DISCOVERY_BUDGET_MS = 150_000;
 const WAKE_GAP_MS = 60_000;
 const MAX_RUNNERS = 2;
+const PUBLICATION_RETRY_MS = 5_000;
 const PUBLISHABLE = new Set(['complete', 'uncertain', 'interrupted']);
 
 function launch(operation, arguments_, { budget, viaVault = true } = {}) {
@@ -23,8 +24,8 @@ function launch(operation, arguments_, { budget, viaVault = true } = {}) {
   const [binary, ...flags] = budget ? ['timeout', '--signal=KILL', `${budget / 1000}s`, ...invocation] : invocation;
   return new Promise(resolve => {
     const child = spawn(binary, flags, { detached: true, stdio: 'inherit' });
-    child.once('error', () => resolve(false));
-    child.once('exit', status => resolve(status === 0));
+    child.once('error', () => resolve(undefined));
+    child.once('exit', resolve);
   });
 }
 
@@ -46,8 +47,8 @@ function scheduleDiscovery(jobs, refresh) {
   function start(revision) {
     isDiscovering = true;
     next = Date.now() + WAKE_GAP_MS;
-    void launch('scan', [], { budget: DISCOVERY_BUDGET_MS }).then(isDone => {
-      if (isDone) jobs.consumeWake(revision);
+    void launch('scan', [], { budget: DISCOVERY_BUDGET_MS }).then(status => {
+      if (status === 0) jobs.consumeWake(revision);
       else if (jobs.pendingWake() === revision) next = Date.now() + LOCAL_BACKSTOP_MS;
     }).catch(() => process.stderr.write('factory: failed to record discovery completion\n')).finally(() => {
       isDiscovering = false;
@@ -92,14 +93,18 @@ function dispatchRecovery(running, launched, attemptedRecovery, refresh) {
 function schedulePublication(refresh) {
   let isPublishing = false;
   const failed = new Set();
+  const contended = new Set();
   return (pending, isBackstop) => {
     if (isBackstop) failed.clear();
     if (isPublishing) return;
-    const job = pending.find(entry => PUBLISHABLE.has(entry.status) && !failed.has(entry.id));
+    const job = pending.find(entry => PUBLISHABLE.has(entry.status) && !failed.has(entry.id) && !contended.has(entry.id));
     if (!job) return;
     isPublishing = true;
-    void launch('publish-job', [String(job.id)], { budget: DISCOVERY_BUDGET_MS }).then(isDone => {
-      if (!isDone) failed.add(job.id);
+    void launch('publish-job', [String(job.id)], { budget: DISCOVERY_BUDGET_MS }).then(status => {
+      if (status === LOCK_BUSY) {
+        contended.add(job.id);
+        setTimeout(() => { contended.delete(job.id); refresh(); }, PUBLICATION_RETRY_MS);
+      } else if (status !== 0) failed.add(job.id);
     }).finally(() => {
       isPublishing = false;
       refresh();

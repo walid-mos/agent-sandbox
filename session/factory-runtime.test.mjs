@@ -204,6 +204,21 @@ test('a successful exit after the step deadline records failure and confirms rem
   events.destroy();
 });
 
+test('discovery requeues the unchanged head after mergeability was briefly unknown at execution', { timeout: fixtureTimeout }, async t => {
+  const { directory, env, setFacts } = setup(t);
+  const run = (...args) => execFileSync(process.execPath, [join(session, 'factory.mjs'), ...args], { env });
+  run('reconcile');
+  run('scan');
+  setFacts({ mergeable: 'UNKNOWN' });
+  run('run-job', '1');
+  setFacts({});
+  await controller(t, env.HOME, directory, env);
+  const events = await stream(join(directory, 'events.sock'), t.signal);
+  const complete = await eventFrom(events.iterator(), event => event.type === 'complete' && event.job > 1);
+  assert.equal(complete.detail.stage, 'checked');
+  await waitFor(env.HOME, 'wakes', t.signal);
+});
+
 for (const isCleanupRefused of [false, true]) {
   const requirement = isCleanupRefused ? 'fences the PR when exact removal fails' : 'confirms exact container removal before retry';
   test(`a killed runner ${requirement}`, { timeout: fixtureTimeout }, async t => {

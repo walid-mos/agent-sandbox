@@ -5,7 +5,7 @@ import { removeRunWorkspace } from './factory-checks.mjs';
 import { cleanContainer } from './factory-container.mjs';
 
 const LOCK_FD = 3;
-const LOCK_BUSY = 75;
+export const LOCK_BUSY = 75;
 
 export function tryFactoryLock(directory, key) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });

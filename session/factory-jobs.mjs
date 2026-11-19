@@ -44,6 +44,11 @@ const STATEMENTS = {
   consumeWake: 'UPDATE wake SET consumed = max(consumed, ?)',
 };
 const MAX_ATTEMPTS = 2;
+const RETRYABLE_STAGES = new Set(['superseded', 'checks-missing']);
+
+function canRetryObservation(row) {
+  return row.status === 'complete' && RETRYABLE_STAGES.has(JSON.parse(row.result).stage);
+}
 export const CHANGE_FILE = 'changed';
 const EVENT_BATCH = 100;
 const BUSY_TIMEOUT_MS = 5000;
@@ -102,7 +107,7 @@ export class FactoryJobs {
     let isNew = false;
     const current = this.#transaction(() => {
       const prior = this.#sql.current.get(subject.repository, subject.number);
-      if (prior?.subject === JSON.stringify(subject)) return job(prior);
+      if (prior?.subject === JSON.stringify(subject) && !canRetryObservation(prior)) return job(prior);
       if (prior) {
         this.#sql.supersede.run(prior.id);
         this.#append(prior.id, 'superseded', {});

@@ -4,7 +4,7 @@ import { mergeBase, refreshMirror } from './factory-mirror.mjs';
 import { logDirectory, pullUrl } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { handToFactory, reportToPrincipal } from './factory-reports.mjs';
-import { recoverJob, runJob, tryFactoryLock } from './factory-runner.mjs';
+import { LOCK_BUSY, recoverJob, runJob, tryFactoryLock } from './factory-runner.mjs';
 import { JOB_DIRECTORY, withJobs } from './factory-state.mjs';
 
 function check(record, progress, jobs) {
@@ -51,7 +51,9 @@ function publish(jobs, { id, subject, result, status }) {
 }
 
 function shouldPublish(jobs, record) {
-  return record.stage !== 'superseded' && jobs.current(record) === record.generation && isCurrentReview(record);
+  if (record.stage === 'superseded' || jobs.current(record) !== record.generation) return false;
+  if (!isCurrentReview(record)) throw new Error('factory: publication deferred until review facts are confirmed');
+  return true;
 }
 
 const FACTORY_STAGES = new Set(['checked', 'conflict']);
@@ -75,7 +77,10 @@ export function publishJob([identifier]) {
     const job = jobs.get(id);
     if (!job || !['complete', 'uncertain', 'interrupted'].includes(job.status)) return;
     const unlock = tryFactoryLock(JOB_DIRECTORY, `report-${id}`);
-    if (!unlock) return;
+    if (!unlock) {
+      process.exitCode = LOCK_BUSY;
+      return;
+    }
     try {
       publish(jobs, job);
       jobs.markReported(id);
