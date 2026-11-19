@@ -18,7 +18,7 @@ export function fixture(t) {
   const failWakeFile = join(home, 'fail-wake');
   const lockFactsFile = join(home, 'lock-facts.json');
   const realFlock = execFileSync('which', ['flock'], { encoding: 'utf8' }).trim();
-  const sandbox = encodeURIComponent('export const botId = "principal", owners = ["walid-mos"];');
+  const sandbox = encodeURIComponent('export const botId = "principal", owners = ["walid-mos"], sandbox = {};');
   const loader = `import { registerHooks } from 'node:module'; registerHooks({ resolve(specifier, context, next) {
     if (specifier === './sandbox.mjs') return { url: 'data:text/javascript,${sandbox}', shortCircuit: true };
     return next(specifier, context);
@@ -74,7 +74,9 @@ if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') process.stdout.w
 if (command === 'gh' && args[0] === 'repo' && args[1] === 'list') {
   process.stdout.write(JSON.stringify([{ nameWithOwner: process.env.REPOSITORY, repositoryTopics: [{ name: 'factory' }] }]));
 }
-if (command === 'gh' && args[0] === 'api') process.stdout.write(process.env.TOPICS);
+if (command === 'gh' && args[0] === 'api' && args[1] === 'graphql') {
+  process.stdout.write(JSON.stringify([{ data: { repository: { pullRequests: { nodes: [] } } } }]));
+} else if (command === 'gh' && args[0] === 'api') process.stdout.write(process.env.TOPICS);
 if (command === 'git') process.stdout.write('Fixture diff');
 `, { mode: 0o700 });
   for (const name of ['gh', 'git', 'pots', 'flock']) symlinkSync(fake, join(home, name));

@@ -9,6 +9,7 @@ export const FACTORY_BOT = { name: 'Factory', id: 'factory' };
 // The scan routine's name, and the source of the wakes it sends, by which the Factory bot recognises them.
 export const WATCH = 'factory-watch';
 const SESSION = dirname(fileURLToPath(import.meta.url));
+const PRINCIPAL_SOURCE = 'pr-factory';
 
 export const factoryCommand = (operation, ...arguments_) => [WITH_VAULT, 'node', join(SESSION, 'factory.mjs'), operation, ...arguments_].join(' ');
 
@@ -44,8 +45,7 @@ export function queueFactoryWake(record) {
 }
 
 export function queueReport(record, note) {
-  const source = 'pr-factory';
-  return queueWake(record, { bot: botId, source, id: wakeId(source, record), note });
+  return queueWake(record, { bot: botId, source: PRINCIPAL_SOURCE, id: wakeId(PRINCIPAL_SOURCE, record), note });
 }
 
 function acknowledge(pull, id) {
@@ -68,4 +68,9 @@ function deliverWake(record, { bot, source, id, note }) {
 
 export function deliverWakes(record) {
   for (const wake of record.pendingWakes ?? []) deliverWake(record, wake);
+}
+
+export function reportStaleDraft(pull, id, owner) {
+  const text = `PR factory: ${pullUrl(pull)} has been a draft for more than a day, and its description holds no valid BLOCKED UNTIL line. Send its worker this note, or tell the person when no worker owns it.`;
+  command('pots', ['wake', '--bot', owner ?? botId, '--from', PRINCIPAL_SOURCE, '--id', id, '--note', text]);
 }
