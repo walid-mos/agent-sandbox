@@ -85,7 +85,10 @@ if (command === 'gh' && args[0] === 'repo' && args[1] === 'list') {
   process.stdout.write(JSON.stringify([{ nameWithOwner: process.env.REPOSITORY, repositoryTopics: [{ name: 'factory' }] }]));
 }
 if (command === 'gh' && args[0] === 'api' && args[1] === 'graphql') {
-  if (args.includes('--paginate')) process.stdout.write(JSON.stringify([{ data: { repository: { pullRequests: { nodes: [] } } } }]));
+  if (args.includes('--paginate')) {
+    const nodes = JSON.parse(process.env.SCAN_FACTS);
+    process.stdout.write(JSON.stringify([{ data: { repository: { pullRequests: { nodes } } } }]));
+  }
   else {
     const active = existsSync(process.env.LOCK_FACTS) ? readFileSync(process.env.LOCK_FACTS, 'utf8') : process.env.FACTS;
     const owner = args.find(arg => arg.startsWith('owner=')).slice(6);

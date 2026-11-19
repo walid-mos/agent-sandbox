@@ -168,6 +168,19 @@ test('notification acknowledgement preserves a record changed by re-entry', t =>
   assert.equal(reports[1][reports[1].indexOf('--id') + 1], reports[0][reports[0].indexOf('--id') + 1]);
 });
 
+test('repeated scans do not reread a closed review absent from open listings', t => {
+  const rig = fixture(t, { facts: { ...ready, state: 'CLOSED' }, scanFacts: [] });
+  handoff(rig, checked);
+  const before = rig.calls().length;
+  for (const _ of [1, 2]) {
+    const scan = rig.reconcile();
+    assert.equal(scan.status, 0, scan.stderr);
+  }
+  const scans = rig.calls().slice(before);
+  assert.equal(scans.filter(([command, group, action]) => command === 'gh' && group === 'pr' && action === 'list').length, 2);
+  assert.deepEqual(scans.filter(([command, group, action]) => command === 'gh' && group === 'pr' && action === 'view'), []);
+});
+
 test('scan retries a failed notification without repeating the transition', t => {
   const rig = fixture(t);
   const { escalate, show } = handoff(rig, checked);

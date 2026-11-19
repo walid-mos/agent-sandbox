@@ -3,7 +3,7 @@ import { effectiveCheckRevision } from './factory-checks.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { draftCandidates, draftFacts, pullFacts, readyPulls, reviewSubject, watchedRepositories } from './factory-github.mjs';
 import { finishPublication } from './factory-publication.mjs';
-import { pullUrl, recordedHeads, withRecord } from './factory-records.mjs';
+import { pullUrl, readRecord, recordedHeads, withRecord } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { isPendingSquash } from './factory-squash-publication.mjs';
 import { deliverWakes, reportStaleDraft } from './factory-reports.mjs';
@@ -69,28 +69,33 @@ function wakeStaleDraft(subject, now, readWorkers) {
   if (id) reportStaleDraft(pull, id, draftOwner(pull, readWorkers));
 }
 
-function scanRepositoryDrafts(repository, now, readWorkers) {
+function scanRepositoryDrafts(repository, now, readWorkers, holdReview) {
   let candidates;
   try {
-    candidates = draftCandidates(repository).filter(pull => isOldDraft(pull, now));
+    candidates = draftCandidates(repository).filter(pull => pull.isDraft === true);
   } catch (error) {
     return logScanFailure(`${repository} draft discovery`, error);
   }
-  for (const { number } of candidates) {
-    const subject = { repository, number };
-    try {
-      wakeStaleDraft(subject, now, readWorkers);
-    } catch (error) {
-      logScanFailure(`${pullUrl(subject)} draft reminder`, error);
-    }
+  for (const candidate of candidates) {
+    const subject = { repository, number: candidate.number };
+    if (holdReview) processDraft(subject, 'hold', () => holdReview(subject));
+    if (isOldDraft(candidate, now)) processDraft(subject, 'reminder', () => wakeStaleDraft(subject, now, readWorkers));
   }
 }
 
-export function scanStaleDrafts(repositories) {
+function processDraft(subject, operation, run) {
+  try {
+    run();
+  } catch (error) {
+    logScanFailure(`${pullUrl(subject)} draft ${operation}`, error);
+  }
+}
+
+export function scanStaleDrafts(repositories, holdReview) {
   const now = Date.now();
   let workerRecords;
   const readWorkers = () => (workerRecords ??= workers());
-  for (const repository of repositories) scanRepositoryDrafts(repository, now, readWorkers);
+  for (const repository of repositories) scanRepositoryDrafts(repository, now, readWorkers, holdReview);
 }
 
 function observeInputs(pull, revisions) {
@@ -100,10 +105,14 @@ function observeInputs(pull, revisions) {
   return { ...pull, inputRevision: revisions.get(pull.repository) };
 }
 
-function holdDraftReview(record, jobs) {
-  if (jobs.current(record) !== record.generation || record.stage === 'held' || record.squashPublication) return record;
-  return withRecord(record, (current, save) => {
-    if (current?.generation !== record.generation || current.squashPublication) return current;
+function holdDraftReview(jobs, { repository, number }) {
+  const generation = jobs.current({ repository: repository.toLowerCase(), number });
+  const job = generation === undefined ? undefined : jobs.get(generation);
+  if (!job) return;
+  const record = readRecord({ ...job.subject, generation });
+  if (record?.generation !== generation || record.stage === 'held' || record.squashPublication) return;
+  withRecord(record, (current, save) => {
+    if (current?.generation !== generation || current.stage === 'held' || current.squashPublication || jobs.current(current) !== generation) return;
     const facts = pullFacts(current);
     if (facts.state === 'OPEN' && facts.isDraft === true && facts.headRefOid === current.head) {
       return save({ ...current, stage: 'held' });
@@ -112,13 +121,13 @@ function holdDraftReview(record, jobs) {
   });
 }
 
-function recoverPublications(repositories, jobs) {
+function recoverPublications(repositories) {
   const watched = new Set(repositories.map(repository => repository.toLowerCase()));
   for (const record of recordedHeads()) {
-    if (!watched.has(record.repository.toLowerCase())) continue;
+    const needsReadback = isIsolatedFactory && isPendingSquash(record);
+    if ((!needsReadback && !record.pendingWakes?.length) || !watched.has(record.repository.toLowerCase())) continue;
     try {
-      const current = isIsolatedFactory && isPendingSquash(record) ? finishPublication(record) ?? record : holdDraftReview(record, jobs);
-      deliverWakes(current);
+      deliverWakes((needsReadback ? finishPublication(record) : undefined) ?? record);
     } catch (error) {
       logScanFailure(pullUrl(record), error);
     }
@@ -131,7 +140,7 @@ export function scan({ routine }) {
     const revisions = new Map();
     await discoverReady(jobs, repositories, subject => observeInputs(reviewSubject(subject), revisions));
     if (!routine) return;
-    recoverPublications(repositories, jobs);
-    scanStaleDrafts(repositories);
+    scanStaleDrafts(repositories, subject => holdDraftReview(jobs, subject));
+    recoverPublications(repositories);
   });
 }
