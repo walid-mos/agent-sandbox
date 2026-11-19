@@ -12,6 +12,7 @@ import { administerDiscord } from './discord-admin-service.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
 import { main } from './main.mjs';
 import { botHome, isMastermind, sandbox } from './sandbox.mjs';
+import { isServerLogEnabled } from './server-log-events.mjs';
 
 function actions() {
   const operations = Object.fromEntries(Object.entries(ADMIN_OPERATIONS).map(([action, operation]) => [action, {
@@ -44,7 +45,8 @@ async function connect() {
   const protection = await discoverProtection({ api, config: sandbox, primaryHome: botHome, stateDirectory: join(homedir(), '.config/agent-sandbox/discord-admin') });
   const approvals = discordAdminApprovals({ clicks: humanStore(join(HUMAN_HOME, 'discord')), pending: humanStore(join(HUMAN_HOME, 'discord-admin')),
     channelAccount: account.id, guildId: protection.guildId, api });
-  return { api, protection, approvals };
+  const serverLogClock = isServerLogEnabled() ? () => new Date() : undefined;
+  return { api, protection, approvals, serverLogClock };
 }
 
 async function run(mode) {

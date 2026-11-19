@@ -1,6 +1,7 @@
 import { isThread, operationOf } from './discord-admin-operations.mjs';
 import { guardChannels, guardRoles, requirePermission, requiresApproval } from './discord-admin-policy.mjs';
 import { isApplicationRole, protectedIds, requireProtection, withThreadParents } from './discord-admin-protection.mjs';
+import { serverLogEvent, SERVER_LOG_EVENT } from './server-log-events.mjs';
 
 async function guildChannel(id, guildId, api) {
   const channel = await api('GET', `/channels/${id}`);
@@ -61,6 +62,19 @@ function requireGuildInvite(invite, guildId) {
   if (![invite.guild?.id === guildId, invite.channel?.id].every(Boolean)) throw new Error('discord-admin: invite is outside the configured guild.');
 }
 
+async function confirmedTopicChange(request, previous, result, { api, serverLogClock }) {
+  if (!serverLogClock || request.action !== 'channel.edit' || !Object.hasOwn(request.payload, 'topic')) return;
+  const topic = request.payload.topic;
+  if (previous?.id !== request.channelId || !Object.hasOwn(previous, 'topic') || previous.topic === topic) return;
+  if (result?.id !== request.channelId || result.topic !== topic) return;
+  try {
+    const current = await guildChannel(request.channelId, request.guildId, api);
+    if (current.id === request.channelId && current.topic === topic) return serverLogEvent(SERVER_LOG_EVENT.adminTopicChanged, serverLogClock());
+  } catch {
+    // A readback failure cannot turn a completed mutation into a retryable error.
+  }
+}
+
 export async function administerDiscord(input, dependencies) {
   const operation = operationOf(input);
   const request = (await guardInvite(operation.request, dependencies.api)) ?? operation.request;
@@ -73,5 +87,6 @@ export async function administerDiscord(input, dependencies) {
     if (approval.status !== 'authorized') return approval;
   }
   const result = await dependencies.api(operation.method, operation.path, operation.body(request), request.reason);
-  return { status: 'completed', action: request.action, result };
+  const notice = await confirmedTopicChange(request, snapshot.channel, result, dependencies);
+  return { status: 'completed', action: request.action, result, ...(notice && { serverLogEvent: notice }) };
 }

@@ -74,6 +74,18 @@ Activation also requires a separately authorized private enable setting, verifie
 
 PR #41 and #44 remain separate. Their source overlap must be checked when wiring shared gateway/bootstrap/dialog behavior. This branch has not changed their code or the protected human-dialog transport. This worker has performed no live verification of Discord behavior, rate limits, nonce windows, upload/readback, role permissions, event retention or runtime voice behavior. Those require the owner contract and a separately authorized integration check.
 
+## Server-log sources
+
+Server-log notices come from the source watcher and Discord Admin, outside preservation. Both producers are off unless `AGENT_SANDBOX_SERVER_LOG_EVENTS=1` is set in their runtime environment.
+
+The watcher writes `~/.config/agent-sandbox/server-log/source-refresh.json` when provisioning fails. It records the first failure in each uninterrupted failure episode. A successful refresh resets the episode without writing a success notice or erasing the last warning. The file holds the latest warning across restarts. A later episode can replace an unread warning, and a restart can record the same ongoing failure with a new ID.
+
+Admin includes a `serverLogEvent` field on a completed channel topic edit when the prior topic differs and both the PATCH result and a fresh guild-scoped GET confirm the requested topic. A failed or mismatched readback leaves the mutation result intact and omits the event. The typed receipt includes neither the topic nor the audit reason. It is returned with the Admin command result and has no separate delivery queue.
+
+Mastermind owns the mapping from trusted source pot to an approved display label, the server-log channel and the posting identities. Feed only the watcher's event record or the Admin response's `serverLogEvent` field to `renderServerLog`. Its fixed text supplies the service, level, time, impact and recovery or status. A label's syntax check does not establish its provenance or approve it for publication.
+
+Before enabling either producer, Mastermind must verify collection, event ID handling, post and readback with the bound identities. For the covered Admin operation, the owner must use the typed receipt in place of the free-text `Server log:` handoff. The source contract only covers provisioning failures and confirmed channel topic edits. Delivery guarantees and coverage of other services or Admin operations depend on the owning runtime.
+
 ## Offline verification
 
 `./bin/check` runs the `session/noticeboard-*.test.mjs` files with the repository's existing Node test runner. The fixtures use invented identifiers and text. They exercise exact attribution, sensitive user text preservation, attachments, corrupt copies, duplicate/reordered events, edits, restart recovery, durable cursor semantics, uncertain outcomes, permission denial, unsupported messages, bounded retries and disabled behavior. No external credentials or network access are needed.
