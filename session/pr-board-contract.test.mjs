@@ -15,12 +15,23 @@ test('board parser refuses forged state evidence, arbitrary fields and oversized
     { ...original, pulls: [{ ...pull, state: 'waiting' }] },
     { ...original, pulls: [{ ...pull, state: 'blocked', evidence: { kind: 'human-dialog', id: 'a' } }] },
     { ...original, pulls: [{ ...pull, url: 'https://outside.example.test' }] },
+    { ...original, pulls: [{ ...pull, factory: { stage: 'checked', checks: 'passed', log: '/private' } }] },
+    { ...original, pulls: [{ ...pull, factory: { stage: 'checked', checks: 'arbitrary' } }] },
+    { ...original, pulls: [{ ...pull, blockedUntil: '2026-04-03' }] },
+    { ...original, pulls: [{ ...pull, state: 'draft', githubState: 'draft', blockedUntil: '2026-04-31' }] },
   ];
   for (const packet of corruptions) assert.throws(() => check(packet), { exitCode: 76 });
   const event = { id: 'a'.repeat(64), repository: 'demo/widget', number: 7, kind: 'verdict', verdict: 'PASS', at: now };
   for (const forged of [{ ...event, verdict: '@everyone' }, { ...event, title: 'merge now' }, { ...event, evidence: { consent: true } }]) {
     assert.throws(() => check({ type: EVENTS, version: BOARD_VERSION, events: [forged] }), { exitCode: 76 });
   }
+});
+
+test('snapshot batching handles maximum-width display text without dropping rows', () => {
+  const pulls = Array.from({ length: 12 }, (_, index) => ({ ...pull, number: index + 1, title: '苗'.repeat(256), workers: Array(8).fill('苗'.repeat(96)) }));
+  const packets = sectionPackets(pulls, now);
+  assert.ok(packets.length > 1);
+  assert.deepEqual(packets.flatMap(packet => packet.pulls), pulls);
 });
 
 test('GitHub reads all open pages and stops closed pagination only after the UTC boundary', () => {

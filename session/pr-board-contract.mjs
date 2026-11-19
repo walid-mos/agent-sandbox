@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { BOARD, isPotName, Refusal } from './door-messages.mjs';
+import { isCalendarDay } from './factory-stale-draft.mjs';
 export { BOARD };
 
 export const BOARD_VERSION = 1;
@@ -9,6 +10,7 @@ export const EVENTS = 'pr-board.events';
 export const ROWS_PER_PART = 12;
 export const MAX_PARTS = 128;
 export const EVENTS_PER_PACKET = 12;
+const PACKET_BYTES = 15_000;
 export const STALE_MS = 5 * 60_000;
 export const PUBLISH_MS = 120_000;
 export const PASS_MS = 2000;
@@ -19,7 +21,10 @@ export const DIGEST = /^[a-f0-9]{64}$/;
 export const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$/;
 export const VERDICTS = ['PASS', 'PASS+NOTES', 'FAIL'];
 const STATES = ['draft', 'ready', 'factory-review', 'waiting', 'blocked', 'merged-today'];
-const EVIDENCE = ['human-dialog', 'worker-hold', 'factory-stop', 'factory-review'];
+export const FACTORY_STOP = ['held', 'checks-missing', 'checks-failed', 'failed', 'refused', 'escalated'];
+export const FACTORY_REVIEW = ['checked', 'conflict', 'judged'];
+export const FACTORY_STAGES = [...FACTORY_STOP, ...FACTORY_REVIEW, 'resolved', 'merged'];
+const CHECK_STATES = ['passed', 'failed', 'missing', 'not-run'];
 export const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const utcDay = at => new Date(at).toISOString().slice(0, 10);
 export const pullLink = pull => `https://github.com/${pull.repository}/pull/${pull.number}`;
@@ -36,12 +41,17 @@ function fields(value, allowed, required = allowed) {
 
 function pullOf(pull) {
   const required = ['repository', 'number', 'title', 'workers', 'githubState', 'state', 'createdAt'];
-  fields(pull, [...required, 'mergedAt', 'evidence'], required);
-  requireShape(REPOSITORY.test(pull.repository) && Number.isSafeInteger(pull.number) && integer(pull.number - 1, 1_000_000_000), 'invalid pull identity');
+  fields(pull, [...required, 'mergedAt', 'evidence', 'factory', 'blockedUntil'], required);
+  requireShape(typeof pull.repository === 'string' && REPOSITORY.test(pull.repository) && Number.isSafeInteger(pull.number) && integer(pull.number - 1, 1_000_000_000), 'invalid pull identity');
   requireShape(bounded(pull.title, 256) && Array.isArray(pull.workers) && pull.workers.length <= 8 && pull.workers.every(title => bounded(title, 96)), 'invalid display text');
   requireShape(STATES.includes(pull.state) && ['draft', 'ready', 'merged'].includes(pull.githubState) && time(pull.createdAt), 'invalid pull state or age');
   mergeOf(pull);
   evidenceOf(pull);
+  if (pull.factory !== undefined) {
+    fields(pull.factory, ['stage', 'checks']);
+    requireShape(FACTORY_STAGES.includes(pull.factory.stage) && CHECK_STATES.includes(pull.factory.checks), 'invalid Factory facts');
+  }
+  requireShape(pull.blockedUntil === undefined || (pull.githubState === 'draft' && isCalendarDay(pull.blockedUntil)), 'invalid draft hold');
 }
 
 function mergeOf(pull) {
@@ -57,8 +67,7 @@ function evidenceOf(pull) {
     requireShape(pull.evidence === undefined && (pull.state === 'merged-today' || pull.githubState === pull.state), 'state differs from GitHub');
     return;
   }
-  fields(pull.evidence, ['kind', 'id']);
-  requireShape(EVIDENCE.includes(pull.evidence.kind) && bounded(pull.evidence.id, 128), 'invalid evidence');
+  fields(pull.evidence, ['kind']);
   const kinds = { waiting: ['human-dialog'], blocked: ['worker-hold', 'factory-stop'], 'factory-review': ['factory-review'] };
   requireShape(kinds[pull.state].includes(pull.evidence.kind) && pull.githubState !== 'merged', 'evidence differs from state');
 }
@@ -74,7 +83,7 @@ export function eventOf(event) {
 
 export function boardPacket(need) {
   try {
-    requireShape(typeof need === 'string' && Buffer.byteLength(need) <= 15_000, 'packet too large');
+    requireShape(typeof need === 'string' && Buffer.byteLength(need) <= PACKET_BYTES, 'packet too large');
     const packet = JSON.parse(need);
     requireShape(packet?.version === BOARD_VERSION, 'unknown version');
     if (packet.type === EVENTS) {
@@ -109,7 +118,21 @@ export function checkBoardReply(reply) {
 
 export function sectionPackets(pulls, publishedAt) {
   if (pulls.length > ROWS_PER_PART * MAX_PARTS) throw new Error('pr-board: snapshot exceeds the complete-publication limit.');
-  const parts = Math.max(1, Math.ceil(pulls.length / ROWS_PER_PART));
-  return Array.from({ length: parts }, (_, part) => boardPacket(JSON.stringify({ type: SECTION, version: BOARD_VERSION,
-    snapshot: digest(pulls), publishedAt, part, parts, pulls: pulls.slice(part * ROWS_PER_PART, (part + 1) * ROWS_PER_PART) })));
+  const section = { type: SECTION, version: BOARD_VERSION, snapshot: digest(pulls), publishedAt };
+  const envelopeBytes = Buffer.byteLength(JSON.stringify({ ...section, part: MAX_PARTS - 1, parts: MAX_PARTS, pulls: [] }));
+  const chunks = [[]];
+  let bytes = envelopeBytes;
+  for (const pull of pulls) {
+    pullOf(pull);
+    const size = Buffer.byteLength(JSON.stringify(pull));
+    const chunk = chunks.at(-1);
+    if (chunk.length >= ROWS_PER_PART || bytes + size + Number(chunk.length > 0) > PACKET_BYTES) {
+      chunks.push([]);
+      bytes = envelopeBytes;
+    }
+    bytes += size + Number(chunks.at(-1).length > 0);
+    chunks.at(-1).push(pull);
+  }
+  if (chunks.length > MAX_PARTS) throw new Error('pr-board: snapshot exceeds the complete-publication limit.');
+  return chunks.map((rows, part) => boardPacket(JSON.stringify({ ...section, part, parts: chunks.length, pulls: rows })));
 }

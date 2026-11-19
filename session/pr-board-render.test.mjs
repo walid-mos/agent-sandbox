@@ -22,6 +22,13 @@ test('rendering neutralizes remote Markdown, mentions, links and line breaks and
   assert.match(result, /1h/);
 });
 
+test('a draft entry shows repo and PR, reported checks and hold, then a single link', () => {
+  const state = received([{ ...pull, blockedUntil: '2026-04-03', factory: { stage: 'held', checks: 'passed' } }]);
+  const text = renderBoard(state, configuration, now).join('\n');
+  assert.match(text, /`demo\/widget` #7 Synthetic change\nGitHub draft · Factory held · checks passed · author hold until 2026-04-03 UTC\nalpha \/ Fix forms · 1h · <https:\/\/github.com\/demo\/widget\/pull\/7>/);
+  assert.equal(text.match(/https:\/\//g)?.length, 1);
+});
+
 test('expired sections hide old rows and show the last publication time', () => {
   const text = renderBoard(received([pull]), configuration, now + STALE_MS + 1).join('\n');
   assert.doesNotMatch(text, /Synthetic change|pull\/7/);

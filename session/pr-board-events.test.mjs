@@ -20,6 +20,14 @@ test('disabled factory reporting keeps its existing wake and never opens board s
   assert.equal(existsSync(BOARD_HOME), false);
 });
 
+test('the enabled board does not suppress a Factory decision needed by the work center', () => {
+  sandbox.pullRequestBoard = { enabled: true };
+  const initialWakes = wakes.length;
+  reportToPrincipal({ ...record, stage: 'escalated' }, 'Synthetic decision needed');
+  assert.equal(wakes.length, initialWakes + 1);
+  assert.ok(wakes.at(-1)[1].includes('Synthetic decision needed'));
+});
+
 test('enabled verdict and merge reporting journals both facts without a coordinator model turn', () => {
   sandbox.pullRequestBoard = { enabled: true };
   wakes.length = 0;

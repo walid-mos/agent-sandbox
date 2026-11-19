@@ -35,7 +35,7 @@ export function handToFactory(record) {
 }
 
 export function reportToPrincipal(record, text) {
-  if (sandbox.pullRequestBoard?.enabled === true) return writeRecord(record);
+  if (record.stage === 'merged' && sandbox.pullRequestBoard?.enabled === true) return writeRecord(record);
   command('pots', ['wake', '--bot', botId, '--from', PRINCIPAL_SOURCE, '--id', `pr-factory-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`, '--note', text]);
   return writeRecord(record);
 }

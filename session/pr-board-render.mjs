@@ -20,10 +20,16 @@ function age(createdAt, now) {
 
 function row(pot, pull, now) {
   const who = pull.workers.length ? pull.workers.map(title => displayText(title, 72)).join(', ') : 'unassigned';
-  const plain = `GitHub ${pull.githubState}`;
-  const status = LABELS[pull.state] ? `${plain} · ${LABELS[pull.state]} / ${pull.evidence.kind}` : plain;
-  const state = pull.state === 'merged-today' ? 'merged today UTC' : status;
-  return `#${pull.number} ${displayText(pull.title)} · ${displayText(pot)} / ${who} · ${state} · ${age(pull.createdAt, now)}\n<${pullLink(pull)}>`;
+  const status = [pull.state === 'merged-today' ? 'merged today UTC' : `GitHub ${pull.githubState}`];
+  if (LABELS[pull.state]) status.push(`${LABELS[pull.state]} (${pull.evidence.kind})`);
+  if (pull.factory) status.push(`Factory ${pull.factory.stage}`);
+  status.push(`checks ${pull.factory?.checks ?? 'unreported'}`);
+  if (pull.blockedUntil && pull.blockedUntil > utcDay(now)) status.push(`author hold until ${pull.blockedUntil} UTC`);
+  return [
+    `\`${pull.repository}\` #${pull.number} ${displayText(pull.title)}`,
+    status.join(' · '),
+    `${displayText(pot)} / ${who} · ${age(pull.createdAt, now)} · <${pullLink(pull)}>`,
+  ].join('\n');
 }
 
 function sectionRows(state, configuration, now) {
@@ -63,8 +69,8 @@ export function boardSummary(state, configuration, now) {
 export function renderBoard(state, configuration, now) {
   const { statuses, repositories } = sectionRows(state, configuration, now);
   const lines = ['Pull requests · merged today uses UTC', 'Pot-reported GitHub state and local facts', ...statuses];
-  for (const [repository, pulls] of [...repositories].sort(([left], [right]) => left.localeCompare(right))) {
-    lines.push('', displayText(repository), ...pulls.sort((left, right) => left.pull.number - right.pull.number).map(({ pot, pull }) => row(pot, pull, now)));
+  for (const [, pulls] of [...repositories].sort(([left], [right]) => left.localeCompare(right))) {
+    lines.push('', ...pulls.sort((left, right) => left.pull.number - right.pull.number).map(({ pot, pull }) => row(pot, pull, now)));
   }
   if (!repositories.size) lines.push('No current pull requests.');
   return paginate(lines);

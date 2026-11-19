@@ -1,33 +1,48 @@
-import { digest, pullLink, REPOSITORY, utcDay } from './pr-board-contract.mjs';
-
-const STOPS = ['held', 'checks-missing', 'checks-failed', 'failed', 'refused', 'escalated'];
-const REVIEWS = ['checked', 'conflict', 'judged'];
+import { activeDraftBlock } from './factory-stale-draft.mjs';
+import { FACTORY_REVIEW, FACTORY_STOP, FACTORY_STAGES, pullLink, REPOSITORY, utcDay } from './pr-board-contract.mjs';
 const trim = (text, size) => `${text}`.slice(0, size);
 
-function pendingQuestion(workers, dialogs) {
-  return dialogs.find(dialog => !dialog.result && dialog.source.type === 'worker' && workers.some(worker =>
-    worker.name === dialog.source.worker && worker.sessionId === dialog.source.session));
+function hasPendingQuestion(workers, dialogs) {
+  return dialogs.some(dialog => dialog.kind === 'question' && !dialog.result && dialog.source.type === 'worker' && workers.some(worker =>
+    worker.name === dialog.source.worker && worker.sessionFile && worker.sessionFile === dialog.source.session));
 }
 
-function localState(pull, workers, { dialogs, factory, isStopped }) {
-  const question = pendingQuestion(workers, dialogs);
-  if (question) return { state: 'waiting', evidence: { kind: 'human-dialog', id: question.id } };
-  const stopped = workers.find(isStopped);
-  if (stopped) return { state: 'blocked', evidence: { kind: 'worker-hold', id: trim(stopped.name, 128) } };
-  const record = factory.find(record => record.repository === pull.repository && record.number === pull.number && record.head === pull.head.sha);
-  if (STOPS.includes(record?.stage)) return { state: 'blocked', evidence: { kind: 'factory-stop', id: `${record.head}:${record.stage}` } };
-  if (REVIEWS.includes(record?.stage)) return { state: 'factory-review', evidence: { kind: 'factory-review', id: record.head } };
+function reportedChecks(record) {
+  if (record.stage === 'checks-missing') return 'missing';
+  if (record.checks?.some(check => check.isPassed === false)) return 'failed';
+  if (record.checks?.length && record.checks.every(check => check.isPassed === true)) return 'passed';
+  return 'not-run';
+}
+
+function factoryFacts(pull, records) {
+  const record = records.find(record => record.repository === pull.repository && record.number === pull.number && record.head === pull.head.sha);
+  if (!FACTORY_STAGES.includes(record?.stage)) return undefined;
+  return { stage: record.stage, checks: reportedChecks(record) };
+}
+
+function localState(pull, workers, { dialogs, isStopped }, factory) {
+  if (hasPendingQuestion(workers, dialogs)) return { state: 'waiting', evidence: { kind: 'human-dialog' } };
+  if (workers.some(isStopped)) return { state: 'blocked', evidence: { kind: 'worker-hold' } };
+  if (FACTORY_STOP.includes(factory?.stage)) return { state: 'blocked', evidence: { kind: 'factory-stop' } };
+  if (FACTORY_REVIEW.includes(factory?.stage)) return { state: 'factory-review', evidence: { kind: 'factory-review' } };
   return { state: pull.draft ? 'draft' : 'ready' };
 }
 
-function pullRow(pull, facts) {
-  const workers = facts.workers.filter(worker => worker.repository === pull.repository &&
-    (worker.pullRequest === pullLink(pull) || worker.branch === pull.head.ref));
-  const common = { repository: pull.repository, number: pull.number, title: trim(pull.title, 256),
-    workers: workers.slice(0, 8).map(worker => trim(worker.title || worker.name, 96)), createdAt: Date.parse(pull.created_at) };
+function workerOwnsPull(worker, pull) {
+  if (worker.repository !== pull.repository) return false;
+  if (worker.pullRequest) return worker.pullRequest === pullLink(pull);
+  return pull.head.repo?.full_name === pull.repository && worker.branch === pull.head.ref;
+}
+
+function pullRow(pull, facts, now) {
+  const workers = facts.workers.filter(worker => workerOwnsPull(worker, pull));
   if (workers.length > 8) throw new Error('pr-board: too many workers for a complete pull request row.');
+  const factory = factoryFacts(pull, facts.factory);
+  const common = { repository: pull.repository, number: pull.number, title: trim(pull.title, 256),
+    workers: workers.map(worker => trim(worker.title || worker.name, 96)), createdAt: Date.parse(pull.created_at), ...(factory && { factory }) };
   if (pull.merged_at) return { ...common, githubState: 'merged', state: 'merged-today', mergedAt: Date.parse(pull.merged_at) };
-  return { ...common, githubState: pull.draft ? 'draft' : 'ready', ...localState(pull, workers, facts) };
+  const blockedUntil = pull.draft && activeDraftBlock(pull.body ?? '', now);
+  return { ...common, githubState: pull.draft ? 'draft' : 'ready', ...localState(pull, workers, facts, factory), ...(blockedUntil && { blockedUntil }) };
 }
 
 export function collectPulls(source, now) {
@@ -39,5 +54,5 @@ export function collectPulls(source, now) {
   const facts = { workers, factory: factories, dialogs, isStopped: source.isStopped };
   return repositories.flatMap(repository => source.pulls(repository, now)
     .filter(pull => !pull.merged_at || utcDay(Date.parse(pull.merged_at)) === utcDay(now))
-    .map(pull => pullRow({ ...pull, repository }, facts)));
+    .map(pull => pullRow({ ...pull, repository }, facts, now)));
 }
