@@ -4,7 +4,7 @@ import resource
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from repository_git import BUNDLE_LIMIT, GitFailure, git
+from repository_git import BUNDLE_LIMIT, GitCredentialRefused, GitFailure, git
 
 MEMORY_LIMIT = 512 * 1024 * 1024
 CPU_SECONDS = 60
@@ -31,6 +31,8 @@ def fetch_commit(directory, url, repository, commit, token, run):
             url, f'{commit}:refs/repository-read/{commit}', credential=(repository, token))
         if run(directory, 'cat-file', '-t', commit).strip() != b'commit':
             raise GitFailure('Requested object is not a commit.')
+    except GitCredentialRefused:
+        raise
     except GitFailure:
         raise GitFailure(f'Commit {commit} is unavailable from the selected repository.') from None
 

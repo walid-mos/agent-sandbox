@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import re
 import subprocess
 
 from source_refresh import GIT_OPTIONS
@@ -8,6 +9,8 @@ GIT = '/usr/bin/git'
 GIT_EXEC_PATH = '/usr/lib/git-core'
 GIT_SECONDS = 60
 BUNDLE_LIMIT = 64 * 1024 * 1024
+REFUSAL_MARKERS = (b'Authentication failed', b'could not read Username', b'error: 401', b'error: 403')
+MISSING_REPOSITORY = re.compile(rb"remote: Repository not found\.|fatal: repository '.*' not found")
 ISOLATED_OPTIONS = [*GIT_OPTIONS, '-c', 'init.templateDir=', '-c', 'protocol.allow=never',
                     '-c', 'protocol.https.allow=always', '-c', 'http.followRedirects=false',
                     '-c', 'credential.helper=', '-c', 'credential.useHttpPath=true',
@@ -15,6 +18,10 @@ ISOLATED_OPTIONS = [*GIT_OPTIONS, '-c', 'init.templateDir=', '-c', 'protocol.all
 
 
 class GitFailure(Exception):
+    pass
+
+
+class GitCredentialRefused(GitFailure):
     pass
 
 
@@ -39,6 +46,7 @@ def git(directory, *arguments, credential=None, pass_fds=()):
     except (OSError, subprocess.TimeoutExpired):
         raise GitFailure('Git read failed or timed out.') from None
     if result.returncode:
-        refusal = any(marker in result.stderr for marker in (b'Authentication failed', b'could not read Username', b'error: 401', b'error: 403', b'not found'))
-        raise GitFailure('GitHub refused this token for this repository. Ask the operator to replace its configured credential.' if refusal else 'Git read failed. No credential fallback was attempted.')
+        if any(marker in result.stderr for marker in REFUSAL_MARKERS) or MISSING_REPOSITORY.search(result.stderr):
+            raise GitCredentialRefused('GitHub refused this token for this repository. Ask the operator to replace its configured credential.')
+        raise GitFailure('Git read failed. No credential fallback was attempted.')
     return result.stdout
