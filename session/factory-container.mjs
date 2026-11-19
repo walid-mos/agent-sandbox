@@ -31,7 +31,8 @@ export function cleanContainer(jobs, job) {
   const container = jobs.container(job);
   if (!container) return true;
   try {
-    if (!removeKnownContainer(container, job)) return false;
+    const known = container.dockerId ? container : identifyReservedContainer(jobs, job, container);
+    if (!known || !removeKnownContainer(known, job)) return false;
     jobs.clearContainer(job);
     return true;
   } catch {
@@ -40,7 +41,18 @@ export function cleanContainer(jobs, job) {
 }
 
 function removeKnownContainer(container, job) {
-  return DOCKER_ID.test(container.dockerId) && removeContainer(container, job);
+  if (!DOCKER_ID.test(container.dockerId)) return false;
+  return removeContainer(container, job);
+}
+
+function identifyReservedContainer(jobs, job, { name }) {
+  const listed = docker(['ps', '--all', '--no-trunc', '--filter', `name=^/${name}$`, '--format', '{{.ID}}']);
+  const dockerId = listed.stdout?.trim();
+  if (listed.error || listed.status !== 0 || !DOCKER_ID.test(dockerId)) return undefined;
+  const container = { name, dockerId };
+  if (!isOwned(container, job)) return undefined;
+  jobs.identifyContainer(job, dockerId);
+  return container;
 }
 
 function createOwnedContainer(jobs, job, name, arguments_) {

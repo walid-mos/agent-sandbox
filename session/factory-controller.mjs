@@ -3,9 +3,11 @@ import { chmodSync, lstatSync, rmSync, watch } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { STEP_TIMEOUT_MS } from './factory-container.mjs';
 import { streamFactoryEvents } from './factory-events.mjs';
 import { CHANGE_FILE, openJobs } from './factory-jobs.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
+import { checkSteps, hasChecks } from './factory-repositories.mjs';
 import { LOCK_BUSY, tryFactoryLock } from './factory-runner.mjs';
 import { JOB_DIRECTORY } from './factory-state.mjs';
 import { main } from './main.mjs';
@@ -16,6 +18,12 @@ const LOCAL_BACKSTOP_MS = 10 * 60_000;
 const DISCOVERY_BUDGET_MS = 150_000;
 const WAKE_GAP_MS = 60_000;
 const MAX_RUNNERS = 2;
+const RUN_PREPARATION_MS = 10 * 60_000;
+
+function runnerBudget({ repository }) {
+  const steps = hasChecks(repository) ? checkSteps(repository).length : 0;
+  return RUN_PREPARATION_MS + (steps + 1) * STEP_TIMEOUT_MS;
+}
 const PUBLICATION_RETRY_MS = 5_000;
 const PUBLISHABLE = new Set(['complete', 'uncertain', 'interrupted']);
 
@@ -67,12 +75,14 @@ function scheduleExecution(jobs, refresh) {
       deferred.clear();
     }
     const running = pending.filter(job => job.status === 'running');
-    dispatchRecovery(running, launched, attemptedRecovery, refresh);
+    const recoverable = pending.filter(job => job.status === 'running' || job.status === 'uncertain');
+    dispatchRecovery(recoverable, launched, attemptedRecovery, refresh);
     const reserved = new Set([...launched, ...running.map(job => job.id)]);
     const queued = pending.filter(job => job.status === 'queued' && !launched.has(job.id) && !deferred.has(job.id));
-    for (const { id } of queued.slice(0, Math.max(0, MAX_RUNNERS - reserved.size))) {
+    for (const { id, subject } of queued.slice(0, Math.max(0, MAX_RUNNERS - reserved.size))) {
+      const budget = runnerBudget(subject);
       launched.add(id);
-      void launch('run-job', [String(id)]).then(() => {
+      void launch('run-job', [String(id)], { budget }).then(() => {
         if (jobs.get(id)?.status === 'queued') deferred.add(id);
       }).catch(() => deferred.add(id)).finally(() => {
         launched.delete(id);
@@ -97,7 +107,7 @@ function schedulePublication(refresh) {
   return (pending, isBackstop) => {
     if (isBackstop) failed.clear();
     if (isPublishing) return;
-    const job = pending.find(entry => PUBLISHABLE.has(entry.status) && !failed.has(entry.id) && !contended.has(entry.id));
+    const job = pending.find(entry => PUBLISHABLE.has(entry.status) && !entry.isReported && !failed.has(entry.id) && !contended.has(entry.id));
     if (!job) return;
     isPublishing = true;
     void launch('publish-job', [String(job.id)], { budget: DISCOVERY_BUDGET_MS }).then(status => {

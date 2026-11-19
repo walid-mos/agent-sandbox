@@ -31,7 +31,7 @@ const STATEMENTS = {
   finish: `UPDATE jobs SET status = ?, result = ? WHERE id = ? AND status = 'running'`,
   interrupt: `UPDATE jobs SET status = 'interrupted', result = ? WHERE id = ? AND status IN ('running', 'uncertain')`,
   append: 'INSERT INTO events(job, type, detail) VALUES (?, ?, ?)',
-  pending: `SELECT * FROM jobs WHERE status = 'running' OR (reported = 0 AND status IN ('complete', 'uncertain', 'interrupted'))
+  pending: `SELECT * FROM jobs WHERE status IN ('running', 'uncertain') OR (reported = 0 AND status IN ('complete', 'interrupted'))
     OR (current = 1 AND status = 'queued' AND ${NO_LIVE_RUNNER}) ORDER BY id`,
   reserveContainer: 'INSERT INTO containers(job, name) VALUES (?, ?)',
   identifyContainer: 'UPDATE containers SET docker_id = ? WHERE job = ?',
@@ -56,7 +56,7 @@ const BUSY_TIMEOUT_MS = 5000;
 function job(row) {
   if (!row) return undefined;
   const { id, status, attempt, runner } = row;
-  return { id, subject: JSON.parse(row.subject), isCurrent: row.current === 1, status, attempt, runner, result: JSON.parse(row.result) };
+  return { id, subject: JSON.parse(row.subject), isCurrent: row.current === 1, status, attempt, runner, isReported: row.reported === 1, result: JSON.parse(row.result) };
 }
 
 // One SQLite file holds every generation, its events and the pending wake, so a new controller, runner or stream reader resumes from what was committed.

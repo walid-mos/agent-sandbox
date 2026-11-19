@@ -251,5 +251,15 @@ for (const isCleanupRefused of [false, true]) {
     await waitFor(root, 'wakes', t.signal);
     events.destroy();
     resultStream.destroy();
+    if (isCleanupRefused) {
+      rmSync(join(root, 'refuse-cleanup'));
+      execFileSync(process.execPath, [join(session, 'factory.mjs'), 'recover-job', String(live.job)], { env });
+      const recovered = await stream(socketPath, t.signal, done.id);
+      const retried = await eventFrom(recovered.iterator(), event => event.type === 'complete');
+      assert.notEqual(retried.job, live.job);
+      assert.equal(retried.detail.stage, 'checked');
+      assert.match(readFileSync(join(root, 'removed'), 'utf8'), /^factory-1-check c{64}\nfactory-2-boundary/m);
+      recovered.destroy();
+    }
   });
 }

@@ -75,7 +75,7 @@ export function publishJob([identifier]) {
   return withJobs(jobs => {
     const id = jobId(identifier);
     const job = jobs.get(id);
-    if (!job || !['complete', 'uncertain', 'interrupted'].includes(job.status)) return;
+    if (!job || job.isReported || !['complete', 'uncertain', 'interrupted'].includes(job.status)) return;
     const unlock = tryFactoryLock(JOB_DIRECTORY, `report-${id}`);
     if (!unlock) {
       process.exitCode = LOCK_BUSY;

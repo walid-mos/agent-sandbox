@@ -57,15 +57,19 @@ function interrupt(jobs, id, reason) {
 
 export function recoverJob(jobs, directory, id) {
   const running = jobs.get(id);
-  if (running?.status !== 'running') return;
+  if (!running || !canRecover(running)) return;
   recoverLocked(jobs, directory, running);
+}
+
+function canRecover({ status }) {
+  return status === 'running' || status === 'uncertain';
 }
 
 function recoverLocked(jobs, directory, { id, subject }) {
   const unlock = tryFactoryLock(directory, pullLock(subject));
   if (!unlock) return;
   try {
-    if (jobs.get(id).status === 'running') interrupt(jobs, id, 'runner disappeared before recording its result');
+    if (canRecover(jobs.get(id))) interrupt(jobs, id, 'runner disappeared before recording its result');
   } finally {
     unlock();
   }
