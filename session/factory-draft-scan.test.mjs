@@ -23,7 +23,11 @@ let isDraft;
 const page = (...nodes) => ({ data: { repository: { pullRequests: { nodes } } } });
 function github(args, options) {
   if (args[0] === 'repo') return [{ nameWithOwner: repository, repositoryTopics: [{ name: 'factory' }] }];
-  if (args[0] === 'pr' && args[1] === 'list') return [{ ...candidate, isDraft }];
+  if (args.slice(0, 2).join(' ') === 'pr list') return [{ ...candidate, isDraft }];
+  return githubGraphql(args, options);
+}
+
+function githubGraphql(args, options) {
   assert.deepEqual(args.slice(0, 2), ['api', 'graphql']);
   assert.equal(options.env.GH_REPO, repository);
   if (args.includes('--paginate')) return [page({ ...candidate, isDraft: false }), page(candidate)];
