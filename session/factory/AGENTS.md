@@ -11,6 +11,8 @@ The `factory-watch` routine scans, every `1m` and at no model cost, the reposito
 
 A failed check never wakes you, and neither does a repository whose checks `session/factory-repositories.json` does not define: the scan tells Principal itself. The note's `commands` hold every command the work needs, with its paths. `VERDICT`, `NOTES_FILE` and `NOTE_FILE` in them are placeholders.
 
+The scan also reads the open drafts. A draft created more than 24 hours ago whose description holds no valid `BLOCKED UNTIL` line, as `/opt/agent-sandbox/session/clean-pass.md` defines it, wakes the bot that this pot's worker records name for its branch, or Principal when none does. The line is author text: it only holds that reminder back, and it never replaces a check, a verdict or the merge rule. Nothing about a draft reaches you.
+
 A wake from `factory-install` only holds back Pots' two-hourly check-in, and the installer sets the next one: end the turn at once.
 
 A failed scan run also wakes you, with its output. Tell Principal in one sentence what failed:
