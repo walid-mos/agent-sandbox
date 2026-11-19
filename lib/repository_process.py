@@ -91,12 +91,12 @@ def terminate_and_reap(process):
     deadline = time.monotonic() + TERMINATION_SECONDS
     try:
         while True:
-            leader_exited(group)
+            has_leader_exited = leader_exited(group)
             try:
                 os.killpg(group, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            if leader_exited(group) and not has_live_members(group):
+            if (has_leader_exited or leader_exited(group)) and not has_live_members(group):
                 return process.wait(timeout=max(0, deadline - time.monotonic()))
             remaining = deadline - time.monotonic()
             if remaining <= 0:
