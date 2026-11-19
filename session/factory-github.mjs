@@ -1,13 +1,29 @@
 import { spawnSync } from 'node:child_process';
+import { accorPublicationPolicy } from './accor-publication-policy.mjs';
 import { pullUrl } from './factory-records.mjs';
 import { checkSteps } from './factory-repositories.mjs';
 import { command } from './run.mjs';
-import { owners } from './sandbox.mjs';
+import { owners, sandbox } from './sandbox.mjs';
 
 export const FACTORY_TOPIC = 'factory';
 const REPOSITORY_LIMIT = '1000';
 const LIST_FIELDS = 'number,headRefOid,headRefName,baseRefName,isDraft,mergeable';
 const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeCommit';
+const DRAFT_LIST_QUERY = `query($owner: String!, $name: String!, $endCursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(first: 100, after: $endCursor, states: OPEN) {
+      nodes { number isDraft createdAt }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+const DRAFT_FACTS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number state isDraft isCrossRepository createdAt lastEditedAt title body headRefName headRefOid
+    }
+  }
+}`;
 
 const gh = (arguments_, options) => command('gh', arguments_, options);
 const hasFactoryTopic = topicNames => topicNames.includes(FACTORY_TOPIC);
@@ -24,7 +40,7 @@ function topicRepositories(owner) {
     .map(repository => repository.nameWithOwner);
 }
 
-export const watchedRepositories = () => owners.flatMap(topicRepositories);
+export const watchedRepositories = () => accorPublicationPolicy(sandbox) ? [] : owners.flatMap(topicRepositories);
 
 function openPulls(repository) {
   return JSON.parse(gh(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', LIST_FIELDS]));
@@ -33,6 +49,22 @@ function openPulls(repository) {
 export const readyPulls = repository => openPulls(repository).filter(pull => !pull.isDraft);
 
 export const draftPulls = repository => openPulls(repository).filter(pull => pull.isDraft);
+
+function queryPulls(repository, query, ...flags) {
+  const [owner, name] = repository.split('/');
+  return JSON.parse(gh(['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, ...flags],
+    { env: { ...process.env, GH_REPO: repository } }));
+}
+
+export function draftCandidates(repository) {
+  return queryPulls(repository, DRAFT_LIST_QUERY, '--paginate', '--slurp')
+    .flatMap(page => page.data.repository.pullRequests.nodes);
+}
+
+export function draftFacts(repository, number) {
+  const result = queryPulls(repository, DRAFT_FACTS_QUERY, '-F', `number=${number}`);
+  return { ...result.data.repository.pullRequest, repository };
+}
 
 export function pullFacts({ repository, number }) {
   return JSON.parse(gh(['pr', 'view', String(number), '--repo', repository, '--json', VIEW_FIELDS]));
@@ -44,6 +76,7 @@ function requireTopic(repository) {
 }
 
 export function requireActionable(pull) {
+  if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
   const facts = pullFacts(pull);
   if (facts.state !== 'OPEN' || facts.isDraft || facts.headRefOid !== pull.head) {
     throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,7 +28,7 @@ function prepare() {
   copyFileSync(join(repository, 'session/launch.env'), join(session, 'launch.env'));
   copyFileSync(join(repository, 'docs/human-dialogs.md'), policyGuide);
   writeFileSync(clientRules, clientRuleText);
-  writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "accor-hotels": "UNUSED_PROBE_TOKEN" }, bot: "Probe", rules: process.env.PROBE_CLIENT_RULES, humanDiscord: { pushApprovalsEnabled: false } }; export const owners = Object.keys(sandbox.owners); export const botId = sandbox.bot.toLowerCase();\n');
+  writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "accor-hotels": "UNUSED_PROBE_TOKEN" }, bot: "Probe", rules: process.env.PROBE_CLIENT_RULES, sources: ["pi", "accor"], publicationPolicy: process.env.PROBE_PUBLICATION_POLICY, humanDiscord: { pushApprovalsEnabled: false } }; export const owners = Object.keys(sandbox.owners); export const botId = sandbox.bot.toLowerCase();\n');
   writeFileSync(join(fixture, 'copy-imports.mjs'), `
 import { appendFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';
@@ -57,37 +57,61 @@ registerHooks({
 `);
   const executable = join(binaries, 'fake-command');
   writeFileSync(executable, `#!${process.execPath}
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
 const binary = basename(process.argv[1]);
 const args = process.argv.slice(2);
 appendFileSync(process.env.HOME + '/commands.jsonl', JSON.stringify({ directory: process.cwd(), argv: [binary, ...args] }) + '\\n');
-if (binary === 'git' && args[0] === 'clone') mkdirSync(join(args.at(-1), '.git'), { recursive: true });
 if (binary === 'git' && args[0] === 'remote') console.log(process.env.PROBE_ORIGIN);
-if (binary === 'git' && args[0] === 'worktree') mkdirSync(args.at(-2), { recursive: true });
+else if (binary === 'git' && process.env.PROBE_GIT_PATH) {
+  const result = spawnSync('git', args, { stdio: 'inherit', env: { ...process.env, PATH: process.env.PROBE_GIT_PATH } });
+  process.exit(result.status ?? 1);
+} else if (binary === 'git' && args[0] === 'clone') mkdirSync(join(args.at(-1), '.git'), { recursive: true });
+else if (binary === 'git' && args[0] === 'worktree') mkdirSync(args.at(-2), { recursive: true });
+if (binary === 'gh' && args[0] === 'api') console.log('develop');
 if (binary === 'bash') console.log(${JSON.stringify(pullRequest)});
 `, { mode: 0o700 });
   for (const binary of ['git', 'gh', 'bash', 'hc']) symlinkSync(executable, join(binaries, binary));
 }
 
-function invoke(branch, target, { title, subject, rules }, mode = 'start', origin = `https://github.com/${target}.git`) {
+const realGit = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=probe', '-c', 'user.email=probe@invalid', '-c', 'commit.gpgsign=false',
+  '-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+
+function dispatchRemote(home, target) {
+  const remote = join(home, 'remote.git');
+  const checkout = join(home, 'Development', target);
+  mkdirSync(checkout, { recursive: true });
+  realGit(home, 'init', '--bare', remote);
+  realGit(checkout, 'init', '-b', 'develop');
+  writeFileSync(join(checkout, 'base.txt'), 'Synthetic base\n');
+  realGit(checkout, 'add', 'base.txt');
+  realGit(checkout, 'commit', '-m', 'test: seed base');
+  realGit(checkout, 'remote', 'add', 'origin', remote);
+  realGit(checkout, 'push', 'origin', 'develop');
+  return remote;
+}
+
+function invoke(branch, target, { title, subject, rules, publicationPolicy, isReal }, mode = 'start', origin = `https://github.com/${target}.git`) {
   const home = mkdtempSync(join(fixture, 'home-'));
   const configuration = join(home, '.pi/agent/extensions/subagent');
   mkdirSync(configuration, { recursive: true });
   writeFileSync(join(configuration, 'config.json'), JSON.stringify({ worktreeBaseDir: '.worktree' }));
+  const remote = isReal ? dispatchRemote(home, target) : undefined;
   const brief = join(home, 'request.md');
   writeFileSync(brief, 'Synthetic dispatch probe.');
   const options = [...(title === undefined ? [] : ['--title', title]), ...(subject === undefined ? [] : ['--subject', subject])];
   const args = mode === 'task'
     ? ['task', '--title', title, '--scope', 'Read the supplied brief and write one report.', 'report', home, brief, join(home, 'result.md')]
-    : ['start', ...(mode === 'local' ? ['--local'] : []), ...options, '--', target, branch, brief, 'develop'];
+    : ['start', ...(mode === 'local' ? ['--local'] : []), ...options, '--', target, branch, brief, ...(mode === 'start' && isReal ? [] : ['develop'])];
   const result = spawnSync(process.execPath, ['--import', join(fixture, 'copy-imports.mjs'), join(session, 'dispatch.mjs'), ...args], {
-    cwd: fixture, encoding: 'utf8', timeout: 10_000, env: { HOME: home, PATH: binaries, PROBE_ORIGIN: origin, PROBE_CLIENT_RULES: rules },
+    cwd: fixture, encoding: 'utf8', timeout: 10_000, env: { HOME: home, PATH: binaries, PROBE_ORIGIN: origin, PROBE_CLIENT_RULES: rules, PROBE_PUBLICATION_POLICY: publicationPolicy,
+      ...(isReal && { PROBE_GIT_PATH: process.env.PATH }) },
   });
   assert.ifError(result.error);
   const log = join(home, 'commands.jsonl');
   const entries = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
-  return { ...result, home, calls: entries.map(entry => entry.argv), directories: entries.map(entry => entry.directory) };
+  return { ...result, home, remote, calls: entries.map(entry => entry.argv), directories: entries.map(entry => entry.directory) };
 }
 
 function accepted(branch, values = launch) {
@@ -142,6 +166,24 @@ try {
   assert.equal(localWorker.publication, 'local');
   assert.equal(localWorker.pullRequest, undefined);
   assert.equal(local.calls.some(args => ['bash', 'hc'].includes(args[0]) || args.includes('push')), false);
+  for (const mode of ['start', 'local']) {
+    const configured = invoke(jiraBranch, allowedRepository, { title: launch.title, rules: clientRules, publicationPolicy: 'accor-first-publication', isReal: true }, mode);
+    assert.equal(configured.status, 0, configured.stderr);
+    const worker = JSON.parse(configured.stdout);
+    assert.equal(worker.publication, 'local');
+    assert.equal(worker.publicationPolicy, 'accor-first-publication');
+    assert.equal(worker.pullRequest, undefined);
+    assert.equal(configured.calls.some(args => args[0] === 'bash' || ['push', 'commit'].includes(args[1])), false);
+    const brief = readFileSync(worker.brief, 'utf8');
+    assert.ok(brief.includes(policyGuide));
+    assert.ok(!brief.includes('Check the empty bootstrap commit'));
+    assert.equal(realGit(worker.worktree, 'rev-list', 'origin/develop..HEAD'), '');
+    writeFileSync(join(worker.worktree, 'real.txt'), 'First task change\n');
+    realGit(worker.worktree, 'add', 'real.txt');
+    realGit(worker.worktree, 'commit', '-m', 'feat: add task change');
+    assert.equal(realGit(worker.worktree, 'rev-list', '--count', 'origin/develop..HEAD'), '1');
+    assert.equal(realGit(configured.remote, 'for-each-ref', '--format=%(refname:short)', 'refs/heads'), 'develop');
+  }
   const task = invoke('', '', launch, 'task');
   assert.equal(task.status, 0, task.stderr);
   const taskWorker = JSON.parse(task.stdout);

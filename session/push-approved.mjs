@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { command } from './run.mjs';
@@ -33,11 +33,30 @@ export function remoteHead(worker) {
   return oid;
 }
 
+function pushHead(worker, head, options, pushOptions = [], configuration = []) {
+  const objects = command('git', ['rev-parse', '--path-format=absolute', '--git-path', 'objects'], { cwd: worker.worktree });
+  command('git', ['-c', 'credential.helper=!gh auth git-credential', '-c', 'http.followRedirects=false', ...configuration,
+    'push', '--quiet', ...pushOptions, '--', worker.originUrl, `${head}:refs/heads/${worker.branch}`],
+  { ...options, env: { ...options.env, GIT_OBJECT_DIRECTORY: objects } });
+}
+
 export function pushApproved(worker, head) {
+  return isolatedGit(options => pushHead(worker, head, options, [`--force-with-lease=refs/heads/${worker.branch}:`]));
+}
+
+const VERIFY_ADVERTISED_REF = `#!/bin/sh
+set -eu
+read -r local_ref local_oid remote_ref remote_oid
+if [ "$remote_oid" != "$POTS_EXPECTED_REMOTE_HEAD" ] || [ "$remote_ref" != "$POTS_EXPECTED_REMOTE_REF" ] || read -r extra; then
+  printf '%s\\n' 'dispatch: remote branch changed since PR verification. Inspect it before pushing.' >&2
+  exit 1
+fi
+`;
+
+export function pushExisting(worker, head, expectedHead) {
   return isolatedGit(options => {
-    const objects = command('git', ['rev-parse', '--path-format=absolute', '--git-path', 'objects'], { cwd: worker.worktree });
-    command('git', ['-c', 'credential.helper=!gh auth git-credential', 'push', '--quiet',
-      `--force-with-lease=refs/heads/${worker.branch}:`, '--', worker.originUrl, `${head}:refs/heads/${worker.branch}`],
-    { ...options, env: { ...options.env, GIT_OBJECT_DIRECTORY: objects } });
+    writeFileSync(join(options.cwd, 'pre-push'), VERIFY_ADVERTISED_REF, { mode: 0o700 });
+    const env = { ...options.env, POTS_EXPECTED_REMOTE_HEAD: expectedHead, POTS_EXPECTED_REMOTE_REF: `refs/heads/${worker.branch}` };
+    pushHead(worker, head, { ...options, env }, [], ['-c', `core.hooksPath=${options.cwd}`]);
   });
 }

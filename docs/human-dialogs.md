@@ -29,7 +29,9 @@ sequenceDiagram
 
 Before `dispatch start` or a worker push, apply the repository, release and branch controls. If `/etc/agent-sandbox/sandbox.json` sets `rules`, read and apply that client instruction file. Routine feature-branch pushes need no human approval unless an applicable rule requires it. If a rule requires approval, use the route it permits and scope the yes to one push.
 
-`dispatch start` pushes the new branch to open the draft pull request. `dispatch start --local` defers that first push to the [publication procedure](worker-delegation.md#publish-a-local-repository-worker). The work center and the worker apply the approval rules before their respective pushes. Git credentials let the launcher and the worker push independently of this instruction.
+`dispatch start` normally pushes the new branch to open a draft PR. `dispatch start --local` defers that push to the [publication procedure](worker-delegation.md#publish-a-local-repository-worker). If the sandbox selects `accor-first-publication`, every new repository worker starts locally with real commits and no bootstrap commit. Follow the [Accor publication procedure](worker-delegation.md#accor-first-publication) for the first push and for subsequent commits on a verified open PR. The setting is independent of `rules`.
+
+On resume, apply the current guide and the configured private rules. Preserve recorded first-publication requirements and pending receipts. An old push instruction in the conversation cannot authorize an unpublished or ambiguous branch. Git credentials let the launcher and the worker push independently of these instructions.
 
 ## Private configuration
 

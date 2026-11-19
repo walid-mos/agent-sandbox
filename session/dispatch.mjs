@@ -2,16 +2,18 @@ import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, sep } from 'node:path';
 import { parseArgs } from 'node:util';
+import { accorPublicationPolicy } from './accor-publication-policy.mjs';
 import { withAdmission } from './admission.mjs';
+import { repositoryOrigin } from './repository-origin.mjs';
 import { find } from './door-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { maxWorkers } from './limits.mjs';
 import { MAX_MODEL } from './models.mjs';
 import { enqueue, queued } from './queue.mjs';
 import { command } from './run.mjs';
-import { botId, owners } from './sandbox.mjs';
+import { botId, owners, sandbox } from './sandbox.mjs';
 import { repositoryBrief, taskBrief } from './worker-brief.mjs';
-import { openWorkerPR, publishWorker, workerScope } from './worker-publication.mjs';
+import { openWorkerPR, publishWorker, pushWorker, workerScope } from './worker-publication.mjs';
 import { acknowledgeResult } from './worker-results.mjs';
 import { clearStop, PUBLICATION, save, terminalName, WORKER_PREFIX, workers, writeBrief } from './workers.mjs';
 
@@ -30,16 +32,10 @@ function validate(repository, branch) {
   }
 }
 
-function validateLaunchText(title, subject) {
-  if ([title, subject].every(text => ONE_VISIBLE_LINE.test(text ?? ''))) return;
-  throw new Error('dispatch: give --title, the pull request title, and --subject, the empty bootstrap commit\'s subject, each in the repository\'s own format for that artefact, on one line of visible characters with no leading or trailing space.');
-}
-
-function repositoryOrigin(repository, checkout) {
-  const origin = command('git', ['remote', 'get-url', 'origin'], { cwd: checkout });
-  const urls = [`https://github.com/${repository}`, `git@github.com:${repository}`, `ssh://git@github.com/${repository}`];
-  if (!urls.some(url => origin === url || origin === `${url}.git`)) throw new Error(`dispatch: checkout origin does not match ${repository}. Restore it before starting a worker.`);
-  return origin;
+function validateLaunchText({ title, subject }, publicationPolicy) {
+  if (ONE_VISIBLE_LINE.test(title ?? '') && (publicationPolicy && subject === undefined || ONE_VISIBLE_LINE.test(subject ?? ''))) return;
+  const subjectHelp = publicationPolicy ? ' When supplied, --subject must also be one visible line.' : ' Give --subject for the empty bootstrap commit in the repository\'s own format.';
+  throw new Error(`dispatch: give --title in the repository's own format on one line of visible characters with no leading or trailing space.${subjectHelp}`);
 }
 
 function workspace(repository, branch, base, publication) {
@@ -70,20 +66,20 @@ function start(arguments_) {
   const { values, positionals } = parseArgs({ args: arguments_, options: START_OPTIONS, allowPositionals: true });
   const [repository, branch, briefFile, requestedBase] = positionals;
   validate(repository, branch);
-  validateLaunchText(values.title, values.subject);
+  const publicationPolicy = accorPublicationPolicy(sandbox);
+  validateLaunchText(values, publicationPolicy);
   checkServedRequest(values.for);
   const name = terminalName(`${WORKER_PREFIX}${repository.split('/')[1]}-${branch}`, `${repository}/${branch}`);
   ensureNewWorker(name);
   const request = readFileSync(briefFile, 'utf8');
   const base = requestedBase ?? command('gh', ['api', `repos/${repository}`, '--jq', '.default_branch']);
-  const publication = values.local ? PUBLICATION.local : undefined;
+  const publication = values.local || publicationPolicy ? PUBLICATION.local : undefined;
   const { worktree, originUrl } = workspace(repository, branch, base, publication);
-  // draft-pr adds its own empty commit, with the title as subject, only to a branch without one, so this keeps the commit format apart.
-  command('git', ['commit', '--quiet', '--allow-empty', '-m', values.subject], { cwd: worktree });
-  const pullRequest = values.local ? undefined : command('bash', [DRAFT_PR, worktree, values.title, base], { cwd: worktree });
+  if (!publicationPolicy) command('git', ['commit', '--quiet', '--allow-empty', '-m', values.subject], { cwd: worktree });
+  const pullRequest = publication ? undefined : command('bash', [DRAFT_PR, worktree, values.title, base], { cwd: worktree });
   const worker = { name, kind: 'repository', owner: botId, repository, branch, worktree, pullRequest, request, base,
     title: values.title, subject: values.subject, servedRequest: values.for, createdAt: Date.now(), ...(values.max && { model: MAX_MODEL }),
-    ...(publication && { publication, originUrl }) };
+    ...(publication && { publication, originUrl }), ...(publicationPolicy && { publicationPolicy }) };
   queueWorker(worker, repositoryBrief(worker));
 }
 
@@ -134,7 +130,7 @@ function send([name, messageFile]) {
 
 const OPERATIONS = { start: args => withAdmission(() => start(args)), task, send, scope: args => process.stdout.write(`${JSON.stringify(workerScope(args))}\n`),
   publish: async args => process.stdout.write(`${await publishWorker(args)}\n`),
-  'open-pr': args => process.stdout.write(`${openWorkerPR(args)}\n`), finish: acknowledgeResult };
-const USAGE = 'usage: dispatch start [--local] [--max] [--for REQUEST_ID] --title PR_TITLE --subject COMMIT_SUBJECT owner/repo type/branch brief-file [base] | task [--max] [--for REQUEST_ID] --title TITLE --scope SCOPE task-name workdir brief-file result-file | scope worker | publish worker dialog-id affirmative-label | open-pr worker | send worker message-file | finish worker result-id';
+  'open-pr': args => process.stdout.write(`${openWorkerPR(args)}\n`), push: args => process.stdout.write(`${pushWorker(args)}\n`), finish: acknowledgeResult };
+const USAGE = 'usage: dispatch start [--local] [--max] [--for REQUEST_ID] --title PR_TITLE [--subject COMMIT_SUBJECT] owner/repo type/branch brief-file [base] | task [--max] [--for REQUEST_ID] --title TITLE --scope SCOPE task-name workdir brief-file result-file | scope worker | publish worker dialog-id affirmative-label | open-pr worker | push worker | send worker message-file | finish worker result-id';
 
 main(import.meta, () => runOperation(OPERATIONS, USAGE));

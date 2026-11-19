@@ -2,6 +2,7 @@
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 node "$root/session/bot-secrets-config.mjs" "$root"/sandboxes.example/*/sandbox.json
+python3 -I "$root/vm/vault_policy.py" "$root"/sandboxes.example/*/sandbox.json
 
 compile_python() {
 	PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 -m py_compile "$1"
@@ -90,5 +91,9 @@ fi
 if [ -n "${FACTORY_RELEASE_SERIES:-}" ]; then
 	python3 -B "$root/probes/factory-receiver-series.py"
 fi
+python3 -B "$root/probes/repository-read-policy.py"
+python3 -B "$root/probes/repository-read.py"
+python3 -B "$root/probes/repository-read-supervision.py"
+python3 -B "$root/probes/vault-broker-startup.py"
 git -C "$root" diff --check
 printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'
