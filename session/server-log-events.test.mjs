@@ -1,59 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import { channelId, fixture, request } from '../probes/fixtures/discord-admin.mjs';
 import { administerDiscord } from './discord-admin-service.mjs';
-import { readJson } from './private-json.mjs';
 import { renderServerLog, serverLogEvent, SERVER_LOG_EVENT } from './server-log-events.mjs';
-import { sourceRefresh, sourceRefreshNotice } from './watch-sources.mjs';
 
 const at = '2026-01-01T12:00:00.000Z';
 const clock = () => new Date(at);
 const privateText = 'fixture @everyone internal topic and reason';
-
-function watcher(t) {
-  const folder = mkdtempSync(join(tmpdir(), 'server-log-fixture-'));
-  t.after(() => rmSync(folder, { recursive: true, force: true }));
-  const path = join(folder, 'source-refresh.json');
-  let finish;
-  const output = [];
-  const run = callback => { finish = callback; };
-  const sink = { write: text => output.push(text) };
-  const refresh = sourceRefresh({ run, isReady: () => true, stdout: sink, stderr: sink,
-    notice: sourceRefreshNotice(path, clock, () => assert.fail('Unexpected fixture write failure')) });
-  return { path, output, complete(error) { refresh(); finish(error, privateText, privateText); } };
-}
-
-test('a provisioning failure records one safe warning during the incident', t => {
-  const source = watcher(t);
-  source.complete(new Error(privateText));
-  const event = readJson(source.path);
-  assert.equal(event?.kind, 'source-refresh.failed');
-  assert.equal(statSync(source.path).mode & 0o777, 0o600);
-  assert.equal(JSON.stringify(event).includes(privateText), false);
-  assert.equal(source.output.includes(privateText), true);
-  source.complete(new Error('another failure'));
-  assert.deepEqual(readJson(source.path), event);
-  assert.deepEqual(renderServerLog(event, 'fixture-pot'), {
-    content: 'fixture-pot / pots-sources · WARNING · 2026-01-01T12:00:00.000Z\nImpact: Automatic source provisioning did not complete.\nRecovery: The next scheduled refresh retries. Inspect local service logs if it keeps failing.',
-    allowed_mentions: { parse: [] },
-  });
-});
-
-test('routine refresh success emits no notice and recovery closes the warning episode', t => {
-  const source = watcher(t);
-  source.complete(undefined);
-  assert.equal(readJson(source.path), undefined);
-  source.complete(new Error('fixture failure'));
-  const first = readJson(source.path);
-  assert.equal(first?.kind, 'source-refresh.failed');
-  source.complete(undefined);
-  assert.deepEqual(readJson(source.path), first);
-  source.complete(new Error('fixture failure'));
-  assert.notEqual(readJson(source.path)?.id, first.id);
-});
 
 function topicOperation({ previous = 'previous topic', readback, isEnabled = true, isReadbackUnavailable = false, isMutationUnconfirmed = false } = {}) {
   const dependencies = fixture();

@@ -28,16 +28,20 @@ export function serverLogEvent(kind, now) {
   return { id: randomUUID(), kind, at: now.toISOString() };
 }
 
-function isEvent(event) {
+export function isServerLogEvent(event) {
   if (!event || Object.keys(event).length !== EVENT_FIELDS.length || !EVENT_FIELDS.every(field => Object.hasOwn(event, field))) return false;
   if (typeof event.kind !== 'string' || !Object.hasOwn(NOTICES, event.kind)) return false;
-  if (typeof event.id !== 'string' || !EVENT_ID.test(event.id) || typeof event.at !== 'string') return false;
-  const timestamp = Date.parse(event.at);
-  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === event.at;
+  return typeof event.id === 'string' && EVENT_ID.test(event.id) && isServerLogTimestamp(event.at);
+}
+
+export function isServerLogTimestamp(at) {
+  if (typeof at !== 'string') return false;
+  const timestamp = Date.parse(at);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === at;
 }
 
 export function renderServerLog(event, potLabel) {
-  if (!isEvent(event)) throw new Error('server-log: invalid event.');
+  if (!isServerLogEvent(event)) throw new Error('server-log: invalid event.');
   if (typeof potLabel !== 'string' || !POT_LABEL.test(potLabel)) throw new Error('server-log: invalid owner-bound pot label.');
   const { service, level, impact, followUp } = NOTICES[event.kind];
   return {
