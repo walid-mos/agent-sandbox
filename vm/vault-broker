@@ -2,9 +2,12 @@
 import json
 import os
 from pathlib import Path
+import re
 import socketserver
 import stat
 import sys
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -25,6 +28,12 @@ READABLE_BY_OTHERS = stat.S_IRWXG | stat.S_IRWXO
 REQUEST_LIMIT_BYTES = 4096
 REQUEST_SECONDS = 10
 VAULT_SECONDS = 30
+RATE_LIMITED = 429
+RETRY_ATTEMPTS = 2
+RETRY_SECONDS = 60
+RETRY_BODY_BYTES = 2048
+RETRY_STATED = re.compile(r"try again in (\d+) seconds", re.IGNORECASE)
+LOGIN_SECONDS_MARGIN = 60
 SOCKET_DIRECTORY_MODE = 0o755
 SOCKET_MODE = 0o666
 NOT_FOUND = 404
@@ -44,7 +53,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 VAULT = urllib.request.build_opener(NoRedirect)
 
 
-def vault_call(url, token="", body=None):
+def vault_answer(url, token="", body=None):
     headers = {"Accept": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})}
     payload = None if body is None else json.dumps(body).encode()
     if payload:
@@ -56,6 +65,26 @@ def vault_call(url, token="", body=None):
     return reply
 
 
+def stated_wait(error):
+    header = error.headers.get("Retry-After", "") if error.headers else ""
+    body = error.read(RETRY_BODY_BYTES).decode("utf-8", "replace") if error.fp else ""
+    stated = [int(seconds) for seconds in RETRY_STATED.findall(body)] + ([int(header)] if header.strip().isdigit() else [])
+    return max(stated) if stated else None
+
+
+def vault_call(url, token="", body=None):
+    waited = 0
+    for attempt in range(RETRY_ATTEMPTS + 1):
+        try:
+            return vault_answer(url, token, body)
+        except urllib.error.HTTPError as error:
+            wait = stated_wait(error) if error.code == RATE_LIMITED else None
+            if wait is None or attempt == RETRY_ATTEMPTS or waited + wait > RETRY_SECONDS:
+                raise
+            waited += wait
+            time.sleep(wait)
+
+
 def read_identity():
     if not IDENTITY.is_file():
         raise VaultFailure("the VM holds no vault identity yet. Run bin/session-bootstrap for this pot.")
@@ -65,28 +94,62 @@ def read_identity():
     return identity
 
 
-def access_token(identity):
-    login = {"clientId": identity["INFISICAL_UNIVERSAL_AUTH_CLIENT_ID"], "clientSecret": identity["INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET"]}
+def login(identity):
+    credentials = {"clientId": identity["INFISICAL_UNIVERSAL_AUTH_CLIENT_ID"], "clientSecret": identity["INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET"]}
     try:
-        token = vault_call(f"{identity['INFISICAL_API_URL']}/v1/auth/universal-auth/login", body=login).get("accessToken")
+        answer = vault_call(f"{identity['INFISICAL_API_URL']}/v1/auth/universal-auth/login", body=credentials)
     except urllib.error.HTTPError as error:
         raise VaultFailure(f"the vault refused the VM's identity (HTTP {error.code}). Run bin/session-credentials for this pot.") from None
+    token = answer.get("accessToken")
     if not isinstance(token, str) or not token:
         raise VaultFailure("the vault login returned no access token.")
-    return token
+    return token, cache_seconds(answer.get("expiresIn"))
 
 
-def secret_value(identity, token, location, path, name):
+def cache_seconds(expires_in):
+    return max(expires_in - LOGIN_SECONDS_MARGIN, 0) if isinstance(expires_in, int) and expires_in > 0 else 0
+
+
+class TokenCache:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.token = None
+        self.valid_until = 0.0
+
+    def current(self, identity):
+        with self.lock:
+            if self.token is None or time.monotonic() >= self.valid_until:
+                self.token, seconds = login(identity)
+                self.valid_until = time.monotonic() + seconds
+            return self.token
+
+
+TOKENS = TokenCache()
+
+
+def not_listed(path, name):
+    return VaultFailure(f"{name} not found in {path}. Add it to the vault or remove it from the sandbox's list.")
+
+
+def folder_values(identity, token, location, path, name):
     query = urllib.parse.urlencode({"workspaceId": location.get("project"), "environment": location.get("environment"), "secretPath": path,
-                                    "type": "shared", "include_imports": "true", "expandSecretReferences": "true"})
+                                    "viewSecretValue": "true", "include_imports": "true", "expandSecretReferences": "true"})
     try:
-        answer = vault_call(f"{identity['INFISICAL_API_URL']}/v3/secrets/raw/{urllib.parse.quote(name)}?{query}", token)
+        answer = vault_call(f"{identity['INFISICAL_API_URL']}/v3/secrets/raw?{query}", token)
     except urllib.error.HTTPError as error:
         if error.code == NOT_FOUND:
-            raise VaultFailure(f"{name} not found in {path}. Add it to the vault or remove it from the sandbox's list.") from None
+            raise not_listed(path, name) from None
         raise VaultFailure(f"the vault answered HTTP {error.code} for {name} in {path}.") from None
-    secret = answer.get("secret")
-    value = secret.get("secretValue") if isinstance(secret, dict) else None
+    secrets = answer.get("secrets")
+    if not isinstance(secrets, list):
+        raise VaultFailure(f"the vault sent no secret list for {path}.")
+    return {secret.get("secretKey"): secret.get("secretValue") for secret in secrets if isinstance(secret, dict)}
+
+
+def listed_value(identity, folder, path, name):
+    if name not in folder:
+        raise not_listed(path, name)
+    value = folder[name]
     if not isinstance(value, str) or value == identity["INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET"]:
         raise VaultFailure(f"the vault returned no usable value for {name} in {path}.")
     return value
@@ -102,8 +165,12 @@ def secret_values(entries):
     if not all(isinstance(location.get(key), str) for key in ("project", "environment")):
         raise VaultFailure("vault.json names no project and environment. Fix it on the Mac and run bin/vm-config.")
     identity = read_identity()
-    token = access_token(identity)
-    return [[name, secret_value(identity, token, location, path, name)] for path, name in entries]
+    token = TOKENS.current(identity)
+    names = {}
+    for path, name in entries:
+        names.setdefault(path, []).append(name)
+    folders = {path: folder_values(identity, token, location, path, listed[0]) for path, listed in names.items()}
+    return [[name, listed_value(identity, folders[path], path, name)] for path, name in entries]
 
 
 def answer(request, read_state):

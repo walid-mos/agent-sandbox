@@ -11,7 +11,8 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
-from urllib.parse import urlsplit
+import urllib.error
+from urllib.parse import parse_qs, urlsplit
 
 from repository_read_fixture import POLICY, REPOSITORY, ROOT
 import vault_policy
@@ -25,6 +26,8 @@ ROUTES = (
     ({'kind': 'source', 'repository': SOURCE}, {'ok': True, 'secrets': [['SOURCE_FIXTURE', 'source-value']]}),
 )
 READ = {'kind': 'read', 'repository': REPOSITORY, 'commits': []}
+RAW_URL = 'https://vault.invalid/v3/secrets/raw?secretPath=/tools/github'
+FOLDERS = {'/tools/github': {'OWNER_FIXTURE': 'owner-value', 'SOURCE_FIXTURE': 'source-value', 'GITHUB_TOKEN_REFERENCE': 'read-value'}}
 
 
 class BrokerStartupTests(unittest.TestCase):
@@ -61,11 +64,11 @@ class BrokerStartupTests(unittest.TestCase):
         url = urlsplit(request.full_url)
         self.assertEqual(url.hostname, 'vault.invalid')
         if url.path == '/v1/auth/universal-auth/login':
-            return io.BytesIO(b'{"accessToken":"fixture-session"}')
+            return io.BytesIO(b'{"accessToken":"fixture-session","expiresIn":3600}')
+        self.assertEqual(url.path, '/v3/secrets/raw')
         self.assertEqual(request.get_header('Authorization'), 'Bearer fixture-session')
-        values = {'OWNER_FIXTURE': 'owner-value', 'SOURCE_FIXTURE': 'source-value', 'GITHUB_TOKEN_REFERENCE': 'read-value'}
-        name = url.path.removeprefix('/v3/secrets/raw/')
-        return io.BytesIO(json.dumps({'secret': {'secretValue': values[name]}}).encode())
+        secrets = [{'secretKey': key, 'secretValue': value} for key, value in FOLDERS[parse_qs(url.query)['secretPath'][0]].items()]
+        return io.BytesIO(json.dumps({'secrets': secrets}).encode())
 
     def exchange(self, server, request):
         client, handler = socket.socketpair()
@@ -88,6 +91,24 @@ class BrokerStartupTests(unittest.TestCase):
             sys.modules.pop('launch', None)
             runpy.run_path(str(self.script), run_name='__main__')
         self.serve_requests.assert_called_once()
+
+    def broker(self):
+        return runpy.run_path(str(self.script))
+
+    def rate_limited(self, seconds=None, retry_after=None):
+        body = (f'{{"message": "Rate limit exceeded. Please try again in {seconds} seconds"}}' if seconds is not None else '').encode()
+        headers = {'Retry-After': retry_after} if retry_after is not None else {}
+        return urllib.error.HTTPError(RAW_URL, 429, 'Too Many Requests', headers, io.BytesIO(body))
+
+    def serving(self, plan):
+        remaining = list(plan)
+
+        def reply(request, *, timeout):
+            step = remaining.pop(0) if remaining else None
+            if isinstance(step, BaseException):
+                raise step
+            return self.vault_reply(request, timeout=timeout)
+        return reply
 
     def assert_reads_refused(self, message):
         self.assertFalse(self.read_reply['ok'])
@@ -135,6 +156,70 @@ class BrokerStartupTests(unittest.TestCase):
             'error': 'Repository read could not prepare or run the worker. Ask the VM operator to check the broker.',
         })
         self.assertEqual(list(state.iterdir()), [])
+
+    def test_rate_limited_call_waits_the_stated_seconds_and_answers(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([self.rate_limited(seconds=3)])
+        with patch('time.sleep') as sleep:
+            answer = broker['vault_call'](RAW_URL, token='fixture-session')
+        sleep.assert_called_once_with(3)
+        self.assertEqual([secret['secretKey'] for secret in answer['secrets']], list(FOLDERS['/tools/github']))
+
+    def test_retry_waits_the_longer_wait_stated_by_the_body_and_the_header(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([self.rate_limited(seconds=3, retry_after='7')])
+        with patch('time.sleep') as sleep:
+            broker['vault_call'](RAW_URL, token='fixture-session')
+        sleep.assert_called_once_with(7)
+
+    def test_retry_honours_a_retry_after_header_alone(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([self.rate_limited(retry_after='5')])
+        with patch('time.sleep') as sleep:
+            broker['vault_call'](RAW_URL, token='fixture-session')
+        sleep.assert_called_once_with(5)
+
+    def test_rate_limit_stops_at_the_retry_bound_and_keeps_the_refusal(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([None] + [self.rate_limited(seconds=1) for _ in range(3)])
+        with patch('time.sleep') as sleep:
+            with self.assertRaises(broker['VaultFailure']) as refusal:
+                broker['secret_values']([('/tools/github', 'OWNER_FIXTURE')])
+        self.assertEqual(sleep.call_count, 2)
+        self.assertEqual(str(refusal.exception), 'the vault answered HTTP 429 for OWNER_FIXTURE in /tools/github.')
+        self.assertEqual(len(self.opener.open.call_args_list), 4)
+
+    def test_wait_beyond_the_budget_is_refused_without_waiting(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([self.rate_limited(seconds=90)])
+        with patch('time.sleep') as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                broker['vault_call'](RAW_URL, token='fixture-session')
+        sleep.assert_not_called()
+        self.assertEqual(len(self.opener.open.call_args_list), 1)
+
+    def test_retries_that_together_exceed_the_budget_stop(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([self.rate_limited(seconds=40), self.rate_limited(seconds=40)])
+        with patch('time.sleep') as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                broker['vault_call'](RAW_URL, token='fixture-session')
+        sleep.assert_called_once_with(40)
+        self.assertEqual(len(self.opener.open.call_args_list), 2)
+
+    def test_normal_call_logs_in_once_and_reads_one_folder_per_invocation(self):
+        broker = self.broker()
+        values = broker['secret_values']([('/tools/github', 'OWNER_FIXTURE'), ('/tools/github', 'SOURCE_FIXTURE')])
+        broker['secret_values']([('/tools/github', 'GITHUB_TOKEN_REFERENCE')])
+        paths = [urlsplit(call.args[0].full_url).path for call in self.opener.open.call_args_list]
+        self.assertEqual(values, [['OWNER_FIXTURE', 'owner-value'], ['SOURCE_FIXTURE', 'source-value']])
+        self.assertEqual(paths, ['/v1/auth/universal-auth/login', '/v3/secrets/raw', '/v3/secrets/raw'])
+
+    def test_name_absent_from_the_folder_listing_is_reported_as_missing(self):
+        broker = self.broker()
+        with self.assertRaises(broker['VaultFailure']) as refusal:
+            broker['secret_values']([('/tools/github', 'ABSENT_FIXTURE')])
+        self.assertEqual(str(refusal.exception), "ABSENT_FIXTURE not found in /tools/github. Add it to the vault or remove it from the sandbox's list.")
 
 
 if __name__ == '__main__':
