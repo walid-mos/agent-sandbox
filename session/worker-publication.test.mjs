@@ -90,7 +90,7 @@ test('an uncertain push response recovers only after exact destination readback 
     throw new Error('push acknowledgement was lost');
   } };
   githubState.pullRequests = [{ url: draftURL, isCrossRepository: false, baseRefName: f.worker.base,
-    headRefName: f.worker.branch, isDraft: true, headRefOid: request.head }];
+    headRefName: f.worker.branch, isDraft: true, headRefOid: request.head, body: f.worker.description }];
   try {
     assert.equal(await publishWorker([f.worker.name, id, 'Push once']), draftURL);
   } finally {

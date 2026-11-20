@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { requireDraftHelperFor } from './draft-helper.mjs';
 import { ROUTER_MODEL } from './models.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 import { command, WITH_VAULT } from './run.mjs';
@@ -153,6 +154,7 @@ const launchEnvironment = worker => Object.entries(LAUNCH_VARIABLES).map(([field
 export function launch(worker, conversation) {
   const launchId = randomUUID();
   if (!worker.owner) throw new Error('dispatch: worker has no recorded Pots owner. Inspect it before relaunching.');
+  requireDraftHelperFor(worker);
   const { sessionId = randomUUID(), sessionDir = join(WORKERS, 'sessions', worker.name), model = ROUTER_MODEL } = worker;
   mkdirSync(sessionDir, { recursive: true });
   const session = sessionArguments(worker, sessionDir, sessionId);

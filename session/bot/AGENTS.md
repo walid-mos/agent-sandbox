@@ -27,7 +27,7 @@ Delegate every new background task through this launcher into a labelled Pi term
 
 ```sh
 session=/opt/agent-sandbox/session
-"$session/with-vault" node "$session/dispatch.mjs" start [--local] [--max] [--for REQUEST_ID] --title PR_TITLE [--subject COMMIT_SUBJECT] OWNER/REPOSITORY TYPE/BRANCH BRIEF_FILE [BASE_BRANCH]
+"$session/with-vault" node "$session/dispatch.mjs" start [--local] [--max] [--for REQUEST_ID] --title PR_TITLE [--subject COMMIT_SUBJECT] --description PUBLIC_MARKDOWN OWNER/REPOSITORY TYPE/BRANCH BRIEF_FILE [BASE_BRANCH]
 node "$session/dispatch.mjs" task [--max] [--for REQUEST_ID] --title TITLE --scope SCOPE TASK_NAME WORKDIR BRIEF_FILE RESULT_FILE
 "$session/with-vault" node "$session/dispatch.mjs" scope WORKER
 "$session/with-vault" node "$session/dispatch.mjs" publish WORKER DIALOG_ID 'Push once'
