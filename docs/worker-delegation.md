@@ -90,6 +90,14 @@ A short spacing interval after opening a worker gives its startup memory time to
 
 After the authorized signed update reaches a pot, restart its `pots-watcher` service to load the policy. On each pot, confirm the watcher comes back, can read guest memory and PSI or uses the documented fallback, and preserves live terminals. Compare the watcher and hc worker processes' cgroup membership. Confirm the visible mount and parent limits cover where hc launches workers. With normal work, check queue-order starts and follow-ups. When pressure occurs during ordinary use, check that launches pause and resume while existing workers keep running.
 
+## When memory still runs out
+
+The kernel picks its victim by `oom_score_adj`, and the agent workloads sit highest. Every worker and every clean-pass terminal starts under [the prefer-kill wrapper](../session/prefer-kill), which raises its own score to 500 before exec, so Pi and every process it forks are killed before the session's own services, which keep the default 0.
+
+The pot's units that keep it reachable, the door, the vault broker, the firewall, the keeper, the tailnet guard and the shields cycle, set `OOMScoreAdjust=-500`. The login, `systemd-logind` and `sshd`, gets -1000 from [the login drop-in](../vm/login-oom.conf), installed by `vm-up`; systemd applies it the next time those units start, which is the next boot.
+
+A worker killed this way is a crash: the watcher ends its terminal, keeps the saved session, and resumes it on its own only when it had work in hand. Containers a worker starts for its development stack take the score their own Compose file sets, so a stack that must survive sets `oom_score_adj` itself.
+
 ## Proof and rollout
 
 `./bin/check` is the source proof for this procedure, including the dispatch probe and the worker publication, inspection and task suites.

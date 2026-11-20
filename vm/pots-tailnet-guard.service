@@ -7,4 +7,5 @@ OnFailure=pots-shields-up.service
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py run vm/tailnet-guard
+OOMScoreAdjust=-500
 TimeoutStartSec=2min

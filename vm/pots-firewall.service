@@ -7,6 +7,7 @@ Before=docker.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/pots-firewall
+OOMScoreAdjust=-500
 SyslogLevel=warning
 LogLevelMax=notice
 

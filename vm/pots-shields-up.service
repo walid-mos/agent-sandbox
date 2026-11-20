@@ -5,4 +5,5 @@ After=tailscaled.service docker.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/pots-shields-up
+OOMScoreAdjust=-500
 TimeoutStartSec=2min

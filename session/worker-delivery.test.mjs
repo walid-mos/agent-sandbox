@@ -209,6 +209,15 @@ test('first launch preallocates one exact session identity before starting Pi', 
   assert.equal(queued().length, 0);
 });
 
+test('a worker launch raises the agent workload above the session services for the out-of-memory killer', () => {
+  save({ ...worker, sessionFile: undefined, sessionId: undefined, launchId: undefined, terminal: undefined, startedAt: undefined, brief: '/brief.md' });
+  setTerminals([]);
+  enqueue({ worker: worker.name });
+  serve();
+  const launch = boundary().calls.find(call => call.args[0] === 'run').args;
+  assert.deepEqual(launch.slice(launch.indexOf('--') + 1, launch.indexOf('--') + 3), [join(import.meta.dirname, 'prefer-kill'), 'nice']);
+});
+
 test('a queued launch can start alongside a live worker and retains its follow-up', () => {
   const name = 'queued-first';
   save({ name, owner: worker.owner, worktree: worker.worktree, brief: '/brief.md' });

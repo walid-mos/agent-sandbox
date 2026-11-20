@@ -1,0 +1,6 @@
+#!/bin/sh
+# Runs the agent workload at a score of 500, so the kernel's kill reaches it before the session's services, which stay at 0.
+if [ -w /proc/self/oom_score_adj ]; then
+	printf '500\n' > /proc/self/oom_score_adj
+fi
+exec "$@"

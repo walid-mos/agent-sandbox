@@ -7,6 +7,7 @@ After=tailscaled.service pots-firewall.service
 ExecStart=/usr/local/sbin/pots-door-serve
 Restart=on-failure
 RestartSec=10
+OOMScoreAdjust=-500
 # A restart replaces the listener and leaves deliveries under way to finish.
 KillMode=process
 

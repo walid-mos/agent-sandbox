@@ -17,6 +17,8 @@ const DIGEST_LENGTH = 6;
 // The session user can lower a priority and never raise one, so workers and passes step down and the pane's requests keep theirs.
 const WORKER_NICENESS = '10';
 const HUMAN_BROKER = join(import.meta.dirname, 'human.mjs');
+// An agent workload raises its own out-of-memory score, so a guest that still runs out kills it before the session's services.
+const PREFER_KILL = join(import.meta.dirname, 'prefer-kill');
 
 export function terminalName(text, identity = text) {
   const readable = text.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -133,7 +135,7 @@ export function openTerminal({ name, cwd, tab, options = [], labels = [], label,
   return withAdmission(() => {
     command('hc', ['run', '--bg', ...options, '--name', name, '--cwd', cwd, '--label', label,
       ...labels.flatMap(value => ['--label', value]), '--label', 'herdr.space=sppots', '--label', `herdr.tab=tb${tab}`,
-      '--', 'nice', '-n', WORKER_NICENESS, WITH_VAULT, ...vaultCommand]);
+      '--', PREFER_KILL, 'nice', '-n', WORKER_NICENESS, WITH_VAULT, ...vaultCommand]);
     return JSON.parse(command('hc', ['get', name])).address;
   });
 }
