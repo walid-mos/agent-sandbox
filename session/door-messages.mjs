@@ -6,6 +6,9 @@ const POT_NAME = new RegExp(`^${POT}$`);
 const REQUEST_ID = new RegExp(`^(${POT})\\.${NONCE}$`);
 const HEADER = new RegExp(`^(request|reply|dialog) (${POT}\\.${NONCE})(?: ([0-9]))?$`);
 const NONCE_BYTES = 8;
+// The report nonce fits the VM's request header and cannot collide with a generated hex nonce.
+const REPORT_MARK = 'report';
+const REPORT_HOP = 0;
 const NUL = '\0';
 const LINE_BREAK = '\n';
 const strictText = new TextDecoder('utf-8', { fatal: true });
@@ -16,6 +19,7 @@ export const REFUSED_EXIT = 76;
 export const REQUEST = 'request';
 export const REPLY = 'reply';
 export const DIALOG = 'dialog';
+export const REPORT = 'report';
 // A pot asks one hop past the deepest request it has not answered, so pots asking each other in a loop stop at the third door.
 export const HOP_LIMIT = 2;
 
@@ -27,10 +31,13 @@ export const isPotName = name => POT_NAME.test(name ?? '');
 export const isRequestId = id => REQUEST_ID.test(id ?? '');
 export const originOf = id => REQUEST_ID.exec(id)[1];
 export const newRequestId = origin => `${origin}.${randomBytes(NONCE_BYTES).toString('hex')}`;
+export const newReportId = origin => `${origin}.${REPORT_MARK}${randomBytes(NONCE_BYTES).toString('hex')}`;
+const isReportId = id => id.slice(id.indexOf('.') + 1).startsWith(REPORT_MARK);
 
 export const requestMessage = (id, hop, text) => message(`${REQUEST} ${id} ${hop}`, text);
 export const replyMessage = (id, text) => message(`${REPLY} ${id}`, text);
 export const dialogMessage = (id, text) => message(`${DIALOG} ${id}`, text);
+export const reportMessage = (id, text) => message(`${REQUEST} ${id} ${REPORT_HOP}`, text);
 
 function message(header, text) {
   if (!`${text ?? ''}`.trim()) throw new Error('pots: the text is empty. Say what you need or what you answer.');
@@ -55,9 +62,11 @@ export function parse(bytes) {
   const wire = decoded(bytes);
   const headerEnd = wire.indexOf(LINE_BREAK);
   const header = HEADER.exec(headerEnd < 0 ? wire : wire.slice(0, headerEnd));
-  const [, kind, id, hop] = header ?? [];
-  if (!header || (kind === REQUEST) !== (hop !== undefined)) throw new Refusal('pots: the first line is not "request ORIGIN.NONCE HOP" or "reply ORIGIN.NONCE" or "dialog ORIGIN.NONCE".');
+  const [, wireKind, id, hop] = header ?? [];
+  if (!header || (wireKind === REQUEST) !== (hop !== undefined)) throw new Refusal('pots: the first line is not "request ORIGIN.NONCE HOP" or "reply ORIGIN.NONCE" or "dialog ORIGIN.NONCE".');
   const text = headerEnd < 0 ? '' : wire.slice(headerEnd + 1);
   if (!text.trim() || text.includes(NUL)) throw new Refusal('pots: the note is empty or holds a NUL byte.');
-  return { kind, id, origin: originOf(id), hop: hop === undefined ? undefined : Number(hop), text };
+  const kind = wireKind === REQUEST && isReportId(id) ? REPORT : wireKind;
+  if (kind === REPORT && Number(hop) !== REPORT_HOP) throw new Refusal('pots: a report must have hop 0.');
+  return { kind, id, origin: originOf(id), hop: kind === REQUEST ? Number(hop) : undefined, text };
 }

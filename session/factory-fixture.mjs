@@ -34,6 +34,19 @@ async function github(args) {
   return githubGraphql(args, facts);
 }
 
+function signedReadback(facts) {
+  const isMerged = existsSync(file('merged'));
+  const merged = existsSync(file('uncertain-merge-readback')) ? undefined : isMerged;
+  return { number: facts.number, state: isMerged ? 'closed' : 'open', merged, merge_commit_sha: facts.headRefOid,
+    base: { repo: { full_name: repository }, ref: facts.baseRefName }, head: { sha: facts.headRefOid } };
+}
+
+function requireSharedRecordLock(facts) {
+  const lock = file(`.config/agent-sandbox/factory/heads/${repository.replace('/', '-')}-${facts.number}-${facts.headRefOid}.json.lock`);
+  const attempt = spawnSync('flock', ['--nonblock', lock, 'true']);
+  if (attempt.status !== 1) throw new Error('ordinary verdict comment ran outside the shared record lock');
+}
+
 async function pauseGithub(phase) {
   if (!existsSync(file(`stall-${phase}`))) return;
   const release = file(`release-${phase}`);
@@ -49,29 +62,32 @@ async function pauseGithub(phase) {
   });
 }
 
-function signedGithub(args, facts) {
-  if (args[0] === 'api' && args[1] === 'user') json(123);
-  else if (args[0] === 'api' && args[1].includes('/pulls/')) {
-    const isMerged = existsSync(file('merged'));
-    const merged = existsSync(file('uncertain-merge-readback')) ? undefined : isMerged;
-    json({ number: facts.number, state: isMerged ? 'closed' : 'open', merged, merge_commit_sha: facts.headRefOid,
-      base: { repo: { full_name: repository }, ref: facts.baseRefName }, head: { sha: facts.headRefOid } });
-  } else if (args[0] === 'pr' && args[1] === 'comment') {
-    if (facts.baseRefName !== 'main') {
-      const lock = file(`.config/agent-sandbox/factory/heads/${repository.replace('/', '-')}-${facts.number}-${facts.headRefOid}.json.lock`);
-      const attempt = spawnSync('flock', ['--nonblock', lock, 'true']);
-      if (attempt.status !== 1) throw new Error('ordinary verdict comment ran outside the shared record lock');
-      write('verdict-comment', readFileSync(args.at(-1), 'utf8'));
-    } else {
-      write('verdict-comment', readFileSync(args.at(-1), 'utf8'));
-      process.exit(1);
-    }
-  } else if (args[0] === 'api' && args[1].includes('/comments?')) json([[{ user: { id: 123 }, body: read('verdict-comment') }]]);
-  else if (args[0] === 'pr' && args[1] === 'merge') {
-    if (existsSync(file('refuse-merge'))) process.exit(1);
-    write('merged', true);
+function signedComment(args, facts) {
+  if (facts.baseRefName === 'main') {
+    write('verdict-comment', readFileSync(args.at(-1), 'utf8'));
+    process.exit(1);
   }
-  else return { isHandled: false };
+  requireSharedRecordLock(facts);
+  write('verdict-comment', readFileSync(args.at(-1), 'utf8'));
+}
+
+function signedMerge() {
+  if (existsSync(file('refuse-merge'))) process.exit(1);
+  write('merged', true);
+}
+
+const SIGNED_GITHUB = [
+  { matches: args => args[0] === 'api' && args[1] === 'user', run: () => json(123) },
+  { matches: args => args[0] === 'api' && args[1]?.includes('/pulls/'), run: (_, facts) => json(signedReadback(facts)) },
+  { matches: args => args[0] === 'pr' && args[1] === 'comment', run: signedComment },
+  { matches: args => args[0] === 'api' && args[1]?.includes('/comments?'), run: () => json([[{ user: { id: 123 }, body: read('verdict-comment') }]]) },
+  { matches: args => args[0] === 'pr' && args[1] === 'merge', run: signedMerge },
+];
+
+function signedGithub(args, facts) {
+  const handler = SIGNED_GITHUB.find(entry => entry.matches(args));
+  if (!handler) return { isHandled: false };
+  handler.run(args, facts);
   return { isHandled: true };
 }
 
@@ -214,7 +230,7 @@ function preload() {
 }
 
 function signedModule(url) {
-  if (url.endsWith('/factory-authority.mjs')) return `export const isIsolatedFactory = true, isRetiredSessionFactory = false,
+  if (url.endsWith('/factory-authority.mjs')) return `export const isIsolatedFactory = true, isRetiredSessionFactory = false, REPORT_SOURCE = 'pr-factory',
     landingRepository = ${JSON.stringify(repository)}, LANDING_BRANCH = 'main', isLandingPull = pull => pull.repository === landingRepository && pull.base === LANDING_BRANCH; export function requireFactoryRuntime() {} export function requireLandingAuthority() {}`;
   const preamble = `import { readFileSync, writeFileSync } from 'node:fs'; const root = ${JSON.stringify(root)};`;
   if (url.endsWith('/factory-release-git.mjs')) return `${preamble}

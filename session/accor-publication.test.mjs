@@ -30,7 +30,8 @@ function githubFor(f) {
     assert.equal(args.includes('github.com'), true);
     if (args.includes('POST')) {
       assert.equal(args[1], 'repos/proof/repository/pulls');
-      assert.deepEqual(args.slice(4), ['--method', 'POST', '-f', 'head=feat/probe', '-f', 'base=main', '-f', 'title=feat: probe', '-F', 'draft=false']);
+      assert.deepEqual(args.slice(4), ['--method', 'POST', '-f', 'head=feat/probe', '-f', 'base=main', '-f', 'title=feat: probe', '-f', `body=${f.worker.description}`, '-F', 'draft=false']);
+      pull.body = f.worker.description;
       state.created = true;
       if (state.isResponseLost) throw new Error('GitHub response lost');
       return snapshot();

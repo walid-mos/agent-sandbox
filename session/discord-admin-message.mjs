@@ -1,3 +1,5 @@
+import { BOT_ACTIVATION_ACTION } from './bot-activation-registry.mjs';
+
 const canonical = value => {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
@@ -13,7 +15,8 @@ export const approvalControls = question => [{ type: 1, components: buttons(ques
 
 export function approvalMessage(question) {
   const scope = question.scope.replace(/`/g, '\\u0060').replace(/[\u202a-\u202e\u2066-\u2069]/g, character => `\\u${character.charCodeAt(0).toString(16)}`);
-  return { content: `Server administration approval\n\`\`\`json\n${scope}\n\`\`\`\n${question.questions[0].prompt}`, allowed_mentions: { parse: [] },
+  const title = JSON.parse(question.scope).action === BOT_ACTIVATION_ACTION ? 'Bot activation approval' : 'Server administration approval';
+  return { content: `${title}\n\`\`\`json\n${scope}\n\`\`\`\n${question.questions[0].prompt}`, allowed_mentions: { parse: [] },
     components: approvalControls(question).map(row => ({ ...row, components: row.components.map(button => ({ ...button, disabled: true })) })) };
 }
 

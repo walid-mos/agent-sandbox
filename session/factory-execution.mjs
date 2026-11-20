@@ -2,7 +2,8 @@ import { isLandingPull, requireLandingAuthority } from './factory-authority.mjs'
 import { effectiveCheckRevision, runChecks } from './factory-checks.mjs';
 import { isCurrentReview } from './factory-github.mjs';
 import { mergeBase, refreshMirror } from './factory-mirror.mjs';
-import { logDirectory, pullUrl } from './factory-records.mjs';
+import { logDirectory } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { handToFactory, reportToPrincipal } from './factory-reports.mjs';
 import { LOCK_BUSY, recoverJob, runJob, tryFactoryLock } from './factory-runner.mjs';

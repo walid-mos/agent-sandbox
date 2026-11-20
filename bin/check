@@ -51,6 +51,7 @@ for path in "$root"/sandboxes.example/*/sandbox.json; do
 	jq -e --argjson catalog "$catalog" '([.owners[]?, (.secrets // {} | .[][]), (.onRequest // {} | .[][][])] | all(startswith("INFISICAL_") | not)) and (.sources | type == "array" and . - $catalog == [])' "$path" > /dev/null || { echo "check: $path lists a name starting with INFISICAL_, or does not select its sources as a list of session/agent-sources.json names" >&2; exit 1; }
 done
 node "$root/session/jira.mjs" check "$root"/sandboxes.example/*/sandbox.json
+node "$root/session/contribution-policy.mjs" check "$root"/sandboxes.example/*/sandbox.json
 for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
 	jq empty "$path"
 done
@@ -100,5 +101,6 @@ python3 -B "$root/probes/repository-read-policy.py"
 python3 -B "$root/probes/repository-read.py"
 python3 -B "$root/probes/repository-read-supervision.py"
 python3 -B "$root/probes/vault-broker-startup.py"
+python3 -B "$root/probes/usage-bootstrap.py"
 git -C "$root" diff --check
 printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'

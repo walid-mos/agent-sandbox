@@ -1,15 +1,15 @@
 import { isIsolatedFactory, isLandingPull, requireLandingAuthority } from './factory-authority.mjs';
 import { effectiveCheckRevision } from './factory-checks.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
-import { draftCandidates, draftFacts, pullFacts, readyPulls, reviewSubject, watchedRepositories } from './factory-github.mjs';
+import { logScanFailure, scanStaleDrafts } from './factory-draft-reminders.mjs';
+import { pullFacts, readyPulls, reviewSubject, watchedRepositories } from './factory-github.mjs';
 import { finishPublication } from './factory-publication.mjs';
-import { pullUrl, readRecord, recordedHeads, withRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
+import { readRecord, recordedHeads, withRecord } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { isPendingSquash } from './factory-squash-publication.mjs';
-import { deliverWakes, reportStaleDraft } from './factory-reports.mjs';
-import { isOldDraft, staleDraftWakeId } from './factory-stale-draft.mjs';
+import { deliverWakes } from './factory-reports.mjs';
 import { withJobs } from './factory-state.mjs';
-import { workers } from './workers.mjs';
 
 const MERGEABILITY_RETRY_MS = 5_000;
 const MAX_MERGEABILITY_RETRIES = 10;
@@ -45,57 +45,6 @@ export async function discoverReady(jobs, repositories, read = reviewSubject, wa
   if (unknown.length === 0) return;
   await wait(MERGEABILITY_RETRY_MS);
   unknown.forEach(discover);
-}
-
-export function logScanFailure(subject, error) {
-  process.stderr.write(`factory: ${subject}: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-}
-
-function ownsDraft(worker, pull) {
-  return worker.repository?.toLowerCase() === pull.repository.toLowerCase() && worker.branch === pull.headRefName
-    && (worker.pullRequest ?? pullUrl(pull)).toLowerCase() === pullUrl(pull).toLowerCase();
-}
-
-function draftOwner(pull, readWorkers) {
-  if (pull.isCrossRepository) return undefined;
-  return readWorkers().find(worker => worker.owner && ownsDraft(worker, pull))?.owner;
-}
-
-function wakeStaleDraft(subject, now, readWorkers) {
-  const pull = draftFacts(subject.repository, subject.number);
-  if (pull.state !== 'OPEN') return;
-  const id = staleDraftWakeId(pull, now);
-  if (id) reportStaleDraft(pull, id, draftOwner(pull, readWorkers));
-}
-
-function scanRepositoryDrafts(repository, now, readWorkers, holdReview) {
-  let candidates;
-  try {
-    candidates = draftCandidates(repository).filter(pull => pull.isDraft === true);
-  } catch (error) {
-    return logScanFailure(`${repository} draft discovery`, error);
-  }
-  for (const candidate of candidates) {
-    const subject = { repository, number: candidate.number };
-    if (holdReview) processDraft(subject, 'hold', () => holdReview(subject));
-    if (isOldDraft(candidate, now)) processDraft(subject, 'reminder', () => wakeStaleDraft(subject, now, readWorkers));
-  }
-}
-
-function processDraft(subject, operation, run) {
-  try {
-    run();
-  } catch (error) {
-    logScanFailure(`${pullUrl(subject)} draft ${operation}`, error);
-  }
-}
-
-export function scanStaleDrafts(repositories, holdReview) {
-  const now = Date.now();
-  let workerRecords;
-  const readWorkers = () => (workerRecords ??= workers());
-  for (const repository of repositories) scanRepositoryDrafts(repository, now, readWorkers, holdReview);
 }
 
 function observeInputs(pull, revisions) {
@@ -146,8 +95,7 @@ export function scanMaintenance(jobs, repositories = watchedRepositories()) {
 
 export function scan({ routine }) {
   return withJobs(async jobs => {
-    const repositories = watchedRepositories();
-    await scanReady(jobs, repositories);
-    if (routine) scanMaintenance(jobs, repositories);
+    await scanReady(jobs);
+    if (routine) scanMaintenance(jobs);
   });
 }

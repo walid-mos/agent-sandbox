@@ -14,7 +14,7 @@ RECOVERY = runpy.run_path(str(Path(__file__).with_name('landing-squash-recovery.
 SQUASH = RECOVERY['SQUASH']
 POLICY = RECOVERY['POLICY']
 REPOSITORY = RECOVERY['SERIES']['FIXTURE_REPOSITORY']
-REVIEW_SOURCE = 'ea7e71c64d3e8da83b82bb6c52e8bb7d097651b6'
+REVIEW_SOURCE = '2e392ed65dfb87cb2824a32f2eb26acb14ad2925'
 
 
 class LandingEntry(POLICY['LandingPolicy']):
@@ -25,7 +25,6 @@ class LandingEntry(POLICY['LandingPolicy']):
     def runTest(self):
         self.prepare_entry()
         self.command('scan', enrollment_refusal=True, isolated='0')
-        self.command('scan', enrollment_refusal=True, isolated='0', durable=False)
         self.assertFalse((self.root / 'wakes.jsonl').exists())
         with self.service('landing'), self.service('reports'):
             self.prove_gate_refuses_requests()
@@ -51,7 +50,7 @@ class LandingEntry(POLICY['LandingPolicy']):
                          f'POTS_FACTORY_REPORT_SOCKET={self.root}/report/socket\nPOTS_FACTORY_REPORT_SOURCE=pr-factory\n')
         (self.root / 'loader.mjs').write_text("""import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, next) {
-  if (specifier === './sandbox.mjs') return { url: 'data:text/javascript,export const botId=%22fixture%22,owners=[%22probe%22],sandbox={factoryDurable:process.env.LANDING_TEST_DURABLE!==%220%22};', shortCircuit: true };
+  if (specifier === './sandbox.mjs') return { url: 'data:text/javascript,export const botId=%22fixture%22,owners=[%22probe%22],sandbox={};', shortCircuit: true };
   return next(specifier, context);
 } });
 """)
@@ -107,31 +106,16 @@ registerHooks({ resolve(specifier, context, next) {
         (self.root / f'pull-{number}.json').write_text(json.dumps(facts))
         return head
 
-    def command(self, *args, error=None, enrollment_refusal=False, isolated='1', durable=True):
-        if args[0] == 'review':
-            args = (args[2], args[1], *args[3:])
-        if args == ('scan',) and durable:
-            self.command('reconcile', isolated=isolated)
+    def command(self, *args, error=None, enrollment_refusal=False, isolated='1'):
         result = subprocess.run([self.node, '--import', str(self.root / 'loader.mjs'),
                                  str(self.source / 'session/factory.mjs'), *args], text=True, capture_output=True,
-                                env={**self.env, 'POTS_ISOLATED_FACTORY': isolated, 'LANDING_TEST_DURABLE': str(int(durable))}, timeout=40)
+                                env={**self.env, 'POTS_ISOLATED_FACTORY': isolated}, timeout=40)
         if enrollment_refusal:
             error = 'explicit native squash enrollment'
         self.assertEqual(result.returncode, 1 if error else 0, result.stderr + result.stdout)
         if error:
             self.assertIn(error, result.stderr)
-        if args == ('scan',) and not error:
-            self.run_jobs()
         return result.stdout
-
-    def run_jobs(self):
-        import sqlite3
-        database = self.root / '.config/agent-sandbox/factory/execution/jobs.sqlite'
-        with sqlite3.connect(database) as jobs:
-            queued = jobs.execute("select id from jobs where status = 'queued' order by id").fetchall()
-        for job, in queued:
-            self.command('run-job', str(job))
-            self.command('publish-job', str(job))
 
     def events(self, filename):
         path = self.root / f'{filename}.jsonl'
@@ -139,7 +123,7 @@ registerHooks({ resolve(specifier, context, next) {
 
     def review(self, number, head=None):
         wakes = [wake for wake in self.events('wakes') if wake['number'] == number and (head is None or wake['head'] == head)]
-        return wakes[-1]['review']
+        return wakes[-1]['commands']['verdict'].split()[-4]
 
     def squash(self, number):
         return json.loads((self.root / f'pull-{number}.json').read_text())['mergeCommit']['oid']
@@ -212,7 +196,7 @@ registerHooks({ resolve(specifier, context, next) {
         receipt = json.loads((self.root / 'state/squash-release.json').read_text())
         self.assertEqual(receipt['tag'], tag)
         self.assertEqual(receipt['request']['original']['head'], original)
-        self.assertEqual(receipt['request']['landed'], {'head': landed, 'base': parent, 'generation': self.saved_review(31, original)['review']['generation'],
+        self.assertEqual(receipt['request']['landed'], {'head': landed, 'base': parent, 'generation': 0,
                          'tree': POLICY['run']('git', '--git-dir', str(self.remote), 'rev-parse', f'{landed}^{{tree}}')})
         self.open_pull(33, landed, 'next')
         self.command('scan')
@@ -241,7 +225,7 @@ registerHooks({ resolve(specifier, context, next) {
         binding = json.loads((store / 'reviews' / f'{review_id}.json').read_text())
         key = f"{binding['repository'].replace('/', '-')}-{number}-{binding['head']}"
         record = json.loads((store / 'heads' / f'{key}.json').read_text())
-        return {'reviewId': review_id, 'review': record, 'binding': binding}
+        return {'reviewId': review_id, 'review': record}
 
     def checkpoint(self, number):
         bound = self.saved_review(number, json.loads((self.root / f'pull-{number}.json').read_text())['headRefOid'])

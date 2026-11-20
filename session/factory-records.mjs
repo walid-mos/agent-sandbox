@@ -4,17 +4,16 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isIsolatedFactory, landingRepository } from './factory-authority.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
+import { pullUrl } from './github-url.mjs';
 
 export const FACTORY_HOME = join(homedir(), '.config/agent-sandbox/factory');
 const HEADS = join(FACTORY_HOME, 'heads');
 const FULL_SHA = /^[0-9a-f]{40}$/;
+const LOCK_WAIT_SECONDS = '30';
+const LOCK_DESCRIPTOR = '3';
 
 export function pullKey({ repository, number, head }) {
   return `${repository.replace('/', '-')}-${number}-${head}`;
-}
-
-export function pullUrl({ repository, number }) {
-  return `https://github.com/${repository}/pull/${number}`;
 }
 
 export const PULL_ARGUMENT_COUNT = isDurableFactory ? 4 : 3;
@@ -91,7 +90,7 @@ export function withRecord(pull, operation) {
   mkdirSync(HEADS, { recursive: true });
   const lock = openSync(`${recordPath(pull)}.lock`, 'a', 0o600);
   try {
-    const result = spawnSync('flock', ['--exclusive', '--wait', '30', '3'], { stdio: ['ignore', 'ignore', 'ignore', lock] });
+    const result = spawnSync('flock', ['--exclusive', '--wait', LOCK_WAIT_SECONDS, LOCK_DESCRIPTOR], { stdio: ['ignore', 'ignore', 'ignore', lock] });
     if (result.status !== 0) throw new Error('factory: could not lock the shared review record');
     return operation(readRecord(pull), saveRecord);
   } finally {

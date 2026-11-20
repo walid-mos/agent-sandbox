@@ -71,19 +71,21 @@ test('worker admission defers while switching, while the lock is held, and on st
 });
 
 test('queued fresh work survives deferral and resumes through the same gate as saved work and clean passes', () => {
-  const worker = { name: 'queued-worker', owner: 'fixture', repository: 'fixture/project', worktree: root, brief: '/fixture/brief' };
+  const worker = { name: 'queued-worker', owner: 'fixture', repository: 'fixture/project', worktree: root, brief: '/fixture/brief', pullRequest: 'https://example.test/pr/22' };
   const saved = join(root, 'worker.jsonl');
   writeFileSync(saved, '{"type":"session","id":"saved"}\n');
   save(worker);
   enqueue({ worker: worker.name });
+  const retryDelay = 37;
+  const admission = { check: () => undefined, attempted: () => retryDelay };
   status('switching', 'revision-a');
-  assert.equal(serveQueue([], assert.fail), true);
+  assert.equal(serveQueue([], assert.fail, admission), retryDelay);
   assert.deepEqual(queued().map(item => item.worker), [worker.name]);
   assert.throws(() => launch({ ...worker, sessionFile: saved }, []), AdmissionDeferred);
   assert.throws(() => openTerminal({ name: 'clean-pass', cwd: root, label: 'pots.pass=review', vaultCommand: [] }), AdmissionDeferred);
   assert.deepEqual(calls, []);
   status('ready', 'revision-a');
-  assert.equal(serveQueue([], assert.fail), false);
+  assert.equal(serveQueue([], assert.fail, admission), retryDelay);
   assert.deepEqual(queued(), []);
   assert.equal(calls.filter(([command, args]) => command === 'hc' && args[0] === 'run').length, 1);
 });

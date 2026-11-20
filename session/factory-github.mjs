@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { isLandingPull, landingRepository, requireFactoryRuntime, requireLandingAuthority } from './factory-authority.mjs';
 import { accorPublicationPolicy } from './accor-publication-policy.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
-import { pullUrl } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { checkSteps } from './factory-repositories.mjs';
 import { command } from './run.mjs';
 import { owners, sandbox } from './sandbox.mjs';
@@ -12,6 +12,7 @@ const REPOSITORY_LIMIT = '1000';
 const LIST_FIELDS = isDurableFactory ? 'number,isDraft' : 'number,headRefOid,headRefName,baseRefName,isDraft,mergeable';
 const CALL_TIMEOUT_MS = 5_000;
 const LIST_TIMEOUT_MS = 15_000;
+// Durable discovery names one exact attempt, so it reads the head, base and ready transition GitHub holds now rather than trusting a listing.
 const REVIEW_FACTS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     nameWithOwner isArchived
@@ -23,7 +24,7 @@ const REVIEW_FACTS_QUERY = `query($owner: String!, $name: String!, $number: Int!
     }
   }
 }`;
-const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeCommit';
+const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeCommit,mergeable';
 const DRAFT_LIST_QUERY = `query($owner: String!, $name: String!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(first: 100, after: $endCursor, states: OPEN) {
@@ -63,6 +64,7 @@ function openPulls(repository) {
 }
 
 export const readyPulls = repository => openPulls(repository).filter(pull => !pull.isDraft);
+
 export const draftPulls = repository => openPulls(repository).filter(pull => pull.isDraft);
 
 function queryPulls(repository, query, ...flags) {
@@ -85,17 +87,52 @@ export function pullFacts({ repository, number }) {
   return JSON.parse(gh(['pr', 'view', String(number), '--repo', repository, '--json', VIEW_FIELDS]));
 }
 
+function requireTopic(repository) {
+  const topicNames = JSON.parse(gh(['api', `repos/${repository}`, '--jq', '.topics']));
+  if (!hasFactoryTopic(topicNames)) throw new Error(`factory: ${repository} no longer has the ${FACTORY_TOPIC} topic, so the factory leaves its pull requests alone.`);
+}
+
+export function isReadyHead(pull, facts) {
+  return facts.state === 'OPEN' && !facts.isDraft && facts.headRefOid === pull.head;
+}
+
+function requireCurrentReview(pull, facts) {
+  if (!isReadyHead(pull, facts)) {
+    throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);
+  }
+  if (facts.baseRefName !== pull.base) {
+    throw new Error(`factory: ${pullUrl(pull)} now targets ${facts.baseRefName}, and this step covers ${pull.base} only. Use a fresh Factory attempt for the new target.`);
+  }
+}
+
+function requireFactoryAccess(pull) {
+  requireFactoryRuntime();
+  requireLandingAuthority(pull.repository);
+  if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
+}
+
+function requireRepositoryPolicy(pull) {
+  requireModeReview(pull);
+  checkSteps(pull.repository);
+}
+
+export function requireReviewPolicy(pull) {
+  requireFactoryAccess(pull);
+  requireTopic(pull.repository);
+}
+
+export function requireActionable(pull) {
+  requireFactoryAccess(pull);
+  const facts = pullFacts(pull);
+  requireCurrentReview(pull, facts);
+  requireRepositoryPolicy(pull);
+  return facts;
+}
+
 const READY_TRANSITIONS = new Set(['ReadyForReviewEvent', 'ReopenedEvent']);
 
 function hasReadyTransition(node) {
   return READY_TRANSITIONS.has(node?.__typename) && typeof node.id === 'string' && node.id.length > 0;
-}
-
-function reviewTransition(timeline) {
-  const nodes = timeline?.nodes;
-  if (!Array.isArray(nodes)) throw new Error('factory: GitHub did not confirm a review timeline');
-  if (nodes.length === 0) return '';
-  return readyEventId(nodes);
 }
 
 function readyEventId([node, ...extra]) {
@@ -103,10 +140,11 @@ function readyEventId([node, ...extra]) {
   return node.id;
 }
 
-function confirmedRepository(subject) {
-  const response = queryPulls(subject.repository, REVIEW_FACTS_QUERY, '-F', `number=${subject.number}`);
-  if (response.errors?.length) throw new Error('factory: GitHub returned incomplete review facts');
-  return namedRepository(response.data?.repository, subject.repository);
+function reviewTransition(timeline) {
+  const nodes = timeline?.nodes;
+  if (!Array.isArray(nodes)) throw new Error('factory: GitHub did not confirm a review timeline');
+  if (nodes.length === 0) return '';
+  return readyEventId(nodes);
 }
 
 function namedRepository(result, repository) {
@@ -129,7 +167,9 @@ function isReady(facts) {
 }
 
 export function reviewSubject(subject) {
-  const result = confirmedRepository(subject);
+  const response = queryPulls(subject.repository, REVIEW_FACTS_QUERY, '-F', `number=${subject.number}`);
+  if (response.errors?.length) throw new Error('factory: GitHub returned incomplete review facts');
+  const result = namedRepository(response.data?.repository, subject.repository);
   const facts = result.pullRequest;
   if (result.isArchived !== false || !isReady(facts)) return undefined;
   return { repository: result.nameWithOwner.toLowerCase(), number: facts.number, ...exactRevision(facts, subject.number),
@@ -147,66 +187,43 @@ export function requireReviewSubject(subject) {
   if (!isCurrentReview(subject)) throw new Error(`factory: ${pullUrl(subject)} no longer matches this review generation`);
 }
 
-function requireWatchedTopic(repository) {
-  const topics = JSON.parse(gh(['api', `repos/${repository}`, '--jq', '.topics']));
-  if (!hasFactoryTopic(topics)) throw new Error(`factory: ${repository} no longer has the ${FACTORY_TOPIC} topic, so the factory leaves its pull requests alone.`);
-}
-
-export function requireActionable(pull) {
-  requireFactoryRuntime();
-  requireLandingAuthority(pull.repository);
-  if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
-  const facts = pullFacts(pull);
-  if (!isReady(facts) || facts.headRefOid !== pull.head) {
-    throw new Error(`factory: ${pullUrl(pull)} no longer has open, ready head ${pull.head}. Wait for its next review wake.`);
-  }
-  requireModeReview(pull);
-  checkSteps(pull.repository);
-  return facts;
-}
-
+// A squash recovery review covers a landed commit, so only a live review generation is checked against the pull request GitHub holds now.
 function requireModeReview(pull) {
-  if (isDurableFactory) requireReviewSubject(pull);
-  else requireWatchedTopic(pull.repository);
+  if (isDurableFactory && !pull.recoveryOf) requireReviewSubject(pull);
+  else requireTopic(pull.repository);
+}
+
+export function mergeReadback({ repository, number }) {
+  const pull = JSON.parse(gh(['api', `repos/${repository}/pulls/${number}`]));
+  return { repository: pull.base?.repo?.full_name, number: pull.number, head: pull.head?.sha,
+    ref: `refs/heads/${pull.base?.ref}`, state: pull.merged === true && pull.state === 'closed' ? 'MERGED' : pull.merged === false && pull.state === 'open' ? 'open' : undefined,
+    squash: pull.merge_commit_sha };
 }
 
 export function comment({ repository, number }, bodyFile) {
   gh(['pr', 'comment', String(number), '--repo', repository, '--body-file', bodyFile]);
 }
 
-// GitHub refuses the merge when the head moved since the verdict, or when the pull request went back to draft, so a merge never lands code the verdict did not cover.
-export function mergeReadback({ repository, number }) {
-  const pull = JSON.parse(gh(['api', `repos/${repository}/pulls/${number}`]));
-  const base = pull.base?.ref;
-  return { repository: pull.base?.repo?.full_name, number: pull.number, head: pull.head?.sha,
-    ref: typeof base === 'string' && base.length > 0 ? `refs/heads/${base}` : undefined, state: pull.merged === true && pull.state === 'closed' ? 'MERGED' : pull.merged === false && pull.state === 'open' ? 'open' : undefined,
-    squash: pull.merge_commit_sha };
-}
-
 export function commentAuthor({ repository }) {
   const author = Number(gh(['api', 'user', '--jq', '.id'], { env: { ...process.env, GH_REPO: repository } }));
-  if (!Number.isSafeInteger(author) || author <= 0) throw new Error('factory: could not identify the GitHub verdict author');
+  if (!Number.isSafeInteger(author) || author <= 0) throw new Error('factory: could not identify the GitHub verdict author.');
   return author;
 }
 
 export function hasComment({ repository, number }, author, body) {
   const pages = JSON.parse(gh(['api', `repos/${repository}/issues/${number}/comments?per_page=100`, '--paginate', '--slurp']));
-  if (!Array.isArray(pages) || !pages.length || !pages.every(Array.isArray)) throw new Error('factory: invalid verdict comment listing');
-  return pages.some(page => page.some(entry => entry?.user?.id === author && entry.body?.trimEnd() === body));
-}
-
-export function requireReviewPolicy(pull) {
-  requireFactoryRuntime();
-  requireLandingAuthority(pull.repository);
-  if (accorPublicationPolicy(sandbox)) throw new Error('factory: publication requires a human decision');
-  requireWatchedTopic(pull.repository);
+  if (!Array.isArray(pages) || !pages.length || !pages.every(Array.isArray)) {
+    throw new Error('factory: GitHub returned an invalid verdict comment listing.');
+  }
+  return pages.some(page => page.some(entry => entry?.user?.id === author
+    && typeof entry.body === 'string' && entry.body.trimEnd() === body));
 }
 
 export function squashMerge(record) {
   const { repository, number, head } = record;
   if (repository.toLowerCase() === landingRepository.toLowerCase()) {
     requireLandingAuthority(repository);
-    if (!isLandingPull(record) || record.stage !== 'squash-pending') throw new Error('factory: landing requires saved squash intent');
+    if (!isLandingPull(record) || record.stage !== 'squash-pending') throw new Error('factory: native squash requires a saved merge intent for the enrolled target.');
   }
   const merge = spawnSync('gh', ['pr', 'merge', String(number), '--repo', repository, '--squash', '--match-head-commit', head], { encoding: 'utf8' });
   return { isAccepted: merge.status === 0, output: `${merge.stdout ?? ''}${merge.stderr ?? ''}`.trim() };

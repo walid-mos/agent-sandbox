@@ -165,7 +165,7 @@ export class PotsPanel {
     return v_flex().id(`pots-worker-${worker.name}`).w_full().flex_none().gap(4).py(6)
       .child(h_flex().gap(7).child(statusGlyph(state, worker.name))
         .child(label(worker.title, TEXT.body, colors.foreground).flex_1())
-        .child(label(STATES[state].label, TEXT.micro, colors[STATES[state].color]).flex_none()))
+        .child(label(worker.isQueued && worker.status === "starting" ? "Waiting in queue" : STATES[state].label, TEXT.micro, colors[STATES[state].color]).flex_none()))
       .child(label(`${worker.repository} · ${worker.branch}`, TEXT.micro, colors.dim))
       .child(h_flex().gap(4)
         .when(Boolean(worker.terminal), element => element.child(textButton({ id: `open-${worker.name}`, text: "Open", action: () => openWorker(this.sandbox, worker) })))

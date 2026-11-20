@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 POTS_TOOLS="${POTS_TOOLCHAIN:-$HOME/.local}"
 POTS_GH="$POTS_TOOLS/libexec/gh"
 # session/pots is the pots on PATH and hands upstream's commands to the package installed here.

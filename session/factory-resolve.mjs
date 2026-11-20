@@ -3,8 +3,10 @@ import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { requireActionable } from './factory-github.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
-import { branchTip, copyAt, refreshMirror, remoteUrl } from './factory-mirror.mjs';
-import { pullArguments, pullUrl, pullWorkspace, requireRecord, withRecord } from './factory-records.mjs';
+import { branchTip, copyAt, refreshMirror } from './factory-mirror.mjs';
+import { remoteUrl } from './github-url.mjs';
+import { pullArguments, pullWorkspace, requireRecord, withRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { command } from './run.mjs';
 
 const CONFLICT_MARKER = '^(<<<<<<<|>>>>>>>) ';
@@ -12,8 +14,9 @@ const CONFLICT_MARKER = '^(<<<<<<<|>>>>>>>) ';
 const git = (workspace, arguments_) => command('git', ['-C', workspace, ...arguments_]);
 const unmergedPaths = workspace => git(workspace, ['diff', '--name-only', '--diff-filter=U']).split('\n').filter(Boolean);
 
-function startMerge(workspace, baseTip) {
-  spawnSync('git', ['-C', workspace, 'merge', '--no-ff', '--no-edit', baseTip], { stdio: 'ignore' });
+function startMerge(workspace, base, baseTip) {
+  const target = isDurableFactory ? baseTip : `origin/${base}`;
+  spawnSync('git', ['-C', workspace, 'merge', '--no-ff', '--no-edit', target], { stdio: 'ignore' });
   return unmergedPaths(workspace);
 }
 
@@ -34,7 +37,7 @@ function prepareResolution(pull, save) {
   copyAt(pull.repository, pull.head, workspace);
   git(workspace, ['checkout', '--quiet', '-B', facts.headRefName]);
   git(workspace, ['remote', 'set-url', 'origin', remoteUrl(pull.repository)]);
-  const files = startMerge(workspace, baseTip);
+  const files = startMerge(workspace, facts.baseRefName, baseTip);
   save({ ...record, resolution: { workspace, branch: facts.headRefName, baseTip, files } });
   process.stdout.write(`${workspace}\nMerging ${facts.baseRefName} at ${baseTip} into ${facts.headRefName} left ${files.length} conflicted files:\n${files.join('\n')}\n`);
 }

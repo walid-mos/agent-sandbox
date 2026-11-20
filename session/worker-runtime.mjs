@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { rmSync, watch } from 'node:fs';
+import { existsSync, rmSync, watch } from 'node:fs';
 import { basename } from 'node:path';
-import { allTerminals } from './workers.mjs';
+import { allTerminals, isStopped } from './workers.mjs';
+import { idleWorkerPolicy } from './limits.mjs';
+import { hasNoUnreportedWork, IDLE_CLOSE, IDLE_PHASE, IDLE_RECHECK_MS, idleWitness } from './worker-idle.mjs';
 import { hasQueued } from './queue.mjs';
 import { canFinish, completionFacts, followUp, isPublished, LIFECYCLE, receiptPath, resultId, statePath } from './worker-lifecycle.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
@@ -10,6 +12,7 @@ const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubsc
 const PROTOCOL_VERSION = 1;
 const CLOSE_ATTEMPTS = 3;
 const CLOSE_RETRY_MS = 1000;
+const PROMPT_TIMING_ENTRY = 'pi-hud-telemetry-prompt-timing-v2';
 
 function hasOpenGoal(branch) {
   const goal = branch.findLast(entry => entry.type === 'custom' && entry.customType === 'pi-goal-state-v1');
@@ -18,9 +21,22 @@ function hasOpenGoal(branch) {
   return [Boolean(blocked), items.some(item => !item.done), paused.length > 0].some(Boolean);
 }
 
-function isFinalMessage({ message = {} }) {
-  const content = Array.isArray(message.content) ? message.content : [];
-  return [message.role === 'assistant', message.stopReason === 'stop', content.some(part => part.type === 'text' && part.text.trim())].every(Boolean);
+function hasAssistantText(message) {
+  return message?.role === 'assistant' && Array.isArray(message.content)
+    && message.content.some(part => part.type === 'text' && part.text.trim());
+}
+
+function isFinalMessage({ message }) {
+  return message?.stopReason === 'stop' && hasAssistantText(message);
+}
+
+function hasUnansweredTurn(branch) {
+  const lastUser = branch.findLastIndex(entry => entry.type === 'message' && entry.message.role === 'user');
+  if (lastUser < 0 || hasOpenGoal(branch)) return false;
+  const messages = branch.slice(lastUser + 1).filter(entry => entry.type === 'message').map(entry => entry.message);
+  const answers = new Set(messages.filter(message => message.role === 'toolResult').map(message => message.toolCallId));
+  return !messages.some(message => hasAssistantText(message) || message.role === 'assistant'
+    && message.content?.some(part => part.type === 'toolCall' && !answers.has(part.id)));
 }
 
 export function hasFinalReply(branch) {
@@ -29,13 +45,27 @@ export function hasFinalReply(branch) {
   return Boolean(entry && isFinalMessage(entry));
 }
 
-function hasNoPendingWork(pi) {
-  return Object.entries(WORK_CONTRACTS).every(([event, fields]) => {
+function isUnchangedResult(sessionManager, settledLeaf) {
+  const currentLeaf = sessionManager.getLeafId();
+  if (currentLeaf === settledLeaf) return true;
+  const branch = sessionManager.getBranch();
+  const settledIndex = branch.findIndex(entry => entry.id === settledLeaf);
+  if (settledIndex < 0 || branch.at(-1)?.id !== currentLeaf) return false;
+  const added = branch.slice(settledIndex + 1);
+  return added.every(entry => entry.type === 'custom' && entry.customType === PROMPT_TIMING_ENTRY);
+}
+
+function workCounts(pi) {
+  return Object.entries(WORK_CONTRACTS).map(([event, fields]) => {
     const request = { version: PROTOCOL_VERSION };
     pi.events.emit(event, request);
-    return request.result?.version === PROTOCOL_VERSION && fields.every(field => request.result[field] === 0);
+    return request.result?.version === PROTOCOL_VERSION ? fields.map(field => request.result[field]) : undefined;
   });
 }
+
+// Missing contracts prevent closure but cannot justify delaying a report.
+const hasNoPendingWork = pi => workCounts(pi).every(counts => counts?.every(count => count === 0));
+const hasRunningWork = pi => workCounts(pi).some(counts => counts?.some(count => Number.isSafeInteger(count) && count > 0));
 
 export class WorkerRuntime {
   #worker;
@@ -46,23 +76,31 @@ export class WorkerRuntime {
   #removeInput;
   #closeAttempt;
   #closeTimer;
+  #idleTimer;
 
   constructor(pi, worker) {
     this.#pi = pi;
     this.#worker = worker;
   }
 
-  #publish(context, phase) {
-    this.#state = { ...this.#worker, terminal: process.env.HC_TERMINAL_ID,
+  #publish(context, phase, closeReason) {
+    const state = { ...this.#worker, terminal: process.env.HC_TERMINAL_ID,
       sessionFile: context.sessionManager.getSessionFile(), sessionId: context.sessionManager.getSessionId(),
       leaf: context.sessionManager.getLeafId(), generation: randomUUID(), phase, received: [...this.#received],
-      ...(phase === 'settled' && { settledAt: Date.now() }) };
-    writePrivateJson(statePath(this.#worker), this.#state);
+      ...(phase === 'settled' && { settledAt: Date.now() }), ...(closeReason && { closeReason }),
+      ...(phase === 'waiting' && { waitingSince: this.#state?.phase === 'waiting' ? this.#state.waitingSince : Date.now() }) };
+    writePrivateJson(statePath(this.#worker), state);
+    this.#state = state;
+  }
+
+  #clearReceipt() {
+    this.#cancelClose();
+    rmSync(receiptPath(this.#worker), { force: true });
   }
 
   invalidate(context) {
-    this.#cancelClose();
-    rmSync(receiptPath(this.#worker), { force: true });
+    if (this.#state?.phase === 'closing') return;
+    this.#clearReceipt();
     this.#publish(context, 'active');
   }
 
@@ -72,13 +110,37 @@ export class WorkerRuntime {
     this.#observer = watch(LIFECYCLE, (_event, file) => {
       if (`${file}` === receipt) this.finish(context);
     });
-    // Only a published result can be invalidated, so input on an active session writes nothing and starts no watcher pass.
     this.#removeInput = context.ui.onTerminalInput(() => {
       if (this.#state?.phase !== 'active') this.invalidate(context);
     });
+    if (idleWorkerPolicy().enabled) this.#checkIdleLater(context);
+  }
+
+  #checkIdleLater(context) {
+    this.#idleTimer = setTimeout(() => {
+      try {
+        this.#reconcileIdle(context);
+      } catch (error) {
+        this.invalidate(context);
+        process.stderr.write(`pots lifecycle: idle check deferred: ${error.message}\n`);
+      }
+      if (this.#state.phase !== 'closing') this.#checkIdleLater(context);
+    }, IDLE_RECHECK_MS);
+    this.#idleTimer.unref();
+  }
+
+  #reconcileIdle(context) {
+    const { phase } = this.#state;
+    if (phase === 'settled' || phase === 'closing') return;
+    if (!this.#canIdle(context)) {
+      if (phase === IDLE_PHASE) this.invalidate(context);
+      return;
+    }
+    if (phase !== IDLE_PHASE || !this.#isSameSession(context)) this.#publish(context, IDLE_PHASE);
   }
 
   input(event, context) {
+    if (this.#state?.phase === 'closing') return { action: 'handled' };
     const message = followUp(event.text);
     if (message.id) this.#received.add(message.id);
     this.invalidate(context);
@@ -86,8 +148,10 @@ export class WorkerRuntime {
   }
 
   settle(context) {
-    this.invalidate(context);
-    if (this.#isDone(context)) this.#publish(context, 'settled');
+    if (this.#state?.phase === 'closing') return;
+    this.#clearReceipt();
+    if (hasRunningWork(this.#pi)) return this.#publish(context, 'waiting');
+    this.#publish(context, this.#isDone(context) ? 'settled' : 'active');
   }
 
   finish(context) {
@@ -122,22 +186,59 @@ export class WorkerRuntime {
 
   #hasReceipt() {
     const receipt = readJson(receiptPath(this.#worker));
-    return this.#state && receipt?.id === resultId(this.#state);
+    return this.#state && receipt?.id === resultId(this.#state)
+      && (this.#state.phase === IDLE_PHASE ? Boolean(receipt.idleWitness) : !receipt.idleWitness);
   }
 
   #closeWhenFinished(context) {
-    if (!this.#hasReceipt() || !this.#canClose(context)) return;
-    this.#publish(context, 'closing');
+    if (!this.#hasReceipt()) return;
+    if (this.#state.phase === IDLE_PHASE) {
+      if (this.#canCloseIdle(context)) this.#close(context, IDLE_CLOSE);
+      else this.invalidate(context);
+    } else if (this.#canClose(context)) this.#close(context);
+  }
+
+  #close(context, reason) {
+    this.#publish(context, 'closing', reason);
     context.shutdown();
+  }
+
+  #canIdle(context) {
+    const { sessionManager } = context;
+    const sessionFile = sessionManager.getSessionFile();
+    return this.#hasQuietSession(context) && sessionFile && existsSync(sessionFile)
+      && sessionManager.getSessionId() && hasUnansweredTurn(sessionManager.getBranch()) && hasNoPendingWork(this.#pi);
+  }
+
+  #canCloseIdle(context) {
+    if (!idleWorkerPolicy().enabled || !this.#canIdle(context) || !this.#isSameSession(context)) return false;
+    if (isStopped(this.#worker) || !hasNoUnreportedWork(completionFacts(this.#worker, context.cwd))) return false;
+    const terminals = allTerminals();
+    const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
+    const witness = terminal && idleWitness(this.#state, terminal, terminals);
+    return Boolean(witness && readJson(receiptPath(this.#worker))?.idleWitness === witness && !hasQueued(this.#worker.name));
+  }
+
+  #isSameSession({ sessionManager }) {
+    return this.#matchesSessionIdentity(sessionManager) && sessionManager.getLeafId() === this.#state.leaf;
+  }
+
+  #matchesSessionIdentity(sessionManager) {
+    return sessionManager.getSessionFile() === this.#state.sessionFile && sessionManager.getSessionId() === this.#state.sessionId;
   }
 
   #isDone(context) {
     return hasFinalReply(context.sessionManager.getBranch()) && hasNoPendingWork(this.#pi);
   }
 
+  #hasQuietSession(context) {
+    return context.isIdle() && !context.hasPendingMessages() && !context.ui.getEditorText();
+  }
+
   #hasFinishedSession(context) {
-    return [context.isIdle(), !context.hasPendingMessages(), !context.ui.getEditorText().trim(),
-      context.sessionManager.getLeafId() === this.#state.leaf, this.#isDone(context)].every(Boolean);
+    const { sessionManager, ui } = context;
+    return context.isIdle() && !context.hasPendingMessages() && !ui.getEditorText().trim()
+      && this.#matchesSessionIdentity(sessionManager) && isUnchangedResult(sessionManager, this.#state.leaf) && this.#isDone(context);
   }
 
   #canClose(context) {
@@ -150,6 +251,7 @@ export class WorkerRuntime {
   }
 
   stop() {
+    clearTimeout(this.#idleTimer);
     this.#cancelClose();
     this.#observer?.close();
     this.#removeInput?.();

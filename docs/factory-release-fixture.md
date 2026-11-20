@@ -7,7 +7,7 @@ The disposable producer signs and publishes a squash of a bound review to a loca
 Run from a clean checkout of the #30 producer with Git, Node.js, Linux `flock`, Python, `gpg`, `gpgconf` and `gpgv`. Fetch the pinned #55 commit if it is missing. The fixture runs the shared record and review binding code from that commit.
 
 ```sh
-git fetch origin fix/bind-factory-verdict
+git fetch origin main
 work=$(mktemp -d)
 python3 -B probes/landing-policy.py --release 5947f43fe411c78510b58121df27dc96eaedf2c5 --export "$work/release"
 ```
