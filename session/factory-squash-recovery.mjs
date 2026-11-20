@@ -1,10 +1,10 @@
 import { isDeepStrictEqual } from 'node:util';
 import { requireLandingAuthority } from './factory-authority.mjs';
-import { probe, runChecks } from './factory-checks.mjs';
+import { effectiveCheckRevision, probe, runLegacyChecks } from './factory-checks.mjs';
 import { mergeReadback, requireReviewPolicy } from './factory-github.mjs';
 import { refreshMirror } from './factory-mirror.mjs';
 import { logDirectory, readRecord, withRecord } from './factory-records.mjs';
-import { queueFactoryWake, queueReport } from './factory-reports.mjs';
+import { deliverWakes, queueFactoryWake, queueReport } from './factory-reports.mjs';
 import { isPendingSquash } from './factory-squash-publication.mjs';
 
 function recoverySubject(original, landed) {
@@ -16,7 +16,10 @@ function recoverySubject(original, landed) {
 function createReview(subject) {
   probe();
   refreshMirror(subject.repository);
-  const checks = runChecks(subject, subject.mergeBase, logDirectory(subject));
+  const inputRevision = effectiveCheckRevision(subject.repository);
+  const checks = runLegacyChecks(subject, subject.mergeBase, logDirectory(subject));
+  if (effectiveCheckRevision(subject.repository) !== inputRevision) throw new Error('factory: recovery check inputs changed');
+  subject = { ...subject, inputRevision };
   if (!checks.length || !checks.every(check => check.isPassed === true)) {
     return queueReport({ ...subject, stage: 'checks-failed', checks },
       `PR factory cannot certify squash ${subject.head}. Its landed tree checks did not pass.`);
@@ -30,6 +33,8 @@ export function reviewSquashRecovery(original, landed) {
   if (!Object.entries(subject).every(([key, value]) => isDeepStrictEqual(review[key], value))) {
     throw new Error('factory: the recovery review differs from the recorded squash.');
   }
+  deliverWakes(review);
+  if (review.inputRevision !== effectiveCheckRevision(review.repository)) throw new Error('factory: recovery proof inputs changed');
   if (review.stage !== 'judged' || !['PASS', 'PASS+NOTES'].includes(review.verdict)
       || !review.checks?.length || !review.checks.every(check => check.isPassed === true)) return;
   return { original: original.squashPublication.request, landed: { ...landed, generation: review.generation } };

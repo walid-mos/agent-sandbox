@@ -108,6 +108,10 @@ def main():
         command([str(SESSION / "factory-runtime/initialize-bot")])
         gateway = spawn([str(SESSION / "with-vault"), "pots", "start"], privilege="factory")
         command(["node", str(SESSION / "factory-bot.mjs")])
+        mode = subprocess.run(["node", str(SESSION / "factory-mode.mjs")], env=ENVIRONMENT,
+                              user=FACTORY_UID, group=FACTORY_UID, extra_groups=[], check=False)
+        if mode.returncode == 0:
+            spawn(["node", str(SESSION / "factory-controller.mjs")], privilege="factory")
         raise SystemExit(gateway.wait())
     finally:
         stop()

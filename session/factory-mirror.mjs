@@ -23,8 +23,11 @@ export function refreshMirror(repository) {
   command('git', ['clone', '--quiet', '--mirror', remoteUrl(repository), mirror]);
 }
 
-export function mergeBase(repository, baseBranch, head) {
-  return inMirror(repository, ['merge-base', `refs/heads/${baseBranch}`, head]);
+// A scan names a branch while a durable review names the exact target commit it checked.
+const revision = base => (/^[0-9a-f]{40}$/.test(base) ? base : `refs/heads/${base}`);
+
+export function mergeBase(repository, base, head) {
+  return inMirror(repository, ['merge-base', revision(base), head]);
 }
 
 export function branchTip(repository, branch) {
@@ -41,6 +44,15 @@ export function pushCommit(repository, commit, branch) {
 
 export function changeText(repository, base, head) {
   return inMirror(repository, ['diff', '--stat', '--patch', '--no-ext-diff', '--no-textconv', base, head]);
+}
+
+export function copyCheckInputs(repository, head, destination) {
+  const git = (...arguments_) => command('git', ['-C', destination, ...arguments_], {
+    env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '0', GIT_TEMPLATE_DIR: '' },
+  });
+  git('init', '--quiet', '--initial-branch=factory-check');
+  git('fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--no-auto-gc', mirrorPath(repository), head);
+  git('checkout', '--quiet', '--detach', head);
 }
 
 // A copy, not hardlinks: code in the copy can rewrite its files, and those must never be the mirror's objects.
