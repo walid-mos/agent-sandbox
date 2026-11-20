@@ -39,7 +39,7 @@ const { createAdmission } = await import('./worker-admission.mjs');
 const { healthyWorkerMemory } = await import('../probes/fixtures/worker-memory.mjs');
 const { runOperation } = await import('./main.mjs');
 const { WorkerRuntime } = await import('./worker-runtime.mjs');
-const { receiptPath, statePath } = await import('./worker-lifecycle.mjs');
+const { AUTO_CLOSE_MS, receiptPath, SETTLED_GRACE_MS, statePath } = await import('./worker-lifecycle.mjs');
 const { requestRelease, RESTING_PHASE } = await import('./worker-release.mjs');
 const { readJson } = await import('./private-json.mjs');
 const { save, workers, WORKERS } = await import('./workers.mjs');
@@ -191,17 +191,62 @@ test('terminal input withdraws the release receipt', ({ mock: { timers } }) => {
   assert.equal(readJson(receiptPath(worker)), undefined);
 });
 
+// A finished worker makes no one wake it again, so it closes itself after the person's five-minute grace.
+const finalReply = () => { branch = [user, { id: 'leaf-1', type: 'message', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'PR is ready.' }] } }]; };
+
+function settledRelease(timers) {
+  finalReply();
+  runtime.settle(context);
+  timers.tick(SETTLED_GRACE_MS);
+  inspect();
+  requestRelease(resting.get(worker.name));
+}
+
+test('a finished worker closes itself five minutes after its final reply and keeps its saved session', ({ mock: { timers } }) => {
+  finalReply();
+  runtime.settle(context);
+  assert.equal(readJson(statePath(worker)).phase, 'settled');
+  timers.tick(AUTO_CLOSE_MS / 2);
+  assert.equal(shutdowns, 0);
+  timers.tick(AUTO_CLOSE_MS / 2);
+  assert.equal(shutdowns, 1);
+  assert.equal(readJson(statePath(worker)).phase, 'closing');
+  assert.equal(readJson(statePath(worker)).closeReason, 'finished');
+  assert.equal(readJson(statePath(worker)).sessionFile, sessionFile);
+});
+
+test('a follow-up queued to a finished worker holds its own close', ({ mock: { timers } }) => {
+  finalReply();
+  runtime.settle(context);
+  enqueue({ worker: worker.name, message: 'Continue' });
+  timers.tick(AUTO_CLOSE_MS);
+  assert.equal(shutdowns, 0);
+});
+
+test('an unread helper terminal holds a finished worker past its five-minute grace', ({ mock: { timers } }) => {
+  finalReply();
+  runtime.settle(context);
+  terminals.push({ address: 't-helper', parent: terminal.address, state: 'live', status: 'done', finished_ms: Date.now() });
+  timers.tick(AUTO_CLOSE_MS);
+  assert.equal(shutdowns, 0);
+});
+
+test('a memory release reaches a finished worker before its five-minute grace', ({ mock: { timers } }) => {
+  shortage = 'low available memory';
+  settledRelease(timers);
+  runtime.finish(context);
+  assert.equal(shutdowns, 1);
+  assert.equal(readJson(statePath(worker)).closeReason, 'memory');
+});
+
 for (const [guard, apply] of Object.entries({
   'explicit keep': () => { terminals = [{ ...terminal, labels: { ...terminal.labels, 'lifecycle.keep': 'yes' } }]; },
   'a changed terminal turn': () => { terminals = [{ ...terminal, turn: terminal.turn + 1 }]; },
   'an unread helper': () => { terminals.push({ address: 't-helper', parent: terminal.address, state: 'finished', finished_ms: 2_000 }); },
   'a pending follow-up': () => enqueue({ worker: worker.name, message: 'Continue' }),
   'an unsent draft': () => { context.ui.getEditorText = () => ' '; },
-  'a new task result': () => writeFileSync(worker.resultFile, 'Unread result'),
   'a pending dialog': () => { context.hasPendingMessages = () => true; },
   'pending background work': () => { counts.awaited = 1; },
-  'a new goal': () => { branch = [user, { type: 'custom', customType: 'pi-goal-state-v1', data: { items: [{ done: false }] } }]; },
-  'assistant output': () => { branch = [user, { type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'Unread' }] } }]; },
 })) {
   test(`${guard} appearing after a release receipt keeps the terminal open`, ({ mock: { timers } }) => {
     shortage = 'low available memory';
@@ -209,5 +254,22 @@ for (const [guard, apply] of Object.entries({
     apply();
     runtime.finish(context);
     assert.equal(shutdowns, 0);
+  });
+}
+
+// A task whose saved result and a session that already answered both rest fine: the release takes no work away, only the process.
+for (const [alreadyResting, apply, name] of [
+  ['a task result saved on disk', () => writeFileSync(worker.resultFile, 'Saved result'), 'a task worker whose saved result file is present releases and keeps its result'],
+  ['an open goal item', () => { branch = [user, { type: 'custom', customType: 'pi-goal-state-v1', data: { items: [{ done: false }] } }]; }, 'an open goal item does not hold a worker back from a release'],
+  ['an answered final turn', () => { branch = [user, { type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'Done' }] } }]; }, 'assistant output the bot has not read does not hold a worker back from a release'],
+]) {
+  test(name, ({ mock: { timers } }) => {
+    shortage = 'low available memory';
+    apply();
+    released(timers);
+    runtime.finish(context);
+    assert.equal(shutdowns, 1);
+    assert.equal(readJson(statePath(worker)).closeReason, 'memory');
+    assert.equal(workers()[0].sessionFile, sessionFile);
   });
 }

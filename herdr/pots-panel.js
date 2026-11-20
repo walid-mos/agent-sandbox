@@ -18,6 +18,8 @@ const SIDEBAR_PX = 330;
 const CHAT_MIN_PX = 400;
 const COMPACT_SIDEBAR_PX = 200;
 const UNKNOWN_WORKER_STATE = "blocked";
+// A worker whose own close recorded a reason hibernates: everything it needed is on disk and a send brings it back, so it is not broken.
+const WORKER_STATES = { ...STATES, hibernated: { label: "Hibernated", color: "dim" } };
 const LOADING = "Loading…";
 const CONNECTING = "Connecting…";
 
@@ -160,12 +162,12 @@ export class PotsPanel {
 
   workerRow(worker) {
     const colors = theme();
-    const state = Object.hasOwn(STATES, worker.status) ? worker.status : UNKNOWN_WORKER_STATE;
+    const state = Object.hasOwn(WORKER_STATES, worker.status) ? worker.status : UNKNOWN_WORKER_STATE;
     const dialog = this.dialogs.render(worker);
     return v_flex().id(`pots-worker-${worker.name}`).w_full().flex_none().gap(4).py(6)
       .child(h_flex().gap(7).child(statusGlyph(state, worker.name))
         .child(label(worker.title, TEXT.body, colors.foreground).flex_1())
-        .child(label(worker.isQueued && worker.status === "starting" ? "Waiting in queue" : STATES[state].label, TEXT.micro, colors[STATES[state].color]).flex_none()))
+        .child(label(worker.isQueued && worker.status === "starting" ? "Waiting in queue" : WORKER_STATES[state].label, TEXT.micro, colors[WORKER_STATES[state].color]).flex_none()))
       .child(label(`${worker.repository} · ${worker.branch}`, TEXT.micro, colors.dim))
       .child(h_flex().gap(4)
         .when(Boolean(worker.terminal), element => element.child(textButton({ id: `open-${worker.name}`, text: "Open", action: () => openWorker(this.sandbox, worker) })))

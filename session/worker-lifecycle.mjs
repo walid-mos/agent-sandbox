@@ -9,6 +9,9 @@ import { isLive, ownsTerminal, PUBLICATION, WORKERS, withPublication } from './w
 
 export const LIFECYCLE = join(WORKERS, 'lifecycle');
 export const SETTLED_GRACE_MS = 5000;
+// A settled worker makes no one wake it again, so it closes itself a grace after its final reply; the person set five minutes.
+export const AUTO_CLOSE_MS = 5 * 60_000;
+export const AUTO_CLOSE_REASON = 'finished';
 const MESSAGE_PREFIX = '<pots-follow-up id="';
 const MESSAGE_SEPARATOR = '">\n';
 const MESSAGE_SUFFIX = '\n</pots-follow-up>';
@@ -100,3 +103,6 @@ export function canRest(state, terminal, terminals, dialogCheck = waitsForHuman)
 export function canFinish(state, terminal, terminals, now) {
   return state?.phase === 'settled' && now >= readyAt(state) && canRest(state, terminal, terminals);
 }
+
+// A worker whose own close recorded a reason closed itself while everything was already saved: it hibernates, not crashed and not stopped.
+export const isHibernated = state => state?.phase === 'closing' && Boolean(state.closeReason);

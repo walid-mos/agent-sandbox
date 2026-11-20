@@ -19,7 +19,7 @@ const { createAdmission } = await import('./worker-admission.mjs');
 const { acknowledgeResult } = await import('./worker-results.mjs');
 const { enqueue, queued, QUEUE } = await import('./queue.mjs');
 const { receiptPath, statePath, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
-const { writePrivateJson } = await import('./private-json.mjs');
+const { writePrivateJson, readJson } = await import('./private-json.mjs');
 const { allTerminals, save, workers, WORKERS } = await import('./workers.mjs');
 const sessionFile = join(scratch, 'task', 'exact.jsonl');
 mkdirSync(join(scratch, 'task'));
@@ -114,6 +114,22 @@ test('receipt covers only the current result and refuses a queued follow-up', ()
   enqueue({ worker: worker.name, message: 'New request' });
   assert.throws(() => acknowledgeResult(['owned', id]), /follow-up is queued/);
   assert.deepEqual(readdirSync(QUEUE).filter(file => file.endsWith('.json')).length, 1);
+});
+
+test('a hibernated worker keeps its saved result collectable after its terminal is gone', () => {
+  inspect();
+  const saved = workers()[0];
+  writePrivateJson(statePath(worker), { ...readJson(statePath(worker)), phase: 'closing', closeReason: 'finished', closedAt: Date.now() });
+  setTerminals([]);
+  acknowledgeResult(['owned', saved.result.id]);
+  assert.equal(JSON.parse(readFileSync(receiptPath(worker), 'utf8')).id, saved.result.id);
+});
+
+test('a worker lost with its result still unsettled is not acknowledged', () => {
+  inspect();
+  const id = workers()[0].result.id;
+  setTerminals([]);
+  assert.throws(() => acknowledgeResult(['owned', id]), /no longer live/);
 });
 
 test('a finished-idle report can be acknowledged without a Herdr app', () => {

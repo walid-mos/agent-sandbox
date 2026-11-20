@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, watch } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { stopIdleStacks } from './idle-stacks.mjs';
+import { stopIdleStacks, stopMemoryStacks } from './idle-stacks.mjs';
 import { inspectWorker } from './inspect-worker.mjs';
 import { main } from './main.mjs';
 import { memoryShortage } from './memory-signals.mjs';
@@ -11,7 +11,7 @@ import { allTerminals, closeTerminal, isLive, isPublicationRecord, liveTerminals
 import { botId } from './sandbox.mjs';
 import { createAdmission } from './worker-admission.mjs';
 import { LIFECYCLE } from './worker-lifecycle.mjs';
-import { RELEASE_RECHECK_MS, releaseOrder, requestRelease } from './worker-release.mjs';
+import { RELEASE_RECHECK_MS, releasableHelpers, releaseOrder, requestRelease, stackReleaseWorktrees } from './worker-release.mjs';
 
 // One change of a terminal comes as several events, so a pass waits for the burst to end.
 const SETTLE_MS = 200;
@@ -60,11 +60,21 @@ export function createWatcher({ readText, now, logFailure = writeFailure } = {})
     }
   }
 
-  // The kernel is short on memory, so the least recently active at-rest worker goes first, and one release per pass lets its memory return before the next.
-  function releaseOne(resting) {
-    if (resting.size === 0 || memoryReason() === undefined) return undefined;
-    const [candidate] = releaseOrder(resting.values());
-    logged(candidate.worker.name, () => requestRelease(candidate));
+  // The kernel is short on memory, so the least-loss workload goes back first: a read-out helper terminal, a resting worktree's Compose projects, then a worker at rest; one release per pass lets its memory return before the next.
+  function release(liveTerminals, resting, stackWorktrees) {
+    const helper = releasableHelpers(liveTerminals)[0];
+    const stackCandidates = stackReleaseWorktrees(stackWorktrees, liveTerminals);
+    const stackCandidate = stackCandidates[0];
+    if (!helper && !stackCandidate && resting.size === 0) return undefined;
+    if (memoryReason() === undefined) return undefined;
+    if (helper) {
+      logged(helper.name, () => closeTerminal({ name: helper.name }, helper));
+      return Date.now() + RELEASE_RECHECK_MS;
+    }
+    if (stopMemoryStacks(stackCandidates, logFailure)) return Date.now() + RELEASE_RECHECK_MS;
+    if (resting.size === 0) return undefined;
+    const [workerCandidate] = releaseOrder(resting.values());
+    logged(workerCandidate.worker.name, () => requestRelease(workerCandidate));
     return Date.now() + RELEASE_RECHECK_MS;
   }
 
@@ -81,8 +91,9 @@ export function createWatcher({ readText, now, logFailure = writeFailure } = {})
       const live = liveTerminals();
       const retryAfter = serveQueue(live, logFailure, admission);
       const admissionDue = retryAfter === undefined ? undefined : Date.now() + retryAfter;
-      const releaseDue = releaseOne(view.resting);
-      const idleStackDue = logged('idle stacks', () => stopIdleStacks(records.filter(worker => worker.kind !== 'task').map(worker => worker.worktree), live, logFailure));
+      const stackWorktrees = records.filter(worker => worker.kind !== 'task').map(worker => worker.worktree);
+      const releaseDue = release(live, view.resting, stackWorktrees);
+      const idleStackDue = logged('idle stacks', () => stopIdleStacks(stackWorktrees, live, logFailure));
       lookAgainAt([...times, idleStackDue, admissionDue, releaseDue]);
     } catch (error) {
       logFailure('workers', error);

@@ -3,9 +3,9 @@ import { existsSync, rmSync, watch } from 'node:fs';
 import { basename } from 'node:path';
 import { allTerminals, isStopped } from './workers.mjs';
 import { memoryShortage } from './memory-signals.mjs';
-import { hasNoUnreportedWork, RELEASE_REASON, RELEASE_RECHECK_MS, restWitness, RESTING_PHASE } from './worker-release.mjs';
+import { RELEASE_PHASES, RELEASE_REASON, RELEASE_RECHECK_MS, restWitness, RESTING_PHASE } from './worker-release.mjs';
 import { hasQueued } from './queue.mjs';
-import { canFinish, completionFacts, followUp, isPublished, LIFECYCLE, receiptPath, resultId, statePath } from './worker-lifecycle.mjs';
+import { AUTO_CLOSE_MS, AUTO_CLOSE_REASON, canFinish, canRest, completionFacts, followUp, isPublished, LIFECYCLE, receiptPath, resultId, statePath } from './worker-lifecycle.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 
 const WORK_CONTRACTS = { 'pi-subagents:active-work:v1': ['asyncRuns', 'waitSubscriptions'], 'pi-guard:bash-jobs:v1': ['awaited'] };
@@ -29,16 +29,6 @@ function hasAssistantText(message) {
 function isFinalMessage({ message }) {
   return message?.stopReason === 'stop' && hasAssistantText(message);
 }
-
-function hasUnansweredTurn(branch) {
-  const lastUser = branch.findLastIndex(entry => entry.type === 'message' && entry.message.role === 'user');
-  if (lastUser < 0 || hasOpenGoal(branch)) return false;
-  const messages = branch.slice(lastUser + 1).filter(entry => entry.type === 'message').map(entry => entry.message);
-  const answers = new Set(messages.filter(message => message.role === 'toolResult').map(message => message.toolCallId));
-  return !messages.some(message => hasAssistantText(message) || message.role === 'assistant'
-    && message.content?.some(part => part.type === 'toolCall' && !answers.has(part.id)));
-}
-
 export function hasFinalReply(branch) {
   if (hasOpenGoal(branch)) return false;
   const entry = branch.findLast(candidate => candidate.type === 'message');
@@ -87,7 +77,8 @@ export class WorkerRuntime {
     const state = { ...this.#worker, terminal: process.env.HC_TERMINAL_ID,
       sessionFile: context.sessionManager.getSessionFile(), sessionId: context.sessionManager.getSessionId(),
       leaf: context.sessionManager.getLeafId(), generation: randomUUID(), phase, received: [...this.#received],
-      ...(phase === 'settled' && { settledAt: Date.now() }), ...(closeReason && { closeReason }),
+      ...(phase === 'settled' && { settledAt: Date.now() }), ...(phase === 'closing' && { closedAt: Date.now(), settledAt: this.#state?.settledAt }),
+      ...(closeReason && { closeReason }),
       ...(phase === 'waiting' && { waitingSince: this.#state?.phase === 'waiting' ? this.#state.waitingSince : Date.now() }) };
     writePrivateJson(statePath(this.#worker), state);
     this.#state = state;
@@ -131,12 +122,22 @@ export class WorkerRuntime {
 
   #reconcileRest(context) {
     const { phase } = this.#state;
-    if (phase === 'settled' || phase === 'closing') return;
+    if (phase === 'settled') return this.#reconcileSettled(context);
+    if (phase === 'closing') return;
     if (!this.#isAtRest(context)) {
       if (phase === RESTING_PHASE) this.invalidate(context);
       return;
     }
     if (phase !== RESTING_PHASE || !this.#isSameSession(context)) this.#publish(context, RESTING_PHASE);
+  }
+
+  // The work finished and its report is saved: after the person's grace the worker closes itself, unless a guard still holds.
+  #reconcileSettled(context) {
+    if (Date.now() < this.#state.settledAt + AUTO_CLOSE_MS || !this.#hasFinishedSession(context)) return;
+    const terminals = allTerminals();
+    const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
+    if (!terminal || hasQueued(this.#worker.name) || !canRest(this.#state, terminal, terminals)) return;
+    this.#close(context, AUTO_CLOSE_REASON);
   }
 
   input(event, context) {
@@ -186,13 +187,16 @@ export class WorkerRuntime {
 
   #hasReceipt() {
     const receipt = readJson(receiptPath(this.#worker));
-    return this.#state && receipt?.id === resultId(this.#state)
-      && (this.#state.phase === RESTING_PHASE ? Boolean(receipt.restWitness) : !receipt.restWitness);
+    if (!this.#state || receipt?.id !== resultId(this.#state)) return false;
+    // The receipt's shape picks the path: a release receipt carries the exact rest witness, a finish receipt only the result ID.
+    if (receipt.restWitness) return RELEASE_PHASES.includes(this.#state.phase);
+    return this.#state.phase === 'settled';
   }
 
   #closeWhenFinished(context) {
     if (!this.#hasReceipt()) return;
-    if (this.#state.phase === RESTING_PHASE) {
+    // The receipt's shape picks the path: a release receipt closes at rest, a finish receipt closes a settled worker.
+    if (readJson(receiptPath(this.#worker))?.restWitness) {
       if (this.#canRelease(context)) this.#close(context, RELEASE_REASON);
       else this.invalidate(context);
     } else if (this.#canClose(context)) this.#close(context);
@@ -207,13 +211,13 @@ export class WorkerRuntime {
     const { sessionManager } = context;
     const sessionFile = sessionManager.getSessionFile();
     return this.#hasQuietSession(context) && sessionFile && existsSync(sessionFile)
-      && sessionManager.getSessionId() && hasUnansweredTurn(sessionManager.getBranch()) && hasNoPendingWork(this.#pi);
+      && sessionManager.getSessionId() && hasNoPendingWork(this.#pi);
   }
 
   // The watcher writes the release receipt while the guest is short, and the worker samples the same signal once more before it goes.
   #canRelease(context) {
     if (!this.#isAtRest(context) || !this.#isSameSession(context)) return false;
-    if (isStopped(this.#worker) || !hasNoUnreportedWork(completionFacts(this.#worker, context.cwd))) return false;
+    if (isStopped(this.#worker)) return false;
     const terminals = allTerminals();
     const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
     const witness = terminal && restWitness(this.#state, terminal, terminals);

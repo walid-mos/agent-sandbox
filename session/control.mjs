@@ -11,6 +11,7 @@ import { commandOutput } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { endTerminal, isStopped, liveTerminals, markStopped, terminalOf, workerTitle, workers } from './workers.mjs';
 import { answerDialog, waitingDialog } from './worker-dialogs.mjs';
+import { isHibernated, lifecycleOf } from './worker-lifecycle.mjs';
 
 const MESSAGE_LIMIT = 80;
 const TRACE_LIMIT = '8';
@@ -71,7 +72,7 @@ async function snapshot() {
   const rows = workers().map(worker => {
     const terminal = terminalOf(worker, terminals);
     const isQueued = !terminal && waiting.has(worker.name);
-    const status = isStopped(worker) ? 'offline' : terminal?.status ?? (isQueued ? 'starting' : worker.status ?? 'starting');
+    const status = isStopped(worker) ? 'offline' : terminal?.status ?? (isQueued ? 'starting' : isHibernated(lifecycleOf(worker)) ? 'hibernated' : worker.status ?? 'starting');
     const dialog = status === 'blocked' && terminal ? waitingDialog(terminal) : null;
     return { ...worker, title: workerTitle(worker, terminal), terminal: terminal?.address ?? null, status, dialog, isQueued };
   });

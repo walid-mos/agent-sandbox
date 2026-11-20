@@ -6,7 +6,7 @@ import { endTerminal, isLive, isStopped, passes, save, terminalOf, workerTitle }
 import { canFinish, isPublished, lifecycleOf, readyAt, reportFacts } from './worker-lifecycle.mjs';
 import { SESSION_LABEL, waitsForHuman } from './worker-human.mjs';
 import { keepResult } from './worker-results.mjs';
-import { trackCandidate, RESTING_PHASE } from './worker-release.mjs';
+import { trackCandidate, RELEASE_PHASES } from './worker-release.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
 const RESUMABLE = new Set(['done', 'idle']);
@@ -62,16 +62,16 @@ function recordSession(worker, state) {
 
 // A closing worker had its result acknowledged and is exiting, so it has nothing new to report.
 function inspectLive(worker, terminal, state, view) {
-  if (state?.phase !== RESTING_PHASE) view.resting.delete(worker.name);
+  if (!RELEASE_PHASES.includes(state?.phase)) view.resting.delete(worker.name);
   if (state?.phase === 'closing') return undefined;
   const due = readyAt(state);
   if (view.now < due) return due;
-  const { facts, resumes } = reportCurrent(worker, terminal, state, view);
+  const { resumes } = reportCurrent(worker, terminal, state, view);
   if (resumes !== undefined) {
     view.resting.delete(worker.name);
     return resumes;
   }
-  if (state?.phase === RESTING_PHASE) trackCandidate(worker, terminal, state, view, facts);
+  if (RELEASE_PHASES.includes(state?.phase)) trackCandidate(worker, terminal, state, view);
   return undefined;
 }
 

@@ -1,6 +1,7 @@
 import { sep } from 'node:path';
 import { idleStackMinutes } from './limits.mjs';
 import { command } from './run.mjs';
+import { stackReleaseWorktrees } from './worker-release.mjs';
 
 const MINUTE_MS = 60_000;
 const PROJECT_LABEL = 'com.docker.compose.project';
@@ -11,6 +12,8 @@ const idleSince = new Map();
 const stopped = new Set();
 
 const isInside = (path, folder) => path === folder || path.startsWith(`${folder}${sep}`);
+
+export { isInside };
 
 function idleDeadline(worktree, terminals, now) {
   if (terminals.some(terminal => isInside(terminal.cwd ?? '', worktree))) {
@@ -28,20 +31,33 @@ function runningProjects() {
     .split('\n').filter(Boolean).map(row => row.split('\t')).filter(([project]) => project);
 }
 
-function stopStacks(worktree, projects) {
+function stopStacks(worktree, projects, reason) {
   const own = new Set(projects.filter(([, folder]) => isInside(folder, worktree)).map(([project]) => project));
   own.forEach(project => {
     command('docker', ['compose', '-p', project, 'stop'], { cwd: OUTSIDE_ANY_PROJECT });
-    process.stdout.write(`pots-watcher: stopped Compose project ${project} of ${worktree}, idle for ${idleStackMinutes} minutes\n`);
+    process.stdout.write(`pots-watcher: stopped Compose project ${project} of ${worktree}${reason ? `, ${reason}` : `, idle for ${idleStackMinutes} minutes`}\n`);
   });
   stopped.add(worktree);
+}
+
+// The guest is short on memory: the first resting worktree with a running project stops its stacks, so their containers go before any worker releases.
+export function stopMemoryStacks(worktreeCandidates, logFailure) {
+  try {
+    const projects = runningProjects();
+    const worktree = worktreeCandidates.find(candidate => projects.some(([, folder]) => isInside(folder, candidate)));
+    if (worktree) stopStacks(worktree, projects, 'the guest is short on memory');
+    return worktree;
+  } catch (error) {
+    logFailure('stack release', error);
+    return undefined;
+  }
 }
 
 // A failed look tries again after another idle period, so a Docker daemon that is down never makes the watcher spin.
 function stopDue(worktrees, now, logFailure) {
   try {
     const projects = runningProjects();
-    worktrees.forEach(worktree => stopStacks(worktree, projects));
+    worktrees.forEach(worktree => stopStacks(worktree, projects, undefined));
   } catch (error) {
     logFailure('idle stacks', error);
     worktrees.filter(worktree => !stopped.has(worktree)).forEach(worktree => idleSince.set(worktree, now));

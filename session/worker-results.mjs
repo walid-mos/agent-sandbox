@@ -4,7 +4,7 @@ import { hasQueued } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { allTerminals, ownedWorker, WORKERS } from './workers.mjs';
-import { canFinish, lifecycleOf, receiptPath, resultId } from './worker-lifecycle.mjs';
+import { canFinish, isHibernated, lifecycleOf, receiptPath, resultId } from './worker-lifecycle.mjs';
 import { writePrivateJson } from './private-json.mjs';
 
 export function keepResult(worker, terminal, state) {
@@ -32,9 +32,15 @@ function verifyCurrentResult(worker, id) {
   const state = lifecycleOf(worker);
   const terminals = allTerminals();
   const terminal = terminals.find(candidate => candidate.address === worker.terminal);
-  if (!state || !terminal) throw new Error('dispatch: the result is no longer live. Read its current report.');
-  const isCurrent = [resultId(state) === id, canFinish(state, terminal, terminals, Date.now())].every(Boolean);
-  if (!isCurrent) throw new Error('dispatch: the result changed or the worker still needs attention. Read its current report.');
+  if (!state) throw new Error('dispatch: the result is no longer live. Read its current report.');
+  if (terminal) {
+    const isCurrent = [resultId(state) === id, canFinish(state, terminal, terminals, Date.now())].every(Boolean);
+    if (!isCurrent) throw new Error('dispatch: the result changed or the worker still needs attention. Read its current report.');
+    return;
+  }
+  // A saved result stays collectable after the worker's own close: the settled state that recorded it is still on file.
+  const isSameSettlement = isHibernated(state) && worker.result.state.settledAt === state.settledAt;
+  if (!isSameSettlement) throw new Error('dispatch: the result is no longer live. Read its current report.');
 }
 
 export function acknowledgeResult([name, id]) {
