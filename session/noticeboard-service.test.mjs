@@ -63,6 +63,20 @@ function contextFor(t) {
   assert.deepEqual(context.store.events(), []);
 });
 
+ test('a busy store keeps the event for the next pass instead of spending an attempt', async t => {
+  const context = contextFor(t);
+  const exclusive = context.store.exclusive;
+  context.store.exclusive = async () => ({ status: 'busy' });
+  await noticeboardServicePass(context);
+  assert.equal(context.store.events().length, 1);
+  assert.equal(context.store.events()[0].attempts, undefined);
+  context.store.exclusive = exclusive;
+  context.client.readEvents = async () => [];
+  await noticeboardServicePass(context);
+  assert.deepEqual(context.store.events(), []);
+  assert.equal(context.store.records()[0]?.stage, 'verified');
+});
+
  test('disabled service does not open its inbox or call the adapter', async t => {
   const context = contextFor(t);
   context.client.readEvents = async () => { assert.fail('disabled service read gateway events'); };

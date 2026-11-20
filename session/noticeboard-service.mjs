@@ -20,7 +20,7 @@ export async function noticeboardServicePass(context) {
   for (const event of store.pendingEvents(now)) {
     const result = await noticeboardPass({ ...context, event });
     if (completedObservation.has(result?.observation)) store.complete(event.id);
-    else store.defer(event.id, now, result?.retry);
+    else if (result?.status !== 'busy') store.defer(event.id, now, result?.retry);
   }
   await noticeboardPass({ ...context, event: undefined });
   store.exhaust(now);
