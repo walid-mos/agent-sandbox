@@ -57,9 +57,21 @@ This task creates only its brief, worker record and queued launch. Its lifecycle
 
 The snapshot preserves a worker's kind and title before its terminal starts. A local repository worker has `publication: "local"` and no PR. A pushed worker awaiting a draft has `publication: "awaiting-pr"`. Neither is a collectable final result. Publication uses its own atomic record, so a concurrent watcher report cannot overwrite it. A published repository result still requires clean and pushed Git state. Task reports carry `resultFile` and `resultReady` instead of Git facts.
 
-Both kinds retain the existing lifecycle guards. The watcher saves the exact transcript and screen only after the settled final reply, completed goals, no pending work, no open human dialog and no unread helpers. The coordinator reads those files and the task's result file when present, then acknowledges the exact result ID with `dispatch.mjs finish`. Pi rechecks its live session and completion facts before closing. An idle badge alone is insufficient.
+Both kinds retain the existing lifecycle guards. The watcher saves the exact transcript and screen only after the settled final reply, completed goals, no pending work, no open human dialog and no unread helpers. The coordinator reads those files and the task's result file when present, then acknowledges the exact result ID with `dispatch.mjs finish`. Pi rechecks its live session and completion facts before closing. A HUD prompt-timing entry appended after settlement can move the session leaf while leaving the acknowledged result current. New messages, other entries after settlement, and any pending messages still block this close. An idle badge alone is insufficient.
 
 `control.mjs stop-worker WORKER` marks and ends either kind without requiring a PR or Git. `dispatch.mjs send WORKER MESSAGE_FILE` clears the stop and queues a follow-up. The watcher resumes the same recorded Pi session when it admits another launch. Automatic crash recovery remains bounded across watcher restarts. Idle Compose shutdown applies only to repository worktrees, never a task's arbitrary directory. Pots remains responsible for its workers' finish and cleanup, independently of Herdr views.
+
+## Reclaim idle worker terminals
+
+`idleWorkerMinutes` in each pot's `/etc/agent-sandbox/sandbox.json` defaults to 30 minutes. Use a whole number of minutes. Set it to `0` to disable idle reclamation. The memory check still controls launch admission. Each idle worker must qualify for the full interval, regardless of the number of open terminals.
+
+Run `node /opt/agent-sandbox/session/dispatch.mjs idle-policy` **inside each pot** for its effective value and pot name. Compare the readback to the `pots-watcher: idle policy` line from its latest startup. After an authorized signed update or setting change, restart the watcher using the normal service procedure. Workers already running keep the extension and settings loaded at their launch. Verify the policy with a new controlled worker and preserve existing live workers.
+
+Pi must report a quiet session with an unanswered turn and a saved conversation. The watcher measures elapsed time from its first eligible observation using a monotonic clock. A changed activity record, a lost hc event stream, or a watcher restart starts a fresh interval. The watcher first submits the normal open report to Pots. Pi then checks the same launch and session, the queue, pending work and dialogs, goals, drafts, unread helpers and new output before recording the close and exiting. A final result still needs its exact `dispatch finish` receipt.
+
+Use `agent-lifecycle keep TERMINAL` before attaching to hold the worker open. The watcher sees the `lifecycle.keep` label. A remote Herdr view or a direct `hc attach` has no viewer flag in the pot's terminal record. The hc `keep` field controls shell recovery and is separate from the lifecycle label.
+
+To resume an idle-closed worker, use `dispatch.mjs send WORKER MESSAGE_FILE`. It queues the follow-up and opens the saved Pi session when memory admission allows. The worker's launch record and last screen remain in `~/.config/agent-sandbox/workers/`. If the saved session file is missing, restore that exact file before retrying `send`. If a final result stays settled after acknowledgement, inspect the live Pi session and its close diagnostics. Idle reclamation never substitutes for that acknowledgement path.
 
 ## Worker admission
 

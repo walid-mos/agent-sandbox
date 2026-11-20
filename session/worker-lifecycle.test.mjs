@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { canFinish, followUp, hasUncollectedHelpers, SETTLED_GRACE_MS, wrappedFollowUp } from './worker-lifecycle.mjs';
-import { hasFinalReply } from './worker-runtime.mjs';
-import { terminalOf } from './workers.mjs';
+import { sandboxFixture } from '../probes/fixtures/sandbox.mjs';
+
+sandboxFixture('worker-lifecycle-');
+const { canFinish, followUp, hasUncollectedHelpers, SETTLED_GRACE_MS, wrappedFollowUp } = await import('./worker-lifecycle.mjs');
+const { hasFinalReply } = await import('./worker-runtime.mjs');
+const { terminalOf } = await import('./workers.mjs');
 
 const finishedAt = 1000;
 const now = finishedAt + SETTLED_GRACE_MS;
