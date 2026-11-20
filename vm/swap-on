@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+# vm/setup.sh sizes this file; a pot that configures no swap has none, and this then succeeds without one.
+swap=/swapfile
+[ -f "$swap" ] || exit 0
+if swapon --show=NAME --noheadings | grep -qx "$swap"; then
+	exit 0
+fi
+exec swapon "$swap"

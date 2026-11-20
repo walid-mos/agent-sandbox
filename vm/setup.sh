@@ -103,13 +103,16 @@ install_login_scores() {
 
 install_units() {
 	install -m 0755 "$here/shields-up" /usr/local/sbin/pots-shields-up
+	install -m 0755 "$here/swap-on" /usr/local/sbin/pots-swap
 	install -m 0644 "$here/pots-keeper.service" "$here/pots-keeper.timer" "$here/pots-update.service" "$here/pots-update.timer" \
-		"$here/pots-tailnet-guard.service" "$here/pots-tailnet-guard.timer" "$here/pots-shields-up.service" "$here/pots-vault.service" /etc/systemd/system/
+		"$here/pots-tailnet-guard.service" "$here/pots-tailnet-guard.timer" "$here/pots-shields-up.service" "$here/pots-vault.service" \
+		"$here/pots-swap.service" /etc/systemd/system/
 	install_login_scores
 	systemctl daemon-reload
 	systemctl enable pots-vault.service
 	systemctl restart pots-vault.service
 	systemctl enable --now pots-keeper.timer pots-update.timer pots-tailnet-guard.timer
+	systemctl enable --now pots-swap.service
 }
 
 # The isolated factory and its two services. GnuPG both signs the landing commit and verifies the tip the signer extends.
@@ -146,7 +149,7 @@ configure_swap() {
 		fallocate --length "${wanted_gib}GiB" "$SWAP_FILE"
 		mkswap "$SWAP_FILE" > /dev/null
 	fi
-	# No boot entry: a VM that starts without vm-up runs without swap until the next vm-up turns the file back on here.
+	# pots-swap.service turns the file back on at every boot, so a VM that starts without vm-up keeps its swap.
 	swap_is_on || swapon "$SWAP_FILE"
 }
 

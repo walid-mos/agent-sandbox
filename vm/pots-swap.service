@@ -1,0 +1,11 @@
+[Unit]
+Description=Turn this pot's swap file back on
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/pots-swap
+
+[Install]
+WantedBy=multi-user.target

@@ -98,6 +98,8 @@ The pot's units that keep it reachable, the door, the vault broker, the firewall
 
 A worker killed this way is a crash: the watcher ends its terminal, keeps the saved session, and resumes it on its own only when it had work in hand. Containers a worker starts for its development stack take the score their own Compose file sets, so a stack that must survive sets `oom_score_adj` itself.
 
+A pot that configures `vm.swapGiB` keeps that swap across a reboot: [the swap unit](../vm/pots-swap.service) turns the existing file back on at boot, even when nothing runs `vm-up`.
+
 ## Proof and rollout
 
 `./bin/check` is the source proof for this procedure, including the dispatch probe and the worker publication, inspection and task suites.
