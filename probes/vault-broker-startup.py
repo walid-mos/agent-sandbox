@@ -10,6 +10,7 @@ import socketserver
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+import urllib.error
 from urllib.parse import urlsplit
 
 from repository_read_fixture import POLICY, REPOSITORY, ROOT
@@ -24,6 +25,7 @@ ROUTES = (
     ({'kind': 'source', 'repository': SOURCE}, {'ok': True, 'secrets': [['SOURCE_FIXTURE', 'source-value']]}),
 )
 READ = {'kind': 'read', 'repository': REPOSITORY, 'commits': []}
+READ_SECRET = 'https://vault.invalid/v3/secrets/raw/OWNER_FIXTURE'
 
 
 class BrokerStartupTests(unittest.TestCase):
@@ -84,6 +86,24 @@ class BrokerStartupTests(unittest.TestCase):
             runpy.run_path(str(self.script), run_name='__main__')
         self.serve_requests.assert_called_once()
 
+    def broker(self):
+        return runpy.run_path(str(self.script))
+
+    def rate_limited(self, seconds=None, retry_after=None):
+        body = (f'{{"message": "Rate limit exceeded. Please try again in {seconds} seconds"}}' if seconds is not None else '').encode()
+        headers = {'Retry-After': retry_after} if retry_after is not None else {}
+        return urllib.error.HTTPError(READ_SECRET, 429, 'Too Many Requests', headers, io.BytesIO(body))
+
+    def serving(self, plan):
+        remaining = list(plan)
+
+        def reply(request, *, timeout):
+            step = remaining.pop(0) if remaining else None
+            if isinstance(step, BaseException):
+                raise step
+            return self.vault_reply(request, timeout=timeout)
+        return reply
+
     def assert_reads_refused(self, message):
         self.assertFalse(self.read_reply['ok'])
         self.assertIn(message, self.read_reply['error'])
@@ -130,6 +150,56 @@ class BrokerStartupTests(unittest.TestCase):
             'error': 'Repository read could not prepare or run the worker. Ask the VM operator to check the broker.',
         })
         self.assertEqual(list(state.iterdir()), [])
+
+    def test_rate_limited_call_waits_the_stated_seconds_and_answers(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([self.rate_limited(seconds=3)])
+        with patch('time.sleep') as sleep:
+            answer = broker['vault_call'](READ_SECRET, token='fixture-session')
+        sleep.assert_called_once_with(3)
+        self.assertEqual(answer, {'secret': {'secretValue': 'owner-value'}})
+
+    def test_retry_waits_the_longer_wait_stated_by_the_body_and_the_header(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([self.rate_limited(seconds=3, retry_after='7')])
+        with patch('time.sleep') as sleep:
+            broker['vault_call'](READ_SECRET, token='fixture-session')
+        sleep.assert_called_once_with(7)
+
+    def test_retry_honours_a_retry_after_header_alone(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([self.rate_limited(retry_after='5')])
+        with patch('time.sleep') as sleep:
+            broker['vault_call'](READ_SECRET, token='fixture-session')
+        sleep.assert_called_once_with(5)
+
+    def test_rate_limit_stops_at_the_retry_bound_and_keeps_the_refusal(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([None] + [self.rate_limited(seconds=1) for _ in range(3)])
+        with patch('time.sleep') as sleep:
+            with self.assertRaises(broker['VaultFailure']) as refusal:
+                broker['secret_values']([('/tools/github', 'OWNER_FIXTURE')])
+        self.assertEqual(sleep.call_count, 2)
+        self.assertEqual(str(refusal.exception), 'the vault answered HTTP 429 for OWNER_FIXTURE in /tools/github.')
+        self.assertEqual(len(self.opener.open.call_args_list), 4)
+
+    def test_wait_beyond_the_budget_is_refused_without_waiting(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([self.rate_limited(seconds=90)])
+        with patch('time.sleep') as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                broker['vault_call'](READ_SECRET, token='fixture-session')
+        sleep.assert_not_called()
+        self.assertEqual(len(self.opener.open.call_args_list), 1)
+
+    def test_retries_that_together_exceed_the_budget_stop(self):
+        broker = self.broker()
+        self.opener.open.side_effect = self.serving([self.rate_limited(seconds=40), self.rate_limited(seconds=40)])
+        with patch('time.sleep') as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                broker['vault_call'](READ_SECRET, token='fixture-session')
+        sleep.assert_called_once_with(40)
+        self.assertEqual(len(self.opener.open.call_args_list), 2)
 
 
 if __name__ == '__main__':

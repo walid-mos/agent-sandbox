@@ -2,9 +2,11 @@
 import json
 import os
 from pathlib import Path
+import re
 import socketserver
 import stat
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,6 +26,11 @@ READABLE_BY_OTHERS = stat.S_IRWXG | stat.S_IRWXO
 REQUEST_LIMIT_BYTES = 4096
 REQUEST_SECONDS = 10
 VAULT_SECONDS = 30
+RATE_LIMITED = 429
+RETRY_ATTEMPTS = 2
+RETRY_SECONDS = 60
+RETRY_BODY_BYTES = 2048
+RETRY_STATED = re.compile(r"try again in (\d+) seconds", re.IGNORECASE)
 SOCKET_DIRECTORY_MODE = 0o755
 SOCKET_MODE = 0o666
 NOT_FOUND = 404
@@ -43,7 +50,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 VAULT = urllib.request.build_opener(NoRedirect)
 
 
-def vault_call(url, token="", body=None):
+def vault_answer(url, token="", body=None):
     headers = {"Accept": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})}
     payload = None if body is None else json.dumps(body).encode()
     if payload:
@@ -53,6 +60,26 @@ def vault_call(url, token="", body=None):
     if not isinstance(reply, dict):
         raise ValueError("the vault answered with no JSON object")
     return reply
+
+
+def stated_wait(error):
+    header = error.headers.get("Retry-After", "") if error.headers else ""
+    body = error.read(RETRY_BODY_BYTES).decode("utf-8", "replace") if error.fp else ""
+    stated = [int(seconds) for seconds in RETRY_STATED.findall(body)] + ([int(header)] if header.strip().isdigit() else [])
+    return max(stated) if stated else None
+
+
+def vault_call(url, token="", body=None):
+    waited = 0
+    for attempt in range(RETRY_ATTEMPTS + 1):
+        try:
+            return vault_answer(url, token, body)
+        except urllib.error.HTTPError as error:
+            wait = stated_wait(error) if error.code == RATE_LIMITED else None
+            if wait is None or attempt == RETRY_ATTEMPTS or waited + wait > RETRY_SECONDS:
+                raise
+            waited += wait
+            time.sleep(wait)
 
 
 def read_identity():
