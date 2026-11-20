@@ -74,7 +74,7 @@ export function readRecord(pull) {
 
 export function recordedHeads() {
   if (!existsSync(HEADS)) return [];
-  return readdirSync(HEADS).filter(isLegacyRecord)
+  return readdirSync(HEADS).filter(name => isLegacyRecord(name) || (isDurableFactory && /-[a-f0-9]{40}-[1-9][0-9]*\.json$/.test(name)))
     .map(name => JSON.parse(readFileSync(join(HEADS, name), 'utf8')));
 }
 

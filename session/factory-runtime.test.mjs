@@ -270,7 +270,7 @@ for (const revision of ['command', 'image', 'helper']) {
 }
 
 function signedReview(t, baseRefName = 'main') {
-  const { root, env, setFacts } = setup(t);
+  const { root, directory, env, setFacts } = setup(t);
   setFacts({ baseRefName });
   writeFileSync(join(root, 'signed-fixture'), '');
   const cli = (...args) => execFileSync(process.execPath, [join(session, 'factory.mjs'), ...args], { env, stdio: 'pipe', encoding: 'utf8' });
@@ -279,7 +279,7 @@ function signedReview(t, baseRefName = 'main') {
   cli('run-job', '1');
   cli('publish-job', '1');
   const wake = JSON.parse(readFileSync(join(root, 'wakes'), 'utf8'));
-  return { root, cli, wake };
+  return { root, directory, env, cli, wake, setFacts };
 }
 
 function beginLandedRetry({ root, cli, wake }) {
@@ -347,6 +347,30 @@ test('a confirmed open stale squash intent yields to the current review', { time
   assert.equal(existsSync(join(root, 'landing')), false);
 });
 
+test('confirmed open same-head retarget releases a pending squash for the current review', { timeout: fixtureTimeout }, t => {
+  const { root, cli, wake, setFacts } = signedReview(t);
+  writeFileSync(join(root, 'refuse-merge'), '');
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /gh pr comment/);
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /merge readback/);
+  const recordPath = join(root, '.config/agent-sandbox/factory/heads', `${repository.replace('/', '-')}-${wake.number}-${wake.head}.json`);
+  const record = () => JSON.parse(readFileSync(recordPath, 'utf8'));
+  const pending = record();
+  assert.equal(pending.stage, 'squash-pending');
+  setFacts({ baseRefName: 'develop' });
+  cli('reconcile');
+  cli('scan');
+  assert.equal(record().stage, 'squash-superseded');
+  assert.deepEqual(record().squashPublication, pending.squashPublication);
+  cli('run-job', '2');
+  cli('publish-job', '2');
+  const current = JSON.parse(readFileSync(join(root, 'wakes'), 'utf8').trim().split('\n').at(-1));
+  assert.equal(current.generation, 2);
+  assert.match(cli('show', current.review), /into develop/);
+  assert.throws(() => cli('show', wake.review), /checked review changed/);
+  assert.equal(existsSync(join(root, 'merged')), false);
+  assert.equal(existsSync(join(root, 'landing')), false);
+});
+
 test('an ordinary verdict on the isolated repository holds the shared record lock', { timeout: fixtureTimeout }, t => {
   const { root, cli, wake } = signedReview(t, 'develop');
   const notes = join(root, 'notes');
@@ -355,7 +379,51 @@ test('an ordinary verdict on the isolated repository holds the shared record loc
   assert.match(JSON.parse(readFileSync(join(root, 'verdict-comment'), 'utf8')), /verdict: FAIL/);
 });
 
-test('routine discovery handles a failing repository and checks ready work before drafts', { timeout: fixtureTimeout }, async t => {
+function releaseScan(root, directory, phase) {
+  writeFileSync(join(root, `release-${phase}`), '');
+  const lock = phase === 'ready' ? 'discovery' : 'maintenance';
+  execFileSync('flock', ['--wait', '15', join(directory, `${lock}.lock`), 'true']);
+}
+
+test('controller recovers a landed squash while the ready listing is stalled', { timeout: fixtureTimeout }, async t => {
+  const rig = signedReview(t);
+  beginLandedRetry(rig);
+  const { root, directory, env, cli } = rig;
+  writeFileSync(join(root, 'stall-ready'), '');
+  try {
+    await controller(t, root, directory, env);
+    cli('reconcile');
+    const signal = AbortSignal.any([t.signal, AbortSignal.timeout(10_000)]);
+    await Promise.all([waitFor(root, 'blocked-ready', signal), waitFor(root, 'reports', signal)]);
+    assert.equal(readFileSync(join(root, 'published'), 'utf8'), 'fixture-tag');
+  } finally {
+    releaseScan(root, directory, 'ready');
+    execFileSync('flock', ['--wait', '15', join(directory, 'maintenance.lock'), 'true']);
+  }
+});
+
+test('controller queues a ready job while squash readback is stalled', { timeout: fixtureTimeout }, async t => {
+  const { root, directory, env, cli, wake, setFacts } = signedReview(t);
+  writeFileSync(join(root, 'refuse-merge'), '');
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /gh pr comment/);
+  assert.throws(() => cli('verdict', wake.review, 'PASS'), /merge readback/);
+  setFacts({ baseRefName: 'develop' });
+  writeFileSync(join(root, 'stall-recovery'), '');
+  try {
+    await controller(t, root, directory, env);
+    const signal = AbortSignal.any([t.signal, AbortSignal.timeout(3500)]);
+    const events = await stream(join(directory, 'events.sock'), signal);
+    cli('reconcile');
+    const [, queued] = await Promise.all([waitFor(root, 'blocked-recovery', signal),
+      eventFrom(events.iterator(), event => event.job === 2 && event.type === 'queued')]);
+    assert.equal(queued.detail.base, 'develop');
+  } finally {
+    releaseScan(root, directory, 'recovery');
+  }
+  await waitFor(root, 'wakes', t.signal, path => readFileSync(path, 'utf8').trim().split('\n').length === 2);
+});
+
+test('routine discovery handles a failing repository and checks ready work alongside drafts', { timeout: fixtureTimeout }, async t => {
   const { root, directory, env } = setup(t);
   writeFileSync(join(root, 'failing-repository'), '');
   await controller(t, root, directory, env);
@@ -363,8 +431,8 @@ test('routine discovery handles a failing repository and checks ready work befor
   execFileSync(process.execPath, [join(session, 'factory.mjs'), 'reconcile'], { env });
   const complete = await eventFrom(events.iterator(), event => event.type === 'complete');
   assert.equal(complete.detail.stage, 'checked');
-  const calls = readFileSync(join(root, 'calls'), 'utf8');
-  assert.match(calls, /pr list\npr list\napi graphql[\s\S]*draft pagination/);
+  await waitFor(root, 'calls', t.signal, path => existsSync(path) && readFileSync(path, 'utf8').includes('draft pagination'));
+  assert.equal(readFileSync(join(root, 'calls'), 'utf8').match(/^pr list$/gm)?.length, 2);
   await waitFor(root, 'wakes', t.signal);
 });
 

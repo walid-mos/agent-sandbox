@@ -33,7 +33,7 @@ def merge(pull, args):
         review = race.read_text().strip()
         race.unlink()
         subprocess.run([os.environ['LANDING_TEST_NODE'], '--import', str(ROOT / 'loader.mjs'),
-                        str(ROOT / 'source/session/factory.mjs'), 'review', review, 'verdict', 'PASS'], check=True)
+                        str(ROOT / 'source/session/factory.mjs'), 'verdict', review, 'PASS'], check=True)
         base = git('rev-parse', 'refs/heads/main')
     tree = git('merge-tree', '--write-tree', base, head)
     squash = git('commit-tree', tree, '-p', base, '-m', f"squash {pull['number']}")
@@ -48,7 +48,13 @@ def github(args):
     if args[:2] == ['repo', 'list']:
         emit([{'nameWithOwner': REPOSITORY, 'repositoryTopics': [{'name': 'factory'}]}])
     elif args[:2] == ['api', 'graphql']:
-        emit([{'data': {'repository': {'pullRequests': {'nodes': []}}}}])
+        if '--paginate' in args:
+            emit([{'data': {'repository': {'pullRequests': {'nodes': []}}}}])
+        else:
+            number = next(value.split('=', 1)[1] for value in args if value.startswith('number='))
+            pull = json.loads((ROOT / f'pull-{number}.json').read_text())
+            facts = {**pull, 'baseRefOid': git('rev-parse', 'refs/heads/main'), 'timelineItems': {'nodes': []}}
+            emit({'data': {'repository': {'nameWithOwner': REPOSITORY, 'isArchived': False, 'pullRequest': facts}}})
     elif args[:2] == ['api', 'user']:
         assert os.environ['GH_REPO'] == REPOSITORY
         print(17)
@@ -109,10 +115,44 @@ def pull_operation(args):
     return 0
 
 
+IMAGE_ID = 'sha256:' + 'a' * 64
+CONTAINER_ID = 'b' * 64
+
+
 def docker(args):
-    if args[:2] == ['image', 'inspect'] or args[:2] == ['run', '--rm'] and '/factory/attacks.sh' in args:
+    if args[:2] == ['image', 'inspect']:
+        if '--format' in args:
+            print(IMAGE_ID)
         return 0
-    assert args[0] == 'run' and args[-3:-1] == ['sh', 'check-fixture.sh'], args
+    state = ROOT / 'container.json'
+    if args[0] == 'create':
+        state.write_text(json.dumps({'args': args, 'status': None}))
+        print(CONTAINER_ID)
+    elif args[0] == 'start':
+        container = json.loads(state.read_text())
+        status = run_fixture(container['args'])
+        state.write_text(json.dumps({**container, 'status': status}))
+        return status
+    elif args[0] == 'inspect':
+        container = json.loads(state.read_text())
+        if '.State.Status' in args[4]:
+            print(f"exited {container['status']}")
+        else:
+            print(f"/{container['args'][2]} {container['args'][4].split('=')[1]}")
+    elif args[0] == 'ps':
+        if state.exists():
+            print(CONTAINER_ID)
+    elif args[0] == 'rm':
+        state.unlink()
+    else:
+        return run_fixture(args)
+    return 0
+
+
+def run_fixture(args):
+    if '/factory/attacks.sh' in args:
+        return 0
+    assert args[-3:-1] == ['sh', 'check-fixture.sh'], args
     volume = args[args.index('--volume') + 1].removesuffix(':/work')
     work = Path(volume) / 'repository'
     head = subprocess.check_output(['/usr/bin/git', '-C', str(work), 'rev-parse', 'HEAD'], text=True).strip()

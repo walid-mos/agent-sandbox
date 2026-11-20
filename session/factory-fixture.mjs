@@ -15,8 +15,10 @@ function write(name, value) {
 const json = value => process.stdout.write(JSON.stringify(value));
 const containerId = 'c'.repeat(64);
 
-function github(args) {
+async function github(args) {
   appendFileSync(file('calls'), `${args[0]} ${args[1]}\n`);
+  if (args[0] === 'pr' && args[1] === 'list') await pauseGithub('ready');
+  if (args[0] === 'api' && args[1].includes('/pulls/')) await pauseGithub('recovery');
   const facts = read('facts');
   if (args[0] === 'repo') {
     const names = existsSync(file('failing-repository')) ? ['walid-mos/failing', repository] : [repository];
@@ -43,6 +45,21 @@ function requireSharedRecordLock(facts) {
   const lock = file(`.config/agent-sandbox/factory/heads/${repository.replace('/', '-')}-${facts.number}-${facts.headRefOid}.json.lock`);
   const attempt = spawnSync('flock', ['--nonblock', lock, 'true']);
   if (attempt.status !== 1) throw new Error('ordinary verdict comment ran outside the shared record lock');
+}
+
+async function pauseGithub(phase) {
+  if (!existsSync(file(`stall-${phase}`))) return;
+  const release = file(`release-${phase}`);
+  await new Promise(resolve => {
+    const watcher = watch(root, check);
+    function check() {
+      if (!existsSync(release)) return;
+      watcher.close();
+      resolve();
+    }
+    write(`blocked-${phase}`, true);
+    check();
+  });
 }
 
 function signedComment(args, facts) {
@@ -246,7 +263,7 @@ function pots(args) {
 if (root && !import.meta.main) preload();
 if (import.meta.main) {
   const [command, ...args] = process.argv.slice(2);
-  if (command === 'gh') github(args);
+  if (command === 'gh') await github(args);
   if (command === 'docker') await docker(args);
   if (command === 'pots') pots(args);
 }

@@ -26,26 +26,31 @@ function wakeStaleDraft(subject, now, readWorkers) {
   if (id) reportStaleDraft(pull, id, draftOwner(pull, readWorkers));
 }
 
-export function scanRepositoryDrafts(repository, now, readWorkers) {
-  let candidates;
+function processDraft(subject, operation, run) {
   try {
-    candidates = draftCandidates(repository).filter(pull => isOldDraft(pull, now));
+    run();
   } catch (error) {
-    return logScanFailure(`${repository} draft discovery`, error);
-  }
-  for (const { number } of candidates) {
-    const subject = { repository, number };
-    try {
-      wakeStaleDraft(subject, now, readWorkers);
-    } catch (error) {
-      logScanFailure(`${pullUrl(subject)} draft reminder`, error);
-    }
+    logScanFailure(`${pullUrl(subject)} draft ${operation}`, error);
   }
 }
 
-export function scanStaleDrafts(repositories) {
+export function scanRepositoryDrafts(repository, now, readWorkers, holdReview) {
+  let candidates;
+  try {
+    candidates = draftCandidates(repository).filter(pull => pull.isDraft === true);
+  } catch (error) {
+    return logScanFailure(`${repository} draft discovery`, error);
+  }
+  for (const candidate of candidates) {
+    const subject = { repository, number: candidate.number };
+    if (holdReview) processDraft(subject, 'hold', () => holdReview(subject));
+    if (isOldDraft(candidate, now)) processDraft(subject, 'reminder', () => wakeStaleDraft(subject, now, readWorkers));
+  }
+}
+
+export function scanStaleDrafts(repositories, holdReview) {
   const now = Date.now();
   let workerRecords;
   const readWorkers = () => (workerRecords ??= workers());
-  for (const repository of repositories) scanRepositoryDrafts(repository, now, readWorkers);
+  for (const repository of repositories) scanRepositoryDrafts(repository, now, readWorkers, holdReview);
 }

@@ -37,12 +37,12 @@ function launch(operation, arguments_, { budget, viaVault = true } = {}) {
   });
 }
 
-function scheduleDiscovery(jobs, refresh) {
+function scheduleScan(operation, pendingScan, consume, refresh) {
   let next = 0;
   let timer;
   let isDiscovering = false;
   return () => {
-    const revision = jobs.pendingWake();
+    const revision = pendingScan();
     if (!revision || isDiscovering) return;
     if (Date.now() < next) return schedule();
     start(revision);
@@ -55,13 +55,10 @@ function scheduleDiscovery(jobs, refresh) {
   function start(revision) {
     isDiscovering = true;
     next = Date.now() + WAKE_GAP_MS;
-    void launch('scan', [], { budget: DISCOVERY_BUDGET_MS }).then(status => {
-      if (status === 0) jobs.consumeWake(revision);
-      else {
-        const pending = jobs.pendingWake();
-        if (pending?.webhook === revision.webhook && pending.routine === revision.routine) next = Date.now() + LOCAL_BACKSTOP_MS;
-      }
-    }).catch(() => process.stderr.write('factory: failed to record discovery completion\n')).finally(() => {
+    void launch(operation, [], { budget: DISCOVERY_BUDGET_MS }).then(status => {
+      if (status === 0) consume(revision);
+      else if (JSON.stringify(pendingScan()) === JSON.stringify(revision)) next = Date.now() + LOCAL_BACKSTOP_MS;
+    }).catch(() => process.stderr.write(`factory: failed to record ${operation} completion\n`)).finally(() => {
       isDiscovering = false;
       refresh();
     });
@@ -128,7 +125,8 @@ function schedulePublication(refresh) {
 function dispatch(jobs, subscribers) {
   let scheduled;
   const refresh = () => { scheduled ??= setImmediate(reconcile); };
-  const discover = scheduleDiscovery(jobs, refresh);
+  const discover = scheduleScan('scan-ready', () => jobs.pendingWake(), revision => jobs.consumeWake(revision), refresh);
+  const maintain = scheduleScan('scan-maintenance', () => jobs.pendingMaintenance(), revision => jobs.consumeMaintenance(revision), refresh);
   const execute = scheduleExecution(jobs, refresh);
   const publish = schedulePublication(refresh);
   function reconcile() {
@@ -138,6 +136,7 @@ function dispatch(jobs, subscribers) {
   function run(isBackstop = false) {
     try {
       discover();
+      maintain();
       const pending = jobs.pending();
       execute(pending, isBackstop);
       publish(pending, isBackstop);

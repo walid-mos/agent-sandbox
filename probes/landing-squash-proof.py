@@ -93,11 +93,27 @@ def require_review_verdict(request, checkpoint):
     fields = ('repository', 'number', 'head', 'generation')
     identity = [request[field] for field in fields]
     review_id = hashlib.sha256(json.dumps(identity, separators=(',', ':')).encode()).hexdigest()
+    if 'binding' in checkpoint:
+        review_id = durable_review_id(checkpoint, request)
     if (checkpoint['reviewId'] != review_id or [review[field] for field in fields] != identity
             or review['mergeBase'] != request['base'] or 'refs/heads/' + review['base'] != request['ref']
             or review['verdict'] != 'PASS' or not review['checks']
             or not all(check['isPassed'] is True for check in review['checks'])):
         raise ValueError('merged record differs from the bound checked review')
+
+
+def durable_review_id(checkpoint, request):
+    binding, review = checkpoint['binding'], checkpoint['review']
+    fields = ('repository', 'number', 'head', 'base', 'baseTip', 'transition', 'inputRevision', 'generation')
+    revision = binding.get('inputRevision', '')
+    if (binding != {field: review[field] for field in fields if field in review}
+            or len(revision) != 64 or any(digit not in '0123456789abcdef' for digit in revision)
+            or type(binding.get('generation')) is not int or binding['generation'] < 1
+            or (not review.get('recoveryOf') and (binding.get('baseTip') != request['base']
+                                                or not isinstance(binding.get('transition'), str)))):
+        raise ValueError('invalid durable review binding')
+    identity = [binding.get(field) for field in fields]
+    return hashlib.sha256(json.dumps(identity, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
 
 def next_checkpoint(fixture, request, review_source):

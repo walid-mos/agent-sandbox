@@ -80,9 +80,9 @@ Use local synthetic receipts, GitHub facts, clocks and repositories. Verify sign
 
 | Draft | Compatibility at the inspected head |
 | --- | --- |
-| [#30](https://github.com/walid-mos/agent-sandbox/pull/30) | At `f113d57`, the isolated Factory owns publication. Its `factory-verdict.mjs` saves `verdictDelivery` before the comment POST and reads back the saved marker on retry. Carry discovery and runners into that runtime with its signer socket, authority checks and verdict retry intact. Enabling both runtimes would create two publishers. |
-| [#53](https://github.com/walid-mos/agent-sandbox/pull/53) | At `8b7184d`, the verifier requires the exact `Factory landing v1` schema, integer generation, base parent and reviewed tree. Keep that schema and recheck the PR transition on the producer side. |
-| [#55](https://github.com/walid-mos/agent-sandbox/pull/55) | At `ea7e71c`, review IDs already bind head and generation. These changes touch the same entry points. Resolve the overlap to one binding that also checks base and the current GitHub transition. |
+| [#30](https://github.com/walid-mos/agent-sandbox/pull/30) | At `9c7a574`, the isolated Factory owns publication. Its `factory-verdict.mjs` saves `verdictDelivery` before the comment POST and reads back the saved marker on retry. Carry discovery and runners into that runtime with its signer socket, authority checks and verdict retry intact. Enabling both runtimes would create two publishers. |
+| [#53](https://github.com/walid-mos/agent-sandbox/pull/53) | At `6635423`, the verifier requires the exact `Factory landing v1` schema, integer generation, base parent and reviewed tree. Keep that schema and recheck the PR transition on the producer side. |
+| [#55](https://github.com/walid-mos/agent-sandbox/pull/55) | At `2e392ed`, review IDs already bind head and generation. These changes touch the same entry points. Resolve the overlap to one binding that also checks base and the current GitHub transition. |
 
 ## Activation, rotation and rollback
 
