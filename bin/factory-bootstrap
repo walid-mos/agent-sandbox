@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../lib/sandbox.sh"
+[ "$POTS_TRANSPORT" = provider ] || { echo 'factory-bootstrap: run this from the operator Mac' >&2; exit 2; }
+[ "$#" -eq 0 ] || { echo 'usage: factory-bootstrap' >&2; exit 2; }
+staging=$(mktemp -d)
+trap 'rm -rf "$staging"' EXIT INT TERM
+passphrase=$(openssl rand -hex 24)
+printf '%s\n' "$passphrase" | magpie backup --no-keys --no-library "$staging/seed" > /dev/null
+{
+	printf '%s\n' "$passphrase"
+	cat "$staging/seed"
+} | run_trusted vm/factory-seed

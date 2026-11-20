@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { pullUrl } from './github-url.mjs';
 
 export const FACTORY_HOME = join(homedir(), '.config/agent-sandbox/factory');
 const HEADS = join(FACTORY_HOME, 'heads');
@@ -11,10 +12,6 @@ const LOCK_DESCRIPTOR = '3';
 
 export function pullKey({ repository, number, head }) {
   return `${repository.replace('/', '-')}-${number}-${head}`;
-}
-
-export function pullUrl({ repository, number }) {
-  return `https://github.com/${repository}/pull/${number}`;
 }
 
 export function pullArguments([repository, number, head]) {

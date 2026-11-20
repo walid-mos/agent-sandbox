@@ -7,9 +7,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "lib"))
 import private_file
+from launch import LAUNCH
 
-LAUNCH = dict(line.split("=", 1) for line in (HERE / "launch.env").read_text().splitlines() if line)
 DIRECTORY = LAUNCH["POTS_SESSION_VAULT_DIRECTORY"]
 CREDENTIAL_NAMES = ("INFISICAL_API_URL", "INFISICAL_UNIVERSAL_AUTH_CLIENT_ID", "INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET")
 BINDING_NAMES = ("domain", "identityId", "projectId", "environment")

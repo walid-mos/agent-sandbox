@@ -2,8 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { requireActionable } from './factory-github.mjs';
-import { branchTip, copyAt, refreshMirror, remoteUrl } from './factory-mirror.mjs';
-import { FACTORY_HOME, pullArguments, pullKey, pullUrl, requireRecord, withRecord } from './factory-records.mjs';
+import { branchTip, copyAt, refreshMirror } from './factory-mirror.mjs';
+import { remoteUrl } from './github-url.mjs';
+import { FACTORY_HOME, pullArguments, pullKey, requireRecord, withRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { command } from './run.mjs';
 
 const RESOLUTIONS = join(FACTORY_HOME, 'resolutions');
