@@ -55,13 +55,17 @@ function isUnchangedResult(sessionManager, settledLeaf) {
   return added.every(entry => entry.type === 'custom' && entry.customType === PROMPT_TIMING_ENTRY);
 }
 
-function hasNoPendingWork(pi) {
-  return Object.entries(WORK_CONTRACTS).every(([event, fields]) => {
+function workCounts(pi) {
+  return Object.entries(WORK_CONTRACTS).map(([event, fields]) => {
     const request = { version: PROTOCOL_VERSION };
     pi.events.emit(event, request);
-    return request.result?.version === PROTOCOL_VERSION && fields.every(field => request.result[field] === 0);
+    return request.result?.version === PROTOCOL_VERSION ? fields.map(field => request.result[field]) : undefined;
   });
 }
+
+// Missing contracts prevent closure but cannot justify delaying a report.
+const hasNoPendingWork = pi => workCounts(pi).every(counts => counts?.every(count => count === 0));
+const hasRunningWork = pi => workCounts(pi).some(counts => counts?.some(count => Number.isSafeInteger(count) && count > 0));
 
 export class WorkerRuntime {
   #worker;
@@ -83,15 +87,20 @@ export class WorkerRuntime {
     const state = { ...this.#worker, terminal: process.env.HC_TERMINAL_ID,
       sessionFile: context.sessionManager.getSessionFile(), sessionId: context.sessionManager.getSessionId(),
       leaf: context.sessionManager.getLeafId(), generation: randomUUID(), phase, received: [...this.#received],
-      ...(phase === 'settled' && { settledAt: Date.now() }), ...(closeReason && { closeReason }) };
+      ...(phase === 'settled' && { settledAt: Date.now() }), ...(closeReason && { closeReason }),
+      ...(phase === 'waiting' && { waitingSince: this.#state?.phase === 'waiting' ? this.#state.waitingSince : Date.now() }) };
     writePrivateJson(statePath(this.#worker), state);
     this.#state = state;
   }
 
-  invalidate(context) {
-    if (this.#state?.phase === 'closing') return;
+  #clearReceipt() {
     this.#cancelClose();
     rmSync(receiptPath(this.#worker), { force: true });
+  }
+
+  invalidate(context) {
+    if (this.#state?.phase === 'closing') return;
+    this.#clearReceipt();
     this.#publish(context, 'active');
   }
 
@@ -140,8 +149,9 @@ export class WorkerRuntime {
 
   settle(context) {
     if (this.#state?.phase === 'closing') return;
-    this.invalidate(context);
-    if (this.#isDone(context)) this.#publish(context, 'settled');
+    this.#clearReceipt();
+    if (hasRunningWork(this.#pi)) return this.#publish(context, 'waiting');
+    this.#publish(context, this.#isDone(context) ? 'settled' : 'active');
   }
 
   finish(context) {

@@ -185,6 +185,39 @@ test('unknown pending-work contracts fail closed', t => {
   assert.equal(shutdowns, 0);
 });
 
+test('a positive contract count dates the waiting phase', t => {
+  counts.awaited = 1;
+  runtime.settle(context);
+  const state = readJson(statePath(worker));
+  assert.equal(state.phase, 'waiting');
+  assert.equal(state.waitingSince, Date.now());
+});
+
+test('a zero contract count settles the worker without a waiting phase', t => {
+  runtime.settle(context);
+  const state = readJson(statePath(worker));
+  assert.equal(state.phase, 'settled');
+  assert.equal(state.waitingSince, undefined);
+});
+
+test('an unfinished session with no running work publishes no waiting phase', t => {
+  branch = [];
+  runtime.settle(context);
+  const state = readJson(statePath(worker));
+  assert.equal(state.phase, 'active');
+  assert.equal(state.waitingSince, undefined);
+});
+
+test('a missing contract neither dates a wait nor settles the worker', t => {
+  runtime.stop();
+  runtime = new WorkerRuntime({ events: { emit: () => {} } }, worker);
+  runtime.start(context);
+  runtime.settle(context);
+  const state = readJson(statePath(worker));
+  assert.equal(state.phase, 'active');
+  assert.equal(state.waitingSince, undefined);
+});
+
 for (const pending of ['question', 'editor', 'working', 'goal', 'helper', 'dirty', 'unpushed']) {
   test(`${pending} arriving after receipt prevents shutdown`, t => {
     acknowledge(t);

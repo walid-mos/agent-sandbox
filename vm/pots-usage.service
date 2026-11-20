@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish completed UTC usage days with current grants
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py run vm/usage_probe.py
+UMask=0077
+TimeoutStartSec=15min
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pots-usage
+CapabilityBoundingSet=
