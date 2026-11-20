@@ -20,9 +20,9 @@ export function requireDraftHelper() {
   throw new Error('dispatch: the installed draft-pr helper does not take --description, so a draft would open with no body. Install the Pi harness that ships it, then try again.');
 }
 
-// One dead pair must not stop work that owes no draft: a worker with its PR already, or an Accor worker that opens a ready PR through the API.
+// One dead pair must not stop work that owes no draft: a worker with its PR already, or one whose pushed branch opens its draft through gh rather than the installed helper.
 export const owesDraft = worker => Boolean(worker.repository) && worker.kind !== 'task' && !worker.pullRequest
-  && worker.publication !== 'published' && !worker.publicationPolicy;
+  && !worker.publication && !worker.publicationPolicy;
 
 export function requireDraftHelperFor(worker) {
   if (owesDraft(worker)) requireDraftHelper();
