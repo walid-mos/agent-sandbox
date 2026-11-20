@@ -14,7 +14,7 @@ RECOVERY = runpy.run_path(str(Path(__file__).with_name('landing-squash-recovery.
 SQUASH = RECOVERY['SQUASH']
 POLICY = RECOVERY['POLICY']
 REPOSITORY = RECOVERY['SERIES']['FIXTURE_REPOSITORY']
-REVIEW_SOURCE = 'ea7e71c64d3e8da83b82bb6c52e8bb7d097651b6'
+REVIEW_SOURCE = '2e392ed65dfb87cb2824a32f2eb26acb14ad2925'
 
 
 class LandingEntry(POLICY['LandingPolicy']):
