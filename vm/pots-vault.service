@@ -5,6 +5,9 @@ After=network-online.target
 
 [Service]
 ExecStart=/usr/bin/python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py run vm/vault-broker
+RuntimeDirectory=pots-vault-read
+RuntimeDirectoryMode=0711
+RuntimeDirectoryPreserve=yes
 Restart=on-failure
 RestartSec=10
 UMask=0022
