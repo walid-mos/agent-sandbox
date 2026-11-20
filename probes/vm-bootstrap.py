@@ -9,7 +9,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_FILES = ('lib/signed_commit.py', 'lib/source_refresh.py', 'lib/trusted_source.py', 'session/launch.env')
-SIGNATURE_BINARIES = ('gpg', 'gpgconf')
 
 
 def invoke(arguments, environment, **options):
@@ -19,9 +18,6 @@ def invoke(arguments, environment, **options):
 class VmBootstrap(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        missing = [binary for binary in SIGNATURE_BINARIES if shutil.which(binary) is None]
-        if missing:
-            raise unittest.SkipTest(f'{", ".join(missing)} not found on PATH. The Factory image gains gpg at the next install.')
         keys = tempfile.TemporaryDirectory(prefix='vm-bootstrap-keys.')
         cls.addClassCleanup(keys.cleanup)
         cls.environment = {'PATH': os.environ['PATH'], 'HOME': keys.name, 'GNUPGHOME': keys.name,

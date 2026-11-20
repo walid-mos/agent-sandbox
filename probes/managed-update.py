@@ -2,7 +2,6 @@
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,7 +11,6 @@ ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = next(line.split('=', 1)[1] for line in (ROOT / 'session/launch.env').read_text().splitlines()
               if line.startswith('POTS_SOURCE_URL='))
 MAIN_REF = 'refs/remotes/origin/main'
-SIGNATURE_BINARIES = ('gpg', 'gpgconf')
 
 
 def invoke(arguments, environment, **options):
@@ -27,9 +25,6 @@ def snapshot(root):
 class ManagedFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        missing = [binary for binary in SIGNATURE_BINARIES if shutil.which(binary) is None]
-        if missing:
-            raise unittest.SkipTest(f'{", ".join(missing)} not found on PATH. The Factory image gains gpg at the next install.')
         keys = tempfile.TemporaryDirectory(prefix='managed-update-keys.')
         cls.addClassCleanup(keys.cleanup)
         cls.environment = {
