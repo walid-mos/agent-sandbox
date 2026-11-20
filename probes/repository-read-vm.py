@@ -127,8 +127,7 @@ def configured_broker(root):
     (root / 'sandbox.json').write_text(json.dumps(POLICY))
     (root / 'vault.json').write_text(json.dumps({'project': 'fixture', 'environment': 'fixture'}))
     broker.read_identity = lambda: {'fixture': True}
-    broker.access_token = lambda identity: 'invented-vault-access'
-    broker.secret_value = lambda *arguments: TOKEN
+    broker.secret_values = lambda entries: [[name, TOKEN] for path, name in entries]
     return broker
 
 
