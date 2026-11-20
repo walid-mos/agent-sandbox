@@ -24,7 +24,7 @@ The old startup contract remains at [Startup approval before a worker exists](hu
 
 ## Start repository work locally
 
-Use `dispatch.mjs start --local` with the same repository, branch, brief, title, subject and optional base as ordinary `start`. It verifies that the existing checkout origin names the requested GitHub repository, then creates the worktree, local bootstrap commit, worker record and queued launch. It neither pushes nor opens a PR, and never consults or consumes a human dialog. Ordinary `start` keeps its existing immediate draft behavior for pots without a push gate. Choose `--local` whenever the loaded policy requires a push approval.
+Use `dispatch.mjs start --local` with the same repository, branch, brief, title, subject, public description and optional base as ordinary `start`. The launcher records that description and opens the worker's draft PR with it once the first push is approved. A worker that recorded none is refused at publication instead of opening an empty draft. It verifies that the existing checkout origin names the requested GitHub repository, then creates the worktree, local bootstrap commit, worker record and queued launch. It neither pushes nor opens a PR, and never consults or consumes a human dialog. Ordinary `start` keeps its existing immediate draft behavior for pots without a push gate. Choose `--local` whenever the loaded policy requires a push approval.
 
 The watcher serves both kinds of launch from the same queue with [live memory admission](#worker-admission). Each has the existing `pots.worker`, `pots.owner`, `pots.launch`, `herdr.space` and `herdr.tab` labels and exact Pi session identity. A queued worker has no terminal until the watcher admits its launch. Herdr lists the labelled terminal after it starts. No existing gateway child is converted.
 
@@ -63,7 +63,7 @@ Both kinds retain the existing lifecycle guards. The watcher saves the exact tra
 
 ## Worker admission
 
-The watcher reads the guest kernel before each new launch. It admits workers in queue order, and they run concurrently after startup. Producers publish requests under a shared lock, so concurrent dispatchers report `ahead` from the order each request joined. A memory pause affects only new launches. Live workers and their follow-ups continue, including follow-ups queued behind a waiting launch. `maxWorkers` adds a ceiling only when the operator sets it.
+The watcher reads the guest kernel before each new launch. It admits workers in queue order, and they run concurrently after startup. Producers publish requests under a shared lock so the queue keeps its order across concurrent dispatches. A memory pause affects only new launches. Live workers and their follow-ups continue, including follow-ups queued behind a waiting launch.
 
 | Signal | How the watcher uses it |
 | --- | --- |
@@ -74,7 +74,7 @@ The watcher reads the guest kernel before each new launch. It admits workers in 
 
 A short spacing interval after opening a worker gives its startup memory time to register. Launch timestamps preserve that spacing across watcher reloads. A worker that has yet to report an agent status holds new launches only during a bounded startup grace period. Once it reports, exits, or reaches the end of that period, the watcher checks memory before admitting another launch. While a launch is waiting, a timer rechecks admission even when hc and the queue are quiet. See [the admission code](../session/worker-admission.mjs) for the thresholds and interval.
 
-After the authorized signed update reaches a pot, restart its `pots-watcher` service to load the policy. Remove any temporary `maxWorkers` ceiling before the restart if the operator wants memory-only admission. On each pot, confirm the watcher comes back, can read guest memory and PSI or uses the documented fallback, and preserves live terminals. Compare the watcher and hc worker processes' cgroup membership. Confirm the visible mount and parent limits cover where hc launches workers. With normal work, check queue-order starts and follow-ups. When pressure occurs during ordinary use, check that launches pause and resume while existing workers keep running.
+After the authorized signed update reaches a pot, restart its `pots-watcher` service to load the policy. On each pot, confirm the watcher comes back, can read guest memory and PSI or uses the documented fallback, and preserves live terminals. Compare the watcher and hc worker processes' cgroup membership. Confirm the visible mount and parent limits cover where hc launches workers. With normal work, check queue-order starts and follow-ups. When pressure occurs during ordinary use, check that launches pause and resume while existing workers keep running.
 
 ## Proof and rollout
 

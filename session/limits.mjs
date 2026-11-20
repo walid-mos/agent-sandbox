@@ -11,5 +11,4 @@ function configured(name, minimum) {
   return value;
 }
 
-export const maxWorkers = configured('maxWorkers', 1);
 export const idleStackMinutes = configured('idleStackMinutes', 1) ?? DEFAULT_IDLE_STACK_MINUTES;

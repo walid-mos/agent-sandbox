@@ -3,7 +3,6 @@ import { mkdirSync, watch } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { stopIdleStacks } from './idle-stacks.mjs';
 import { inspectWorker } from './inspect-worker.mjs';
-import { maxWorkers } from './limits.mjs';
 import { main } from './main.mjs';
 import { isRequest, QUEUE, queued } from './queue.mjs';
 import { serveQueue } from './serve-queue.mjs';
@@ -30,8 +29,8 @@ function sweep(terminals, records, logged) {
     .forEach(terminal => logged(terminal.name, () => closeTerminal(records.get(terminal.name), terminal)));
 }
 
-export function createWatcher({ ceiling = maxWorkers, readText, now, logFailure = writeFailure } = {}) {
-  const admission = createAdmission({ ceiling, readText, now, logFailure });
+export function createWatcher({ readText, now, logFailure = writeFailure } = {}) {
+  const admission = createAdmission({ readText, now, logFailure });
   let deadline;
 
   function logged(subject, step) {

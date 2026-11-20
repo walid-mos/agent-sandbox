@@ -19,12 +19,10 @@ test('a lock whose PID now belongs to another process does not block the next ga
   assert.equal(existsSync(lock), false);
 });
 
-test('foreign notices and a disabled gate create no offer', async t => {
+test('foreign notices create no offer', async t => {
   const f = scenario(t);
   await f.service.notice({ ...f.notice, author: { id: '777777777777777777' } }, application);
   await f.service.notice({ ...f.notice, channel_id: '777777777777777777' }, application);
-  f.source.config.humanDiscord.macLaunchEnabled = false;
-  await f.service.notice(f.notice, application);
   assert.equal(f.posted.length, 0);
   assert.equal(f.runs.length, 0);
 });
@@ -75,17 +73,13 @@ test('a changed prompt after display cannot use the displayed approval', async t
   assert.equal(f.store.get(f.request.launch).state, 'superseded');
 });
 
-test('a Mac that slept through an approval and a switch disabled after posting never starts', async t => {
+test('a Mac that slept through an approval never starts', async t => {
   const f = scenario(t);
   await f.service.notice(f.notice, application);
   const click = f.press();
   f.source.time += 30_001;
   await f.service.press(click);
   assert.match(f.told.at(-1), /too old/);
-  f.source.time -= 30_001;
-  f.source.config.humanDiscord.macLaunchEnabled = false;
-  await f.service.press(click);
-  assert.match(f.told.at(-1), /off|disabled/);
   assert.equal(f.runs.length, 0);
   assert.equal(f.store.decision(f.request.launch), undefined);
 });

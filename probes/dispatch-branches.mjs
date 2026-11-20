@@ -15,10 +15,14 @@ const clientRuleText = 'Ask the person before every push.';
 const allowedRepository = 'accor-hotels/product-data-apps';
 const jiraBranch = 'feat/DA-250-freeze-campaign-establishments';
 const pullRequest = 'https://github.invalid/probe/pull/1';
-const launch = { title: 'feat(api): DA-250 — freeze campaign establishments', subject: 'feat(api): freeze campaign establishments (DA-250)' };
+const description = '## Purpose\nKeep campaign membership stable while a campaign runs.\n\n## Behavior\n- Freeze establishments when a campaign starts.\n\n## Checks\n- Planned: campaign tests.\n';
+const launch = { title: 'feat(api): DA-250 — freeze campaign establishments', subject: 'feat(api): freeze campaign establishments (DA-250)', description };
 const BRANCH_REFUSAL = /^dispatch: use .*branch/;
 const OWNER_REFUSAL = /^dispatch: use owner\/repo/;
 const LAUNCH_REFUSAL = /^dispatch: give --title/;
+const DESCRIPTION_REFUSAL = /^dispatch: --description/;
+const HELPER_REFUSAL = /^dispatch: the installed draft-pr helper/;
+const draftPr = home => join(home, '.pi/agent/skills/worktree/scripts/draft-pr');
 
 function prepare() {
   mkdirSync(session);
@@ -69,6 +73,10 @@ else if (binary === 'git' && process.env.PROBE_GIT_PATH) {
 } else if (binary === 'git' && args[0] === 'clone') mkdirSync(join(args.at(-1), '.git'), { recursive: true });
 else if (binary === 'git' && args[0] === 'worktree') mkdirSync(args.at(-2), { recursive: true });
 if (binary === 'gh' && args[0] === 'api') console.log('develop');
+if (binary === 'bash' && args.length === 1 && args[0].endsWith('draft-pr')) {
+  console.error(process.env.PROBE_HELPER === 'old' ? 'usage: draft-pr <checkout> <repository-format title> [base branch]' : 'usage: draft-pr <checkout> <title> --description <public Markdown> [base branch]');
+  process.exit(2);
+}
 if (binary === 'bash') console.log(${JSON.stringify(pullRequest)});
 `, { mode: 0o700 });
   for (const binary of ['git', 'gh', 'bash', 'hc']) symlinkSync(executable, join(binaries, binary));
@@ -93,7 +101,7 @@ function dispatchRemote(home, target) {
   return remote;
 }
 
-function invoke(branch, target, { title, subject, rules, publicationPolicy, isReal }, mode = 'start', origin = `https://github.com/${target}.git`) {
+function invoke(branch, target, { title, subject, description: body, rules, publicationPolicy, isReal, helper }, mode = 'start', origin = `https://github.com/${target}.git`) {
   const home = mkdtempSync(join(fixture, 'home-'));
   const configuration = join(home, '.pi/agent/extensions/subagent');
   mkdirSync(configuration, { recursive: true });
@@ -101,12 +109,12 @@ function invoke(branch, target, { title, subject, rules, publicationPolicy, isRe
   const remote = isReal ? dispatchRemote(home, target) : undefined;
   const brief = join(home, 'request.md');
   writeFileSync(brief, 'Synthetic dispatch probe.');
-  const options = [...(title === undefined ? [] : ['--title', title]), ...(subject === undefined ? [] : ['--subject', subject])];
+  const options = [['title', title], ['subject', subject], ['description', body]].flatMap(([name, value]) => (value === undefined ? [] : [`--${name}`, value]));
   const args = mode === 'task'
     ? ['task', '--title', title, '--scope', 'Read the supplied brief and write one report.', 'report', home, brief, join(home, 'result.md')]
     : ['start', ...(mode === 'local' ? ['--local'] : []), ...options, '--', target, branch, brief, ...(mode === 'start' && isReal ? [] : ['develop'])];
   const result = spawnSync(process.execPath, ['--import', join(fixture, 'copy-imports.mjs'), join(session, 'dispatch.mjs'), ...args], {
-    cwd: fixture, encoding: 'utf8', timeout: 10_000, env: { HOME: home, PATH: binaries, PROBE_ORIGIN: origin, PROBE_CLIENT_RULES: rules, PROBE_PUBLICATION_POLICY: publicationPolicy,
+    cwd: fixture, encoding: 'utf8', timeout: 10_000, env: { HOME: home, PATH: binaries, PROBE_ORIGIN: origin, PROBE_CLIENT_RULES: rules, PROBE_PUBLICATION_POLICY: publicationPolicy, PROBE_HELPER: helper,
       ...(isReal && { PROBE_GIT_PATH: process.env.PATH }) },
   });
   assert.ifError(result.error);
@@ -124,18 +132,21 @@ function accepted(branch, values = launch) {
   assert.equal(worker.repository, allowedRepository);
   assert.equal(worker.pullRequest, pullRequest);
   assert.equal(worker.admission, 'memory');
-  assert.equal(worker.ahead, 0);
+  assert.equal(Object.hasOwn(worker, 'ahead'), false);
   assert.equal(Object.hasOwn(worker, 'maxWorkers'), false);
   const checkout = join(result.home, 'Development', allowedRepository);
   const worktree = join(checkout, '.worktree/product-data-apps', branch.replaceAll('/', '-'));
+  assert.equal(worker.description, values.description, 'the public body is recorded for deferred publication');
   assert.deepEqual(result.calls, [
+    ['bash', draftPr(result.home)],
     ['git', 'clone', '--quiet', `https://github.com/${allowedRepository}.git`, checkout],
     ['git', 'fetch', '--quiet', 'origin', 'develop'],
     ['git', 'worktree', 'add', '-b', branch, worktree, 'origin/develop'],
     ['git', 'commit', '--quiet', '--allow-empty', '-m', values.subject],
-    ['bash', join(result.home, '.pi/agent/skills/worktree/scripts/draft-pr'), worktree, values.title, 'develop'],
+    ['bash', draftPr(result.home), worktree, values.title, '--description', values.description, 'develop'],
   ]);
-  assert.deepEqual(result.directories, [fixture, checkout, checkout, worktree, worktree]);
+  assert.equal(JSON.stringify(result.calls).includes('Synthetic dispatch probe.'), false, 'the brief never reaches a public command');
+  assert.deepEqual(result.directories, [fixture, fixture, checkout, checkout, worktree, worktree]);
   const brief = readFileSync(worker.brief, 'utf8');
   assert.ok(brief.includes(policyGuide), 'the brief points workers to the push policy');
   assert.equal(brief.includes(clientRules), Boolean(values.rules), 'the brief points to the client rules only when configured');
@@ -171,12 +182,13 @@ try {
   assert.equal(localWorker.pullRequest, undefined);
   assert.equal(local.calls.some(args => ['bash', 'hc'].includes(args[0]) || args.includes('push')), false);
   for (const mode of ['start', 'local']) {
-    const configured = invoke(jiraBranch, allowedRepository, { title: launch.title, rules: clientRules, publicationPolicy: 'accor-first-publication', isReal: true }, mode);
+    const configured = invoke(jiraBranch, allowedRepository, { title: launch.title, description, rules: clientRules, publicationPolicy: 'accor-first-publication', isReal: true }, mode);
     assert.equal(configured.status, 0, configured.stderr);
     const worker = JSON.parse(configured.stdout);
     assert.equal(worker.publication, 'local');
     assert.equal(worker.publicationPolicy, 'accor-first-publication');
     assert.equal(worker.pullRequest, undefined);
+    assert.equal(worker.description, description, 'a deferred worker keeps the public body for its own draft PR');
     assert.equal(configured.calls.some(args => args[0] === 'bash' || ['push', 'commit'].includes(args[1])), false);
     const brief = readFileSync(worker.brief, 'utf8');
     assert.ok(brief.includes(policyGuide));
@@ -197,7 +209,16 @@ try {
   assert.equal(readdirSync(join(task.home, '.config/agent-sandbox/workers/queue')).filter(file => file.endsWith('.json')).length, 1);
   accepted(jiraBranch);
   accepted(jiraBranch, { ...launch, rules: clientRules });
-  accepted(jiraBranch, { title: '[DA-250] Freeze campaign establishments', subject: 'Start DA-250' });
+  accepted(jiraBranch, { ...launch, title: '[DA-250] Freeze campaign establishments', subject: 'Start DA-250' });
+  for (const body of [undefined, '', ' \t\r\n ', '\u00a0', 'TBD', '## Purpose\n## Behavior\n## Checks\n']) {
+    refused(DESCRIPTION_REFUSAL, jiraBranch, allowedRepository, { ...launch, description: body });
+    refused(DESCRIPTION_REFUSAL, jiraBranch, allowedRepository, { ...launch, description: body }, 'local');
+  }
+  const staleHelper = invoke(jiraBranch, allowedRepository, { ...launch, helper: 'old' });
+  assert.equal(staleHelper.status, 1, staleHelper.stderr);
+  assert.match(staleHelper.stderr, HELPER_REFUSAL);
+  assert.deepEqual(staleHelper.calls, [['bash', draftPr(staleHelper.home)]], 'a helper without --description stops a start before the clone, worktree, commit or queue');
+  assert.equal(existsSync(join(staleHelper.home, 'Development')), false);
   for (const prefix of ['feat', 'fix', 'chore', 'docs', 'refactor', 'test']) accepted(`${prefix}/worker-task-250`);
   for (const branch of ['', 'feat/', 'Feat/DA-250-task', 'feature/DA-250-task', 'main', '-feat/task', 'feat/task/extra',
     'feat//task', 'feat/../task', 'feat/task..name', 'feat/task.lock', 'feat/.hidden', 'feat/task.', 'feat/task@{1}',
@@ -215,7 +236,7 @@ try {
   const copied = new Set([join(session, 'dispatch.mjs'), join(session, 'sandbox.mjs'), ...recorded('copied')]);
   const loaded = new Set(recorded('loaded'));
   assert.deepEqual([...copied].sort(), [...loaded].sort(), 'copy exactly the active dispatch module graph');
-  console.log('ok   dispatch preserves Jira branch and develop base, commits the given bootstrap subject in the worktree, opens the draft PR with the given title in any repository format, points default and client workers to their push policy with Discord push clicks disabled, refuses malformed refs, titles, subjects and unsupported repositories before side effects');
+  console.log('ok   dispatch refuses a missing, placeholder or heading-only description before any side effect, refuses a helper without --description before the clone, passes the multiline body to draft-pr and records it for a deferred draft, preserves Jira branch, base, bootstrap subject, PR title and push-policy briefs, and refuses malformed refs, titles, subjects and unsupported repositories');
 } finally {
   rmSync(fixture, { recursive: true, force: true });
 }

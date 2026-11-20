@@ -8,7 +8,7 @@ export const LOCAL_POLICY = 'local';
 export const LAUNCH_POLICY = 'launch';
 const OPERATOR_POLICIES = {
   push: { enabled: 'pushApprovalsEnabled', off: 'human: Discord push approvals stay off until merged and verified live.', other: "human: this push needs the configured operator's own click." },
-  [LAUNCH_POLICY]: { enabled: 'macLaunchEnabled', off: 'human: Mac launches stay off until this Mac is set up and enabled.', other: "human: this launch needs the configured operator's own click." },
+  [LAUNCH_POLICY]: { other: "human: this launch needs the configured operator's own click." },
 };
 const operatorRule = policy => (Object.hasOwn(OPERATOR_POLICIES, policy) ? OPERATOR_POLICIES[policy] : undefined);
 export const policyOf = value => (RELAYED_POLICIES.includes(value) ? value : LOCAL_POLICY);
@@ -171,14 +171,10 @@ export function discordMessage(messageUrl) {
   return { guildId: link[1], channelId: link[2], messageId: link[3] };
 }
 
-function requireEnabledOperator(identity, rule) {
-  if (identity?.[rule.enabled] !== true || !SNOWFLAKE.test(identity.userId)) throw new Error(rule.off);
-}
-
 export function checkDiscordPolicy(policy, identity) {
   const rule = operatorRule(policy);
   if (!rule) return;
-  requireEnabledOperator(identity, rule);
+  if (!isSnowflake(identity?.userId) || (rule.enabled && identity[rule.enabled] !== true)) throw new Error(rule.off ?? rule.other);
 }
 
 function requireDiscordClickMetadata(evidence, message) {

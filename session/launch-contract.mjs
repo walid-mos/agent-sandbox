@@ -30,7 +30,6 @@ export const ACTS = {
   publish: { label: 'push, merge, release or deploy', marks: /\bgit\s+push\b|\bgh\s+pr\s+(?:merge|ready)\b|\b(?:deploy|release|publish)(?:s|ed|ing)?\b/i },
   credentials: { label: 'create, rotate, move or print credentials', marks: /\bsession-credentials\b|\btailnet-key\b|\bsecurity\s+(?:find|add|delete)-generic-password\b|\b(?:rotate|mint|print|copy|export)(?:s|ed|ing)?\b[^\n]{0,60}\b(?:token|secret|credential|password|key)s?\b/i },
 };
-export const DEFAULT_REFUSED_ACTS = ['sign-tip', 'launch-gate'];
 
 const REQUEST_FIELDS = ['launch', 'pot', 'target', 'title', 'digest', 'acts', 'cost', 'createdAt', 'expiresAt'];
 const NOTICE_FIELDS = ['launch', 'pot', 'target'];

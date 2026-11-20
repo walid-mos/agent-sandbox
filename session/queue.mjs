@@ -21,9 +21,11 @@ function append(request) {
   }
   // Publish the sequence first so an interrupted producer can leave a gap but cannot reuse an ID.
   writePrivateJson(SEQUENCE, next);
-  writePrivateJson(join(QUEUE, file), request);
-  return files.length;
+  writePrivateJson(join(QUEUE, file), { ...request, at: Date.now() });
 }
+
+// A request ID orders the queue, so a follow-up's deadline needs the time it was queued.
+export const queuedAt = request => request.at;
 
 export const isRequestName = file => /^[a-zA-Z0-9.-]+\.json$/.test(`${file}`);
 

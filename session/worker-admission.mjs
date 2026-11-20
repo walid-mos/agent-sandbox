@@ -60,7 +60,7 @@ function sampleBlock(readText) {
   }
 }
 
-export function createAdmission({ ceiling, logFailure, readText = path => readFileSync(path, 'utf8'), now = () => performance.now() }) {
+export function createAdmission({ logFailure, readText = path => readFileSync(path, 'utf8'), now = () => performance.now() }) {
   let nextCheckAt = -Infinity;
   let lastReason;
 
@@ -74,10 +74,9 @@ export function createAdmission({ ceiling, logFailure, readText = path => readFi
     lastReason = block?.message;
   }
 
-  function check({ running, latestLaunchAge = Infinity, pendingStatusAge = Infinity }) {
+  function check({ latestLaunchAge = Infinity, pendingStatusAge = Infinity }) {
     const remaining = Math.max(nextCheckAt - now(), CHECK_INTERVAL_MS - latestLaunchAge);
     if (remaining > 0) return remaining;
-    if (ceiling !== undefined && running >= ceiling) return CHECK_INTERVAL_MS;
     if (pendingStatusAge < AGENT_STARTUP_GRACE_MS) {
       note(new Error('waiting for the first agent status'));
       return Math.min(CHECK_INTERVAL_MS, AGENT_STARTUP_GRACE_MS - pendingStatusAge);

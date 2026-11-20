@@ -12,7 +12,7 @@ mkdirSync(bin);
 process.env.PATH = `${bin}:${process.env.PATH}`;
 const boundaryPath = join(scratch, 'boundary.json');
 process.env.POTS_TEST_BOUNDARY = boundaryPath;
-mock.module('./sandbox.mjs', { exports: { botId: 'nextnode', sandbox: { maxWorkers: 1 } } });
+mock.module('./sandbox.mjs', { exports: { botId: 'nextnode' } });
 const { inspectWorker } = await import('./inspect-worker.mjs');
 const { serveQueue } = await import('./serve-queue.mjs');
 const { createAdmission } = await import('./worker-admission.mjs');
@@ -49,12 +49,15 @@ if (binary === 'git') {
   } else if (args[0] === 'get' && boundary.failing === args.at(-1)) process.exit(1);
   else if (args[0] === 'get') process.stdout.write(JSON.stringify(boundary.terminals.find(terminal => [terminal.name, terminal.address].includes(args.at(-1)))));
   else if (args[0] === 'read') process.stdout.write('Finished task report.');
-  else if (args[0] === 'run') boundary.terminals = [{ ...boundary.template, address: 't-resumed' }];
+  else if (args[0] === 'run') {
+    const name = args[args.indexOf('--name') + 1];
+    boundary.terminals.push({ ...boundary.template, name, address: 't-' + name + '-resumed' });
+  }
   else if (!['send', 'rm', 'kill'].includes(args[0])) throw new Error('Unexpected hc command');
 }
 fs.writeFileSync(file, JSON.stringify(boundary));
 `;
-for (const name of ['hc', 'git', 'pots']) writeFileSync(join(bin, name), boundaryScript, { mode: 0o700 });
+for (const name of ['hc', 'git', 'pots', 'pi']) writeFileSync(join(bin, name), boundaryScript, { mode: 0o700 });
 
 const boundary = () => JSON.parse(readFileSync(boundaryPath, 'utf8'));
 function setTerminals(terminals) {
@@ -69,7 +72,7 @@ function inspect() {
 }
 function serve() {
   const logFailure = (_subject, error) => { throw error; };
-  serveQueue(boundary().terminals, logFailure, createAdmission({ ceiling: 1, logFailure, readText: healthyWorkerMemory }));
+  serveQueue(boundary().terminals, logFailure, createAdmission({ logFailure, readText: healthyWorkerMemory }));
 }
 
 beforeEach(() => {
@@ -195,6 +198,16 @@ test('first launch preallocates one exact session identity before starting Pi', 
   assert.equal(queued().length, 0);
 });
 
+test('a queued launch can start alongside a live worker and retains its follow-up', () => {
+  const name = 'queued-first';
+  save({ name, owner: worker.owner, worktree: worker.worktree, brief: '/brief.md' });
+  enqueue({ worker: name });
+  enqueue({ worker: name, message: 'Follow up' });
+  serve();
+  assert.deepEqual(boundary().terminals.map(terminal => terminal.name), [worker.name, name]);
+  assert.deepEqual(queued().map(({ worker, message }) => ({ worker, message })), [{ worker: name, message: 'Follow up' }]);
+});
+
 test('follow-up stays durable until Pi accepts it and is sent only once per launch', () => {
   enqueue({ worker: worker.name, message: 'Continue' });
   serve();
@@ -232,7 +245,7 @@ test('a follow-up arriving as shutdown starts reopens the exact session, never t
   assert.equal(launch.includes('--continue'), false);
   assert.equal(queued().length, 1);
   const resumed = workers()[0];
-  setTerminals([{ ...terminal, address: 't-resumed', labels: { 'pots.owner': 'nextnode', 'pots.launch': resumed.launchId } }]);
+  setTerminals([{ ...terminal, address: resumed.terminal, labels: { 'pots.owner': 'nextnode', 'pots.launch': resumed.launchId } }]);
   writePrivateJson(statePath(resumed), { ...resumed, phase: 'starting', received: [] });
   serve();
   assert.equal(boundary().calls.filter(call => call.args[0] === 'send').length, 1);

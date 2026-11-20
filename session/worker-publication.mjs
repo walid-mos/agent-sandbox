@@ -1,7 +1,9 @@
 import { ACCOR_FIRST_PUBLICATION, accorPublicationPolicy } from './accor-publication-policy.mjs';
+import { requireDraftHelperFor } from './draft-helper.mjs';
 import { openReadyPR, verifyPublishedPR } from './accor-pull-request.mjs';
 import { consumeDiscordPush, verifyConsumedDiscordPush } from './human-consume.mjs';
 import { humanStore } from './human-store.mjs';
+import { requireRecordedBody } from './pull-request-body.mjs';
 import { isFullObjectId, pushApproved, pushExisting, remoteHead } from './push-approved.mjs';
 import { command } from './run.mjs';
 import { repositoryOrigin } from './repository-origin.mjs';
@@ -15,6 +17,7 @@ const DECLINE_LABEL = 'Keep local';
 function repositoryWorker(name) {
   const worker = ownedWorker(name, botId);
   if (!worker?.repository || worker.kind === 'task') throw new Error('dispatch: publication requires an owned repository worker.');
+  requireDraftHelperFor(worker);
   return worker;
 }
 
@@ -158,15 +161,17 @@ function openDraftPR(worker) {
     command('git', ['fetch', '--quiet', '--no-tags', worker.originUrl, `refs/heads/${worker.branch}`], options);
     command('git', ['merge-base', '--is-ancestor', worker.publishedHead, 'FETCH_HEAD'], options);
   }
-  const candidates = JSON.parse(command('gh', ['pr', 'list', '--repo', worker.repository, '--head', worker.branch, '--state', 'open', '--json', 'url,isCrossRepository,baseRefName,headRefName,isDraft,headRefOid'], options));
+  const body = requireRecordedBody(worker);
+  const candidates = JSON.parse(command('gh', ['pr', 'list', '--repo', worker.repository, '--head', worker.branch, '--state', 'open', '--json', 'url,isCrossRepository,baseRefName,headRefName,isDraft,headRefOid,body'], options));
   const existing = candidates.find(pr => pr.isCrossRepository === false && pr.baseRefName === worker.base && pr.headRefName === worker.branch);
+  if (existing?.isDraft === true && !existing.body?.trim()) throw new Error('dispatch: the open draft for this branch has no description. Write its body before recording it.');
   if (worker.isRecoveredPush) {
     if (existing && (existing.isDraft !== true || existing.headRefOid !== worker.publishedHead)) {
       throw new Error('dispatch: the recorded branch has an open PR but no matching draft for the approved head. Stop and inspect the PR.');
     }
     requireExactHead(worker, worker.publishedHead);
   }
-  return existing?.url || command('gh', ['pr', 'create', '--repo', worker.repository, '--draft', '--base', worker.base, '--head', worker.branch, '--title', worker.title, '--body', ''], options);
+  return existing?.url || command('gh', ['pr', 'create', '--repo', worker.repository, '--draft', '--base', worker.base, '--head', worker.branch, '--title', worker.title, '--body', body], options);
 }
 
 function verifiedRemote(worker) {

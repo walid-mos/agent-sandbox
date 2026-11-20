@@ -81,17 +81,6 @@ test('a terminal without status remains live but stops blocking admission after 
   assert.deepEqual(hc.terminals.map(({ name }) => name), ['first', 'second']);
 });
 
-test('the configured ceiling holds even when memory is healthy', ({ mock: { timers } }) => {
-  const { pass } = arrange(['first', 'second', 'third'], { ceiling: 1 });
-  pass();
-  timers.tick(RETRY_MS);
-  timers.tick(RETRY_MS);
-  assert.deepEqual(hc.attempts, ['first']);
-  hc.terminals = [];
-  timers.tick(RETRY_MS);
-  assert.deepEqual(hc.attempts, ['first', 'second']);
-});
-
 test('failed memory reads pause starts, log once and retry until a fresh sample succeeds', ({ mock: { timers } }) => {
   const { pass, memory, failures } = arrange(['first']);
   memory.error = new Error('meminfo unavailable');
