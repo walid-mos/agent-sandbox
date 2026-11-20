@@ -1,8 +1,7 @@
-import { isRetiredSessionFactory } from './factory-authority.mjs';
+import { isDurableFactory } from './factory-mode-facts.mjs';
 import { main } from './main.mjs';
-import { owners, sandbox } from './sandbox.mjs';
 
-export const isDurableFactory = !isRetiredSessionFactory && sandbox.factoryDurable === true && owners.length > 0;
+export { isDurableFactory };
 
 main(import.meta, () => {
   process.exitCode = isDurableFactory ? 0 : 1;
