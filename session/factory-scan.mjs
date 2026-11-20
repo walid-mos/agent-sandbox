@@ -9,7 +9,6 @@ import { readRecord, recordedHeads, withRecord } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { isPendingSquash } from './factory-squash-publication.mjs';
 import { deliverWakes } from './factory-reports.mjs';
-import { withJobs } from './factory-state.mjs';
 
 const MERGEABILITY_RETRY_MS = 5_000;
 const MAX_MERGEABILITY_RETRIES = 10;
@@ -91,11 +90,4 @@ export function scanReady(jobs, repositories = watchedRepositories()) {
 export function scanMaintenance(jobs, repositories = watchedRepositories()) {
   recoverPublications(repositories);
   scanStaleDrafts(repositories, subject => holdDraftReview(jobs, subject));
-}
-
-export function scan({ routine }) {
-  return withJobs(async jobs => {
-    await scanReady(jobs);
-    if (routine) scanMaintenance(jobs);
-  });
 }
