@@ -34,6 +34,11 @@ test('the repository template sections are the ones the body must carry', () => 
   assert.deepEqual(templateSections(checkout(undefined)), []);
 });
 
+test('a section named only in the body prose does not satisfy the template', () => {
+  assert.throws(() => requireChangeBody('## Purpose\nKeep the checks green.\n\n## Behavior\nRun the checks after each commit.\n', checkout(template)),
+    /missing sections: Checks/);
+});
+
 test('a template-shaped body is accepted unchanged', () => {
   const body = '## Purpose\nKeep membership stable.\n\n## Behavior\nFreeze establishments.\n\n## Checks\nPlanned: campaign suite.\n';
   assert.equal(requireChangeBody(body, checkout(template)), body);
