@@ -100,7 +100,7 @@ test('a stale press gives the operator a reason and leaves approval unused', asy
   assert.match(f.told[0], /too old/);
 });
 
-test('a refused act is durably reported even when the pot initially cannot receive it', async t => {
+test('missing execution delegation is durably reported even when the pot initially cannot receive it', async t => {
   const f = scenario(t);
   const prompt = 'Change the launch-gate settings.';
   const request = launchRequest({ ...f.request, createdAt: now, acts: ['launch-gate'], prompt });
@@ -111,7 +111,7 @@ test('a refused act is durably reported even when the pot initially cannot recei
   f.source.isReportBroken = false;
   await launchService(f.dependencies).tick();
   assert.equal(f.reports.at(-1)?.packet.status, 'refused');
-  assert.match(f.reports.at(-1)?.packet.detail, /launch-gate/);
+  assert.match(f.reports.at(-1)?.packet.detail, /no safe delegated capability for launch-gate/);
   assert.equal(f.posted.length, 0);
   assert.equal(f.runs.length, 0);
 });

@@ -1,6 +1,5 @@
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkDiscordPolicy, LAUNCH_POLICY } from '../session/human-contract.mjs';
 import { LAUNCH_TTL_MS } from '../session/launch-contract.mjs';
 import { command, commandOutput } from '../session/run.mjs';
 import { discordClient } from './launch-discord.mjs';
@@ -78,7 +77,6 @@ async function history(client, service, config, applicationId) {
 
 export async function serve() {
   const config = loadSettings();
-  checkDiscordPolicy(LAUNCH_POLICY, config.humanDiscord);
   checkNativeIsolation(config);
   const context = protectedHerdr(config);
   const store = gateStore(STATE_HOME);
@@ -103,8 +101,6 @@ export async function serve() {
   let timer;
   // The next pass starts only once this one ended, so a slow pot call cannot pile passes up ahead of the operator's press.
   async function poll() {
-    try { checkDiscordPolicy(LAUNCH_POLICY, loadSettings().humanDiscord); }
-    catch (error) { warn(error.message); stop(); process.exitCode = 1; return; }
     await enqueue(() => service.tick());
     if (timer !== undefined) timer = setTimeout(poll, POLL_MS);
   }

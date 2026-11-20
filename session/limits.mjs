@@ -1,13 +1,8 @@
-import { totalmem } from 'node:os';
 import { sandbox } from './sandbox.mjs';
 
-const GIB = 1024 ** 3;
-// Assumed until a pot is measured with bin/pots-load: the session's own services, then one worker with its tools and a development stack at rest.
-const SESSION_GIB = 2;
-const WORKER_GIB = 3;
 const DEFAULT_IDLE_STACK_MINUTES = 30;
-
-export const defaultMaxWorkers = memoryBytes => Math.max(1, Math.floor((memoryBytes / GIB - SESSION_GIB) / WORKER_GIB));
+const DEFAULT_IDLE_WORKER_MINUTES = 30;
+const MINUTE_MS = 60_000;
 
 function configured(name, minimum) {
   const value = sandbox[name];
@@ -18,5 +13,15 @@ function configured(name, minimum) {
   return value;
 }
 
-export const maxWorkers = configured('maxWorkers', 1) ?? defaultMaxWorkers(totalmem());
 export const idleStackMinutes = configured('idleStackMinutes', 1) ?? DEFAULT_IDLE_STACK_MINUTES;
+
+export function idleWorkerPolicy() {
+  const { idleWorkerMinutes: minutes = DEFAULT_IDLE_WORKER_MINUTES } = sandbox;
+  const maxMinutes = Math.floor(Number.MAX_SAFE_INTEGER / MINUTE_MS);
+  if (!Number.isSafeInteger(minutes) || minutes < 0 || minutes > maxMinutes) {
+    throw new Error('sandbox: idleWorkerMinutes must be a nonnegative whole number of minutes. Set 0 to disable it.');
+  }
+  return { pot: sandbox.bot, idleWorkerMinutes: minutes, enabled: minutes > 0 };
+}
+
+export const idleWorkerMs = policy => policy.idleWorkerMinutes * MINUTE_MS;

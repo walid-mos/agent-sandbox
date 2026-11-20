@@ -6,7 +6,8 @@ import { requireCheckRevision } from './factory-execution.mjs';
 import { comment, commentAuthor, hasComment, pullFacts, requireActionable, squashMerge } from './factory-github.mjs';
 import { isDurableFactory } from './factory-mode.mjs';
 import { reviewFacts, startPublication } from './factory-publication.mjs';
-import { logDirectory, PULL_ARGUMENT_COUNT, pullArguments, pullUrl, requireRecord, usesSharedRecord, withRecord, writeRecord } from './factory-records.mjs';
+import { logDirectory, PULL_ARGUMENT_COUNT, pullArguments, requireRecord, usesSharedRecord, withRecord, writeRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { deliverWakes, queueReport, reportToPrincipal } from './factory-reports.mjs';
 import { reviewId } from './factory-review.mjs';
 

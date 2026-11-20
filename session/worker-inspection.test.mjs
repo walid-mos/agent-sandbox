@@ -10,7 +10,7 @@ const wakes = [];
 let publication;
 let restart = 0;
 let mustAvoidGit = false;
-mock.module('./sandbox.mjs', { exports: { botId: 'nextnode' } });
+mock.module('./sandbox.mjs', { exports: { botId: 'nextnode', sandbox: {} } });
 mock.module('./run.mjs', { exports: {
   WITH_VAULT: '/unused-vault',
   command(binary, args) {
@@ -23,6 +23,7 @@ mock.module('./run.mjs', { exports: {
   },
 } });
 const { inspectWorker } = await import('./inspect-worker.mjs');
+const { WorkerRuntime } = await import('./worker-runtime.mjs');
 const { queued, dequeue, enqueue } = await import('./queue.mjs');
 const { clearStop, markStopped, recordPublication, save, workers, WORKERS } = await import('./workers.mjs');
 const { writePrivateJson } = await import('./private-json.mjs');
@@ -34,9 +35,10 @@ writeFileSync(sessionFile, '{"type":"session","id":"exact"}\n');
 const worker = { name: 'owned', owner: 'nextnode', launchId: 'launch-1', terminal: 't-owned', worktree: scratch, sessionFile };
 const terminal = { address: 't-owned', name: 'owned', state: 'live', status: 'idle', cwd: scratch,
   labels: { 'pots.owner': 'nextnode', 'pots.launch': 'launch-1' } };
+process.env.HC_TERMINAL_ID = terminal.address;
 
 function inspect(terminals = [terminal], inspector = inspectWorker) {
-  inspector(workers()[0], { terminals, now: Date.now(), queue: queued(), pending: new Set(queued().map(request => request.worker)) });
+  return inspector(workers()[0], { terminals, now: Date.now(), queue: queued(), pending: new Set(queued().map(request => request.worker)) });
 }
 
 function settle(current = worker) {
@@ -53,6 +55,69 @@ beforeEach(() => {
   mustAvoidGit = false;
 });
 after(() => { mock.restoreAll(); rmSync(scratch, { force: true, recursive: true }); });
+
+test('repeated settlement keeps the 15-minute deadline until the worker re-enters waiting', t => {  const waitWindow = 15 * 60_000;
+  t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+  const runtime = new WorkerRuntime({ events: { emit: (_event, request) => { request.result = { version: 1, awaited: 1 }; } } }, worker);
+  const context = { ui: { onTerminalInput: () => () => {} },
+    sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => 'exact', getLeafId: () => 'leaf-1' } };
+  t.after(() => runtime.stop());
+  runtime.start(context);
+  runtime.settle(context);
+  const deadline = Date.now() + waitWindow;
+
+  t.mock.timers.tick(60_000);
+  runtime.settle(context);
+  assert.equal(inspect(), deadline);
+  assert.equal(wakes.length, 0);
+  t.mock.timers.tick(deadline - Date.now());
+  inspect();
+  assert.equal(wakes.length, 1);
+
+  runtime.invalidate(context);
+  runtime.settle(context);
+  assert.equal(inspect(), deadline + waitWindow);
+});
+
+test('a worker waiting on its own work reports once at the 15-minute limit', t => {
+  const now = 1_000_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  writePrivateJson(statePath(worker), { ...worker, phase: 'waiting', generation: 'result-1', received: [], waitingSince: now });
+  const deadline = now + 15 * 60_000;
+  assert.equal(inspect(), deadline);
+  assert.equal(wakes.length, 0);
+  t.mock.timers.tick(deadline - now);
+  inspect();
+  assert.equal(wakes.length, 1);
+  inspect();
+  assert.equal(wakes.length, 1);
+});
+
+test('an unread follow-up holds the idle report for the delivery limit', t => {
+  const now = 2_000_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  save({ ...workers()[0], startedAt: now - 10_000 });
+  writePrivateJson(statePath(worker), { ...worker, phase: 'active', generation: 'result-1', received: [] });
+  enqueue({ worker: worker.name, message: 'Continue.' });
+  assert.equal(inspect(), now + 60_000);
+  assert.equal(wakes.length, 0);
+  t.mock.timers.tick(60_000);
+  inspect();
+  assert.equal(wakes.length, 1);
+  assert.equal(wakes[0].status, 'idle');
+});
+
+test('an initial brief not yet begun holds the idle report for the delivery limit', t => {
+  const now = 3_000_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  save({ ...workers()[0], isBriefed: true, startedAt: now });
+  writePrivateJson(statePath(worker), { ...worker, phase: 'starting', generation: 'result-1', received: [] });
+  assert.equal(inspect(), now + 60_000);
+  assert.equal(wakes.length, 0);
+  t.mock.timers.tick(60_000);
+  inspect();
+  assert.equal(wakes.length, 1);
+});
 
 test('watcher restart cannot repeatedly relaunch a recovery that crashes before settling', async () => {
   inspect([]);

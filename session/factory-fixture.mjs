@@ -197,7 +197,7 @@ function preload() {
 }
 
 function signedModule(url) {
-  if (url.endsWith('/factory-authority.mjs')) return `export const isIsolatedFactory = true, isRetiredSessionFactory = false,
+  if (url.endsWith('/factory-authority.mjs')) return `export const isIsolatedFactory = true, isRetiredSessionFactory = false, REPORT_SOURCE = 'pr-factory',
     landingRepository = ${JSON.stringify(repository)}, LANDING_BRANCH = 'main', isLandingPull = pull => pull.repository === landingRepository && pull.base === LANDING_BRANCH; export function requireFactoryRuntime() {} export function requireLandingAuthority() {}`;
   const preamble = `import { readFileSync, writeFileSync } from 'node:fs'; const root = ${JSON.stringify(root)};`;
   if (url.endsWith('/factory-release-git.mjs')) return `${preamble}

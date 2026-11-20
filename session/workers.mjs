@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { withAdmission } from './admission.mjs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { requireDraftHelperFor } from './draft-helper.mjs';
 import { ROUTER_MODEL } from './models.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 import { command, WITH_VAULT } from './run.mjs';
+import { workerPushPolicy } from './worker-push-policy.mjs';
 
 export const WORKERS = join(homedir(), '.config/agent-sandbox/workers');
 export const WORKER_PREFIX = 'pots-';
@@ -127,10 +130,12 @@ export function endTerminal(worker, terminals) {
 }
 
 export function openTerminal({ name, cwd, tab, options = [], labels = [], label, vaultCommand }) {
-  command('hc', ['run', '--bg', ...options, '--name', name, '--cwd', cwd, '--label', label, ...labels.flatMap(value => ['--label', value]),
-    '--label', 'herdr.space=sppots', '--label', `herdr.tab=tb${tab}`,
-    '--', 'nice', '-n', WORKER_NICENESS, WITH_VAULT, ...vaultCommand]);
-  return JSON.parse(command('hc', ['get', name])).address;
+  return withAdmission(() => {
+    command('hc', ['run', '--bg', ...options, '--name', name, '--cwd', cwd, '--label', label,
+      ...labels.flatMap(value => ['--label', value]), '--label', 'herdr.space=sppots', '--label', `herdr.tab=tb${tab}`,
+      '--', 'nice', '-n', WORKER_NICENESS, WITH_VAULT, ...vaultCommand]);
+    return JSON.parse(command('hc', ['get', name])).address;
+  });
 }
 
 // The session can install another Pi while this launcher lives, so every launch asks the installed one.
@@ -151,19 +156,25 @@ export const launchedWorker = environment => Object.fromEntries(Object.entries(L
 const launchEnvironment = worker => Object.entries(LAUNCH_VARIABLES).map(([field, variable]) => `${variable}=${worker[field]}`);
 
 export function launch(worker, conversation) {
+  return withAdmission(() => launchAdmitted(worker, conversation));
+}
+
+function launchAdmitted(worker, conversation) {
   const launchId = randomUUID();
   if (!worker.owner) throw new Error('dispatch: worker has no recorded Pots owner. Inspect it before relaunching.');
+  requireDraftHelperFor(worker);
   const { sessionId = randomUUID(), sessionDir = join(WORKERS, 'sessions', worker.name), model = ROUTER_MODEL } = worker;
   mkdirSync(sessionDir, { recursive: true });
   const session = sessionArguments(worker, sessionDir, sessionId);
-  const launched = { ...worker, launchId, sessionId, sessionDir, terminal: undefined, startedAt: Date.now(), isClosed: false, lastReport: undefined, result: undefined };
+  const publicationPolicy = worker.repository ? ['--append-system-prompt', workerPushPolicy] : [];
+  const launched = { ...worker, launchId, sessionId, sessionDir, terminal: undefined, startedAt: Date.now(), isBriefed: conversation.length > 0, isClosed: false, lastReport: undefined, result: undefined };
   save(launched);
   const terminal = openTerminal({
     name: worker.name, cwd: worker.worktree, tab: worker.name, label: 'pots.worker=true',
     labels: [`pots.owner=${worker.owner}`, `pots.launch=${launchId}`, ...(worker.title ? [`agent.title=${worker.title}`] : [])],
     options: ['--no-parent', '--no-notify', '--outlive-parent'],
     vaultCommand: ['env', ...launchEnvironment(launched),
-      'pi', '--extension', join(import.meta.dirname, 'worker-agent.mjs'), ...session,
+      'pi', '--extension', join(import.meta.dirname, 'worker-agent.mjs'), ...session, ...publicationPolicy,
       '--provider', 'magpie', '--model', model, ...humanDialogFlags(worker), ...conversation],
   });
   save({ ...launched, terminal });

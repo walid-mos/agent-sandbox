@@ -1,0 +1,18 @@
+# VM daily usage
+
+`bin/vm-up` runs the signed VM setup, which installs `pots-usage.timer` for 01:15 UTC. Systemd runs a missed timer on the next boot. Setup preserves the opaque ID in `/var/lib/pots-usage/host-id` and registers the same timer on each run. The ID belongs to this VM disk and is independent of the exporter's UUID. Provision new VMs from an image without `/var/lib/pots-usage`.
+
+Use one schedule owner per host. An existing pot that uses its own routine needs a root-owned `0600` file `/var/lib/pots-usage/schedule-owner` containing `pot` before VM provisioning enables the systemd timer. Set the marker and disable the timer before enabling a pot routine on a previously provisioned VM. The VM service also checks the marker. To switch to systemd, stop the pot routine, set the marker to `vm`, and reprovision. Mac owners handle their own schedule and wake behavior.
+
+## Activation prerequisites
+
+1. The operator stages the exact publisher revision named by `PUBLISHER_REVISION` in `vm/usage_probe.py` under `/opt/pots-usage/<revision>`. Prepare dependencies from its frozen lockfile without credentials or lifecycle scripts, then give root exclusive write access to the complete tree and trusted VM Node and pnpm binaries. The package includes the pinned exporter contract. VM setup and timer runs do not fetch or install packages.
+2. The host owner arranges a post-midnight run of the pinned exporter and places its `manifest.json` and `days/` in `/var/lib/pots-usage/export`. Keep exporter state and ledger access separate. Publish the complete export before delivering the grant. Only the publisher reads the export, after the VM has matching enrollment and a current grant.
+3. The VM operator privately supplies the enrollment JSON with the provisioned `hostId`, R2 HTTPS account origin and private bucket. Feed it on standard input to `sudo /usr/bin/python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py run vm/usage_probe.py enroll`. The service stays idle without this file. The installer does not ship destinations or credentials.
+4. The issuer owner authenticates the host, issues one short-lived presigned PUT per completed day and delivers its JSON over a protected channel to the VM operator. Feed that JSON on standard input to the same trusted command with `grant YYYY-MM-DD` in place of `enroll`. The receiver validates host, day, destination and expiry and atomically stores the JSON with mode `0600` in `grants/`. Keep the bearer URL out of arguments and logs. The VM holds no signing or read credential.
+
+The timer processes staged grants by date. Renew grants for pending days and deliver them near the next run, or have the VM owner start `pots-usage.service` after renewal. Each missed day needs its own completed export and current grant. Issuer availability, host authentication, unattended grant delivery, the per-host exporter feed and Mac catch-up are prerequisites owned outside this VM launcher.
+
+On a confirmed PUT, the service records the publisher's host, day and digest in `receipts/`. Future runs skip that confirmed day. A failed PUT leaves the day pending. An HTTP 412 leaves it unconfirmed unless a matching success receipt or a trusted reader verifies the attempted digest. For a trusted readback, the operator compares the attempted digest using the pinned producer and reader. Child output is withheld from the systemd journal. The sender needs PUT access only.
+
+Run `python3 -B probes/usage-bootstrap.py` for the disposable fixture. It covers repeated setup, schedule ownership, host ID isolation, blocked enrollment and grants, invocation arguments, and receipt persistence. Add `--systemd` to exercise actual systemd registration against the two disposable roots. Both modes use a fake publisher.

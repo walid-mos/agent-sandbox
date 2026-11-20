@@ -12,12 +12,6 @@ const EXPIRED_UNHEARD = 'No Mac reported a start before this request expired. A 
 
 export const launchStore = () => humanStore(join(HUMAN_HOME, 'launch'));
 
-export function launchSettings(sandbox) {
-  const settings = sandbox.macLaunch;
-  if (settings?.enabled !== true) throw new Error('mac-launch: Mac launches are off in this pot. Its sandbox.json holds no macLaunch with enabled set to true.');
-  return settings;
-}
-
 function known(get, id) {
   const record = get(id);
   if (!record) throw new Error('mac-launch: this pot holds no such launch. mac-launch.mjs list names them.');
@@ -33,7 +27,7 @@ export const wakeBot = (report, bot) => command('pots', ['wake', '--bot', bot, '
 const stateAt = (record, now) => (LIVE.includes(record.state) && now >= record.request.expiresAt ? EXPIRED : record.state);
 
 export async function openLaunch({ target, title, acts, cost, prompt }, { store, settings, pot, now = Date.now() }) {
-  const targets = Object.keys(settings.targets ?? {});
+  const targets = Object.keys(settings?.targets ?? {});
   if (!targets.includes(target)) throw new Error(`mac-launch: this pot knows no Mac named ${target}. Its targets: ${targets.join(', ') || 'none'}.`);
   const request = launchRequest({ launch: randomBytes(LAUNCH_ID_BYTES).toString('hex'), pot, target, title, acts, cost, createdAt: now, prompt });
   await store.locked(({ save }) => save({ id: request.launch, request, prompt, state: OPEN, statuses: [] }), request.launch);

@@ -12,6 +12,7 @@ import { administerDiscord } from './discord-admin-service.mjs';
 import { HUMAN_HOME, humanStore } from './human-store.mjs';
 import { main } from './main.mjs';
 import { botHome, isMastermind, sandbox } from './sandbox.mjs';
+import { isServerLogEnabled } from './server-log-events.mjs';
 
 function actions() {
   const operations = Object.fromEntries(Object.entries(ADMIN_OPERATIONS).map(([action, operation]) => [action, {
@@ -38,24 +39,29 @@ const MODES = {
 };
 const USAGE_MODES = ['actions', ...Object.keys(MODES)];
 
-async function connect() {
+async function connect(activation) {
   const account = discordAccount(botHome);
   const api = discordAdminApi(account.secrets);
   const protection = await discoverProtection({ api, config: sandbox, primaryHome: botHome, stateDirectory: join(homedir(), '.config/agent-sandbox/discord-admin') });
+  const application = await api('GET', '/users/@me');
+  if (activation.guildId !== protection.guildId || activation.applicationId !== application.id) {
+    throw new Error('discord-admin: the live guild or application differs from the owner activation. Check Mastermind configuration.');
+  }
   const approvals = discordAdminApprovals({ clicks: humanStore(join(HUMAN_HOME, 'discord')), pending: humanStore(join(HUMAN_HOME, 'discord-admin')),
     channelAccount: account.id, guildId: protection.guildId, api });
-  return { api, protection, approvals };
+  const serverLogClock = isServerLogEnabled() ? () => new Date() : undefined;
+  return { api, protection, approvals, serverLogClock };
 }
 
-async function run(mode) {
+async function run(mode, activation) {
   if (mode === 'actions') return actions();
   if (!Object.hasOwn(MODES, mode)) throw new Error(`discord-admin: use ${USAGE_MODES.slice(0, -1).join(', ')} or ${USAGE_MODES.at(-1)}. Supply JSON on stdin.`);
   const input = readInput();
-  return MODES[mode](input, await connect());
+  return MODES[mode](input, await connect(activation));
 }
 
 main(import.meta, async () => {
   if (!isMastermind) throw new Error('discord-admin: only the Mastermind pot runs this command.');
-  requireDiscordAdminEnabled(sandbox);
-  process.stdout.write(`${JSON.stringify(await run(process.argv[2]))}\n`);
+  const activation = requireDiscordAdminEnabled(sandbox);
+  process.stdout.write(`${JSON.stringify(await run(process.argv[2], activation))}\n`);
 });

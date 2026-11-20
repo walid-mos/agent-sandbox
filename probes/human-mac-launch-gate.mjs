@@ -11,7 +11,7 @@ const request = launchRequest({ launch: 'a'.repeat(32), target: 'mac-studio', po
 const offer = { request, executionDigest: executionFingerprint(settings), prompt: 'Reply ready.', content: 'Approve this prompt', messageId: message, applicationId: application, attachment: { id: '666666666666666666', filename: 'prompt.txt', size: 12 } };
 const click = () => pressEvent(offer, now);
 
-test('only the enabled operator may approve the gate message', () => {
+test('only the configured operator may approve the gate message', () => {
   const event = click();
   event.member.user.id = '777777777777777777';
   assert.throws(() => verifyPress(event, offer, settings, now, 'ml'), /operator/);
@@ -52,8 +52,7 @@ test('a Mac clock that trails Discord or the pot by a few seconds still accepts'
   assert.equal(verifyOffer(shownRequest(request, offer.prompt, 'open'), launchNotice(request), settings, now - 5000).request.launch, request.launch);
 });
 
-test('the private switch and expiry are rechecked at the press', () => {
-  assert.throws(() => verifyPress(click(), offer, { ...settings, humanDiscord: { ...settings.humanDiscord, macLaunchEnabled: false } }, now, 'ml'), /off|enabled/);
+test('expiry is rechecked at the press', () => {
   assert.throws(() => verifyPress(click(), offer, settings, request.expiresAt, 'ml'), /expired|old/);
 });
 
@@ -65,5 +64,5 @@ test('the gate refuses a changed source, target, future or forbidden scope', () 
   }
   assert.throws(() => verifyOffer(shown, launchNotice(request), settings, now - 5001));
   const signed = launchRequest({ ...request, prompt: 'Sign the tip.', acts: ['sign-tip'] });
-  assert.throws(() => verifyOffer(shownRequest(signed, 'Sign the tip.', 'open'), launchNotice(signed), settings, now), /refuses sign-tip/);
+  assert.throws(() => verifyOffer(shownRequest(signed, 'Sign the tip.', 'open'), launchNotice(signed), settings, now), /no safe delegated capability for sign-tip/);
 });

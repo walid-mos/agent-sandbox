@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { after, afterEach, beforeEach, test } from 'node:test';
+import { after, afterEach, beforeEach, mock, test } from 'node:test';
 
+mock.module('./sandbox.mjs', { exports: { sandbox: {} } });
 const scratch = mkdtempSync(join(tmpdir(), 'pots-runtime-'));
 process.env.HOME = scratch;
 process.env.HC_TERMINAL_ID = 't-owned';
@@ -19,7 +20,7 @@ const { enqueue, QUEUE } = await import('./queue.mjs');
 const worker = { name: 'owned', owner: 'nextnode', launchId: 'launch-1' };
 const terminal = { address: 't-owned', name: 'owned', cwd: '/work/task', state: 'live', status: { state: 'idle' },
   labels: { 'pots.owner': 'nextnode', 'pots.launch': 'launch-1' } };
-const final = { type: 'message', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Ready.' }] } };
+const final = { id: 'leaf-1', type: 'message', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Ready.' }] } };
 const boundaryScript = `#!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
@@ -94,6 +95,23 @@ test('an unread final result keeps its live process until exact coordinator rece
   assert.equal(readJson(statePath(worker)).phase, 'closing');
 });
 
+test('an exact receipt written by atomic rename wakes a settled done worker without manual finish', { timeout: 5_000 }, async t => {
+  publishBoundary({ terminals: [{ ...terminal, status: { state: 'done' } }] });
+  const closed = new Promise(resolve => { context.shutdown = resolve; });
+  acknowledge(t);
+  await closed;
+  assert.equal(readJson(statePath(worker)).phase, 'closing');
+});
+
+test('prompt timing saved after settlement does not strand an acknowledged result', t => {
+  publishBoundary({ terminals: [{ ...terminal, status: { state: 'done' } }] });
+  acknowledge(t);
+  branch = [final, { id: 'timing-1', parentId: final.id, type: 'custom', customType: 'pi-hud-telemetry-prompt-timing-v2' }];
+  context.sessionManager.getLeafId = () => 'timing-1';
+  runtime.finish(context);
+  assert.equal(shutdowns, 1);
+});
+
 test('a transient inspection failure retries the exact receipt and closes once', t => {
   acknowledge(t);
   publishBoundary({ gitFailures: 1 });
@@ -165,6 +183,39 @@ test('unknown pending-work contracts fail closed', t => {
   acknowledge(t);
   runtime.finish(context);
   assert.equal(shutdowns, 0);
+});
+
+test('a positive contract count dates the waiting phase', t => {
+  counts.awaited = 1;
+  runtime.settle(context);
+  const state = readJson(statePath(worker));
+  assert.equal(state.phase, 'waiting');
+  assert.equal(state.waitingSince, Date.now());
+});
+
+test('a zero contract count settles the worker without a waiting phase', t => {
+  runtime.settle(context);
+  const state = readJson(statePath(worker));
+  assert.equal(state.phase, 'settled');
+  assert.equal(state.waitingSince, undefined);
+});
+
+test('an unfinished session with no running work publishes no waiting phase', t => {
+  branch = [];
+  runtime.settle(context);
+  const state = readJson(statePath(worker));
+  assert.equal(state.phase, 'active');
+  assert.equal(state.waitingSince, undefined);
+});
+
+test('a missing contract neither dates a wait nor settles the worker', t => {
+  runtime.stop();
+  runtime = new WorkerRuntime({ events: { emit: () => {} } }, worker);
+  runtime.start(context);
+  runtime.settle(context);
+  const state = readJson(statePath(worker));
+  assert.equal(state.phase, 'active');
+  assert.equal(state.waitingSince, undefined);
 });
 
 for (const pending of ['question', 'editor', 'working', 'goal', 'helper', 'dirty', 'unpushed']) {

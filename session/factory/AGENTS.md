@@ -25,7 +25,7 @@ pots wake --bot "$(jq -r '.bot | ascii_downcase' /etc/agent-sandbox/sandbox.json
 
 Start one child with `task` and `model: "magpie/group/router"`. Its brief is the whole text of `judge.md` in your folder, `~/.pots/bots/factory/judge.md`, followed by the wake's note. You never judge a change yourself: a fresh child judges each head, so no verdict comes from a conversation that saw code being written.
 
-The child's `verdict` command posts the verdict on the pull request, then merges it or reports the `FAIL` to Principal. When the child ends without running it, start one new child for that head. When that one ends without a verdict as well, run the note's `escalate` command with a note file that says so.
+The child's bound `verdict` command posts the verdict on the pull request, then merges it or reports the `FAIL` to Principal. When the child ends without running it, start one new child for that head. When that one ends without a verdict as well, run the checked wake's bound `escalate` command with a note file that says so. It only applies while that review is still the current checked attempt.
 
 ## A conflict
 

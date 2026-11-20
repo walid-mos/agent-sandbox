@@ -105,6 +105,18 @@ install_units() {
 	systemctl enable --now pots-keeper.timer pots-update.timer pots-tailnet-guard.timer
 }
 
+# The isolated factory and its two services. GnuPG both signs the landing commit and verifies the tip the signer extends.
+install_signing() {
+	apt_get update -qq
+	apt_get install -y -qq gnupg
+	install -m 0644 "$here/pots-landing.service" "$here/pots-factory-reports.service" "$here/pots-factory.service" /etc/systemd/system/
+	systemctl daemon-reload
+	systemctl enable pots-landing.service pots-factory-reports.service pots-factory.service
+	systemctl restart pots-landing.service pots-factory-reports.service
+	# The factory exits cleanly until the operator's steps exist, and its unit retries it.
+	systemctl restart pots-factory.service
+}
+
 swap_file_gib() {
 	[ -f "$SWAP_FILE" ] || { echo 0; return; }
 	bytes=$(stat -c %s "$SWAP_FILE")
@@ -150,3 +162,5 @@ id pots-repository-read > /dev/null 2>&1 || useradd --system --no-create-home --
 usermod --password '*' --groups '' pots-repository-read
 configure_swap "$swap_gib"
 install_units
+install_signing
+/usr/bin/python3 -B "$here/usage_setup.py"
