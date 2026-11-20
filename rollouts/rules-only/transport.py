@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import sys
 
-from guards import AREA, digest, encode, read_json, regular, require
+from guards import AREA, encode, read_json, regular, require
 from observe_vm import observe
 from sources import prove_files
 

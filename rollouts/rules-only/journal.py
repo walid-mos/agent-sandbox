@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import uuid
 
-from guards import Refused, digest, encode, private_directory, private_file, read_json, require
+from guards import PRIVATE_MODE, Refused, digest, encode, private_directory, private_file, read_json, require
 from process_state import LIVE, identity, lease_identity, lease_is_held
 
 
@@ -15,7 +15,7 @@ def fsync_directory(directory):
         os.close(descriptor)
 
 
-def create(path, content, mode=0o600):
+def create(path, content, mode=PRIVATE_MODE):
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
     try:
         with os.fdopen(descriptor, 'wb') as output:
@@ -28,7 +28,7 @@ def create(path, content, mode=0o600):
 
 
 def create_ownership(marker, contract):
-    descriptor = os.open(marker, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    descriptor = os.open(marker, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, PRIVATE_MODE)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         ownership = {'runId': contract['runId'], 'contractSha256': digest(encode(contract)),
