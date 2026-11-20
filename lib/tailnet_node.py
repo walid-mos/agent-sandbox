@@ -8,12 +8,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from launch import LAUNCH
 from tailnet_sources import OPERATOR, POT_SESSIONS, agreed_addresses, inbound_grants, operator_view, source_problems
 
 NETWORK_ENV = Path(__file__).resolve().parent.parent / "vm/network.env"
-LAUNCH_ENV = Path(__file__).resolve().parent.parent / "session/launch.env"
 DOOR_PORT = int(re.search(r"^DOOR_PORT=([0-9]+)$", NETWORK_ENV.read_text(), re.MULTILINE).group(1))
-INSTALLED_SETTINGS = Path(re.search(r"^POTS_SESSION_CONFIGURATION=(.+)$", LAUNCH_ENV.read_text(), re.MULTILINE).group(1))
+INSTALLED_SETTINGS = Path(LAUNCH["POTS_SESSION_CONFIGURATION"])
 TAILNET_SETTINGS = "tailnet.json"
 LOGIN = re.compile(r"[^@\s]+@[^@\s]+")
 POT_NAME = re.compile(r"[a-z](?:[a-z0-9-]{0,29}[a-z0-9])?")

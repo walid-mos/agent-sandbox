@@ -12,7 +12,7 @@ mkdirSync(bin);
 process.env.PATH = `${bin}:${process.env.PATH}`;
 const boundaryPath = join(scratch, 'boundary.json');
 process.env.POTS_TEST_BOUNDARY = boundaryPath;
-mock.module('./sandbox.mjs', { exports: { botId: 'nextnode' } });
+mock.module('./sandbox.mjs', { exports: { botId: 'nextnode', sandbox: {} } });
 const { inspectWorker } = await import('./inspect-worker.mjs');
 const { serveQueue } = await import('./serve-queue.mjs');
 const { createAdmission } = await import('./worker-admission.mjs');

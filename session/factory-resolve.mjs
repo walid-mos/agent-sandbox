@@ -2,8 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { requireActionable } from './factory-github.mjs';
-import { branchTip, copyAt, refreshMirror, remoteUrl } from './factory-mirror.mjs';
-import { FACTORY_HOME, pullArguments, pullKey, pullUrl, requireRecord, writeRecord } from './factory-records.mjs';
+import { branchTip, copyAt, refreshMirror } from './factory-mirror.mjs';
+import { remoteUrl } from './github-url.mjs';
+import { FACTORY_HOME, pullArguments, pullKey, requireRecord, withRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { command } from './run.mjs';
 
 const RESOLUTIONS = join(FACTORY_HOME, 'resolutions');
@@ -17,10 +19,9 @@ function startMerge(workspace, base) {
   return unmergedPaths(workspace);
 }
 
-export function resolve(arguments_) {
-  const pull = pullArguments(arguments_);
+function prepareResolution(pull, save) {
   const record = requireRecord(pull, 'conflict');
-  const facts = requireActionable(pull);
+  const facts = requireActionable(record);
   if (facts.isCrossRepository) throw new Error(`factory: ${pullUrl(pull)} comes from a fork, where the factory cannot push. Escalate it.`);
   refreshMirror(pull.repository);
   const workspace = join(RESOLUTIONS, pullKey(pull));
@@ -30,8 +31,13 @@ export function resolve(arguments_) {
   git(workspace, ['remote', 'set-url', 'origin', remoteUrl(pull.repository)]);
   const baseTip = branchTip(pull.repository, facts.baseRefName);
   const files = startMerge(workspace, facts.baseRefName);
-  writeRecord({ ...record, resolution: { workspace, branch: facts.headRefName, baseTip, files } });
+  save({ ...record, resolution: { workspace, branch: facts.headRefName, baseTip, files } });
   process.stdout.write(`${workspace}\nMerging ${facts.baseRefName} at ${baseTip} into ${facts.headRefName} left ${files.length} conflicted files:\n${files.join('\n')}\n`);
+}
+
+export function resolve(arguments_) {
+  const pull = pullArguments(arguments_);
+  return withRecord(pull, (_, save) => prepareResolution(pull, save));
 }
 
 function resolvedCommit(workspace, { head, baseTip, files }) {
@@ -46,15 +52,19 @@ function resolvedCommit(workspace, { head, baseTip, files }) {
 }
 
 // A plain push: GitHub rejects it when the branch moved, so the factory never overwrites a commit it did not see.
-export function push(arguments_) {
-  const pull = pullArguments(arguments_);
+function pushResolution(pull, save) {
   const record = requireRecord(pull, 'conflict');
   if (!record.resolution) throw new Error(`factory: ${pullUrl(pull)} has no resolution under way. Run resolve first.`);
   const { workspace, branch } = record.resolution;
-  const commit = resolvedCommit(workspace, { head: pull.head, ...record.resolution });
-  requireActionable(pull);
+  const commit = resolvedCommit(workspace, { ...record.resolution, head: record.head });
+  requireActionable(record);
   git(workspace, ['push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`]);
-  writeRecord({ ...record, stage: 'resolved', resolution: { ...record.resolution, commit } });
+  save({ ...record, stage: 'resolved', resolution: { ...record.resolution, commit } });
   rmSync(workspace, { recursive: true, force: true });
   process.stdout.write(`factory: pushed ${commit} to ${branch}. The next scan checks it as a new head.\n`);
+}
+
+export function push(arguments_) {
+  const pull = pullArguments(arguments_);
+  return withRecord(pull, (_, save) => pushResolution(pull, save));
 }

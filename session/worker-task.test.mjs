@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import { sandboxFixture } from '../probes/fixtures/sandbox.mjs';
@@ -30,6 +30,7 @@ mock.module('./run.mjs', { exports: { WITH_VAULT: '/unused', failureReason: erro
 } } });
 const { inspectWorker } = await import('./inspect-worker.mjs');
 const { runCommand } = await import('./commands.mjs');
+const { runOperation } = await import('./main.mjs');
 const { enqueue, queued } = await import('./queue.mjs');
 const { serveQueue } = await import('./serve-queue.mjs');
 const { createAdmission } = await import('./worker-admission.mjs');
@@ -42,6 +43,9 @@ let worker;
 let runtime;
 let context;
 let shutdowns;
+let branch;
+let leaf;
+let onShutdown;
 
 function serve() {
   const logFailure = (_subject, error) => { throw error; };
@@ -58,11 +62,12 @@ function inspect() {
 function startRuntime() {
   process.env.HC_TERMINAL_ID = worker.terminal;
   const sessionFile = join(worker.worktree, 'conversation.jsonl');
-  writeFileSync(sessionFile, '{"type":"session","id":"task"}\n');
+  if (!existsSync(sessionFile)) writeFileSync(sessionFile, '{"type":"session","id":"task"}\n');
+  leaf = 'leaf';
+  branch = [{ id: leaf, type: 'message', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Report ready.' }] } }];
   context = { cwd: worker.worktree, isIdle: () => true, hasPendingMessages: () => false,
-    shutdown: () => { shutdowns += 1; }, ui: { getEditorText: () => '', onTerminalInput: () => () => {} },
-    sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => 'task', getLeafId: () => 'leaf',
-      getBranch: () => [{ type: 'message', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Report ready.' }] } }] } };
+    shutdown: () => { shutdowns += 1; onShutdown?.(); }, ui: { getEditorText: () => '', onTerminalInput: () => () => {} },
+    sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => 'task', getLeafId: () => leaf, getBranch: () => branch } };
   runtime = new WorkerRuntime({ events: { emit: (_event, request) => {
     request.result = { version: 1, asyncRuns: 0, waitSubscriptions: 0, awaited: 0 };
   } } }, worker);
@@ -74,6 +79,7 @@ beforeEach(t => {
   calls.length = 0;
   terminals = [];
   shutdowns = 0;
+  onShutdown = undefined;
   const directory = join(home, `task-${++serial}`);
   mkdirSync(directory);
   mkdirSync(join(directory, '.git'));
@@ -120,6 +126,77 @@ test('a task launches visibly and closes only after its result and exact coordin
   assert.equal(shutdowns, 1);
   assert.equal(readJson(statePath(worker)).phase, 'closing');
   assert.equal(calls.some(call => ['git', 'gh', 'bash'].includes(call.binary)), false);
+});
+
+async function dispatch(operation, ...args) {
+  const originalArgs = process.argv;
+  try {
+    process.argv = [process.execPath, 'dispatch.mjs', operation, ...args];
+    await import(`./dispatch.mjs?acknowledged-task=${operation}`);
+  } finally {
+    process.argv = originalArgs;
+  }
+}
+
+function reportWithTiming(timers) {
+  writeFileSync(worker.resultFile, 'Reviewed evidence.');
+  terminals = terminals.map(terminal => ({ ...terminal, status: 'done' }));
+  const sessionFile = context.sessionManager.getSessionFile();
+  appendFileSync(sessionFile, `${JSON.stringify(branch[0])}\n`);
+  runtime.settle(context);
+  const timing = { id: 'timing', parentId: leaf, type: 'custom', customType: 'pi-hud-telemetry-prompt-timing-v2' };
+  leaf = timing.id;
+  branch.push(timing);
+  appendFileSync(sessionFile, `${JSON.stringify(timing)}\n`);
+  timers.tick(SETTLED_GRACE_MS);
+  inspect();
+  return sessionFile;
+}
+
+for (const [guard, change] of Object.entries({
+  'pending messages': () => { context.hasPendingMessages = () => true; },
+  'unknown metadata': () => branch.push({ id: leaf = 'new', type: 'custom', customType: 'unknown' }),
+  'unread assistant output': () => branch.push({ ...branch[0], id: leaf = 'new' }),
+  'a branch without the settled leaf': () => { branch = branch.slice(1); },
+  'a changed session identity': () => { context.sessionManager.getSessionId = () => 'another-session'; },
+})) {
+  test(`${guard} keeps the acknowledged worker open after timing metadata`, ({ mock: { timers } }) => {
+    reportWithTiming(timers);
+    acknowledgeResult([worker.name, worker.result.id]);
+    change();
+    runtime.finish(context);
+    assert.equal(shutdowns, 0);
+  });
+}
+
+test('dispatcher acknowledges a done worker with timing metadata and resumes its exact session', { timeout: 5_000 }, async t => {
+  t.mock.module('./main.mjs', { exports: { runOperation, main: (_module, body) => body() } });
+  const sessionFile = reportWithTiming(t.mock.timers);
+  const reportedTranscript = readFileSync(worker.result.transcript, 'utf8');
+  assert.match(reportedTranscript, /pi-hud-telemetry-prompt-timing-v2/);
+  const closed = new Promise(resolve => { onShutdown = resolve; });
+  await dispatch('finish', worker.name, worker.result.id);
+  await closed;
+  runtime.stop();
+  terminals = [];
+  inspect();
+  assert.equal(worker.isClosed, true);
+  assert.deepEqual(queued(), []);
+  const messageFile = join(worker.worktree, 'follow-up.md');
+  writeFileSync(messageFile, 'Continue reviewing.');
+  await dispatch('send', worker.name, messageFile);
+  serve();
+  const launch = calls.filter(call => call.args[0] === 'run').at(-1).args;
+  assert.equal(launch[launch.indexOf('--session') + 1], sessionFile);
+  assert.equal(worker.sessionId, 'task');
+  assert.equal(readFileSync(sessionFile, 'utf8'), reportedTranscript);
+  assert.equal(queued()[0].message, 'Continue reviewing.');
+  startRuntime();
+  serve();
+  const wrapped = calls.find(call => call.args[0] === 'send').args.at(-1);
+  assert.equal(runtime.input({ text: wrapped }, context).text, 'Continue reviewing.');
+  serve();
+  assert.deepEqual(queued(), []);
 });
 
 test('a stopped task resumes its exact session through the same queue without creating a branch or PR', ({ mock: { timers } }) => {

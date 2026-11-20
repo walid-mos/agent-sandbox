@@ -1,13 +1,15 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FACTORY_BOT, factoryCommand, WATCH } from './factory-reports.mjs';
+import { factoryCommand, WATCH } from './factory-reports.mjs';
+import { FACTORY_BOT } from './factory-identity.mjs';
 import { FACTORY_TOPIC } from './factory-github.mjs';
 import { linkFolder } from './link.mjs';
 import { main } from './main.mjs';
 import { ensureRouterBot } from './router-bot.mjs';
 import { command } from './run.mjs';
 import { owners } from './sandbox.mjs';
+import { isRetiredSessionFactory } from './factory-authority.mjs';
 
 const VERSIONED = join(dirname(fileURLToPath(import.meta.url)), 'factory');
 const SCAN_EVERY = '1m';
@@ -38,6 +40,10 @@ function holdCheckIn() {
 }
 
 main(import.meta, () => {
+  if (isRetiredSessionFactory) {
+    process.stdout.write('factory: this factory runs in its own VM-started container. No session routine is installed.\n');
+    return;
+  }
   if (owners.length === 0) {
     process.stdout.write('factory: this pot owns no repositories, so it runs no Factory bot\n');
     return;

@@ -8,7 +8,7 @@ compile_python() {
 	PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 -m py_compile "$1"
 }
 
-for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/proxmox/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/mac/* "$root"/probes/* "$root"/vm/*; do
+for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/proxmox/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/session/factory-runtime/* "$root"/mac/* "$root"/probes/* "$root"/vm/*; do
 	[ -f "$path" ] || continue
 	IFS= read -r interpreter < "$path" || true
 	case "$interpreter" in
@@ -22,7 +22,7 @@ for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/pr
 		esac ;;
 	esac
 done
-for path in "$root"/session/*.mjs "$root"/session/factory-image/*.mjs "$root"/mac/*.mjs "$root"/herdr/*.js; do
+for path in "$root"/session/*.mjs "$root"/session/factory-image/*.mjs "$root"/session/factory-runtime/*.mjs "$root"/mac/*.mjs "$root"/herdr/*.js; do
 	node --check "$path"
 done
 # node --check rejects type annotations, so a TypeScript file is checked with its types stripped.
@@ -51,6 +51,7 @@ for path in "$root"/sandboxes.example/*/sandbox.json; do
 	jq -e --argjson catalog "$catalog" '([.owners[]?, (.secrets // {} | .[][]), (.onRequest // {} | .[][][])] | all(startswith("INFISICAL_") | not)) and (.sources | type == "array" and . - $catalog == [])' "$path" > /dev/null || { echo "check: $path lists a name starting with INFISICAL_, or does not select its sources as a list of session/agent-sources.json names" >&2; exit 1; }
 done
 node "$root/session/jira.mjs" check "$root"/sandboxes.example/*/sandbox.json
+node "$root/session/contribution-policy.mjs" check "$root"/sandboxes.example/*/sandbox.json
 for path in "$root"/sandboxes.example/*/sandbox.json "$root"/session/factory-repositories.json "$root"/session/agent-sources.json; do
 	jq empty "$path"
 done

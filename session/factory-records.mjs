@@ -1,17 +1,17 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { pullUrl } from './github-url.mjs';
 
 export const FACTORY_HOME = join(homedir(), '.config/agent-sandbox/factory');
 const HEADS = join(FACTORY_HOME, 'heads');
 const FULL_SHA = /^[0-9a-f]{40}$/;
+const LOCK_WAIT_SECONDS = '30';
+const LOCK_DESCRIPTOR = '3';
 
 export function pullKey({ repository, number, head }) {
   return `${repository.replace('/', '-')}-${number}-${head}`;
-}
-
-export function pullUrl({ repository, number }) {
-  return `https://github.com/${repository}/pull/${number}`;
 }
 
 export function pullArguments([repository, number, head]) {
@@ -46,10 +46,23 @@ export function requireRecord(pull, stage) {
   return record;
 }
 
-export function writeRecord(record) {
-  mkdirSync(HEADS, { recursive: true });
-  const path = recordPath(record);
+function writeRecord(path, record) {
   writeFileSync(`${path}.tmp`, `${JSON.stringify(record, null, 2)}\n`);
   renameSync(`${path}.tmp`, path);
   return record;
+}
+
+export function withRecord(pull, operation) {
+  mkdirSync(HEADS, { recursive: true });
+  const path = recordPath(pull);
+  const lock = openSync(`${path}.lock`, 'a', 0o600);
+  try {
+    const result = spawnSync('flock', ['--exclusive', '--wait', LOCK_WAIT_SECONDS, LOCK_DESCRIPTOR], {
+      stdio: ['ignore', 'ignore', 'ignore', lock],
+    });
+    if (result.status !== 0) throw new Error(`factory: could not lock the record for ${pullUrl(pull)} at ${pull.head}.`, { cause: result.error });
+    return operation(readRecord(pull), record => writeRecord(path, record));
+  } finally {
+    closeSync(lock);
+  }
 }
