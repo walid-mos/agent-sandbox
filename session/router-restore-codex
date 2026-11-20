@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/lib.sh"
+exec node "$here/router-codex-transfer.mjs" restore "$POTS_ROUTER_API"

@@ -3,8 +3,11 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { after, beforeEach, test } from 'node:test';
 import { routerAnswers } from './router-answers.mjs';
+import { codexAnswers } from './router-codex-answers.mjs';
+import { codexConfiguration } from '../probes/fixtures/codex-configuration.mjs';
 
 const asked = [];
+const requests = [];
 let replies = {};
 const router = createServer((request, response) => {
   let body = '';
@@ -12,7 +15,11 @@ const router = createServer((request, response) => {
   request.on('end', () => {
     const { model } = JSON.parse(body);
     asked.push(model);
-    const reply = replies[model] ?? { status: 404, served: '', body: { error: { message: `no reply scripted for ${model}` } } };
+    const account = request.headers['x-magpie-account'];
+    requests.push({ model, account });
+    const replyKey = account ? `${account}|${model}` : model;
+    const reply = replies[replyKey] ?? { status: 404, served: '', body: { error: { message: `no reply scripted for ${replyKey}` } } };
+    reply.onRequest?.();
     if (reply.disconnect) return request.socket.destroy();
     response.writeHead(reply.status, { 'Content-Type': 'application/json', 'X-Magpie-Model': reply.served });
     response.end(typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body));
@@ -24,6 +31,7 @@ const routerApi = `http://127.0.0.1:${router.address().port}/v1`;
 after(() => router.close());
 beforeEach(() => {
   asked.length = 0;
+  requests.length = 0;
   replies = {};
 });
 
@@ -95,6 +103,74 @@ test('reports a disconnected router with the group and expected member', async (
   await assert.rejects(answers(seeded()), {
     message: 'router-restore: group/router through group/expert expected codex/sol:high and got no served model: request failed or response was unreadable. Check the router.',
   });
+});
+
+test('full health still rejects the exact Claude failure and Claude fallback after Codex succeeds', async () => {
+  for (const reply of [
+    { status: 429, served: 'claude/fable', body: { error: 'quota' } },
+    servedBy('claude/opus'),
+  ]) {
+    asked.length = 0;
+    replies = { 'group/expert': servedBy('codex/sol'), 'group/max': reply };
+    await assert.rejects(answers(seeded()), /group\/max expected claude\/fable:xhigh/u);
+    assert.deepEqual(asked, ['group/expert', 'group/max']);
+  }
+});
+
+async function directAnswers(account = 'original', captureCredentials = () => new Map([['fixture', Buffer.from('owned')]])) {
+  const snapshot = codexConfiguration();
+  snapshot.providers.groups[1].members[0] = `codex/gpt-6.2-sol:medium#${account}`;
+  snapshot.providers.groups[2].members[0] = `codex/gpt-6.2-sol:high#${account}`;
+  const lines = [];
+  for await (const line of codexAnswers(snapshot, routerApi, captureCredentials)) lines.push(line);
+  return lines;
+}
+
+test('Codex contract sends one direct original-account high-effort request and reports Claude DEFERRED', async () => {
+  replies = { 'original|codex/gpt-6.2-sol:high': servedBy('codex/gpt-6.2-sol') };
+  assert.deepEqual(await directAnswers(), [
+    'CODEX_TARGETED_V1: direct Codex served codex/gpt-6.2-sol',
+    'CODEX_TARGETED_V1: account constraint applied, served account unverified',
+    'CODEX_TARGETED_V1: Claude DEFERRED, group runtime and fallbacks untested',
+  ]);
+  assert.deepEqual(asked, ['codex/gpt-6.2-sol:high']);
+  assert.deepEqual(requests, [{ model: 'codex/gpt-6.2-sol:high', account: 'original' }]);
+});
+
+test('Codex contract percent-encodes a Unicode account selector for Magpie', async () => {
+  replies = { 'Ren%C3%A9e%20Ops%40example.com|codex/gpt-6.2-sol:high': servedBy('codex/gpt-6.2-sol') };
+  await directAnswers('Renée Ops@example.com');
+  assert.deepEqual(requests, [{ model: 'codex/gpt-6.2-sol:high', account: 'Ren%C3%A9e%20Ops%40example.com' }]);
+});
+
+test('Codex contract refuses missing or malformed account selectors before requests', async () => {
+  for (const account of ['', 'other/account']) {
+    await assert.rejects(directAnswers(account), /CODEX_TARGETED_V1: .*refused/u);
+    assert.deepEqual(requests, []);
+  }
+});
+
+test('credential refresh during a direct request refuses without exposing private bytes', async () => {
+  let bytes = 'before';
+  const captureCredentials = () => new Map([['fixture', Buffer.from(bytes)]]);
+  replies = { 'original|codex/gpt-6.2-sol:high': { ...servedBy('codex/gpt-6.2-sol'), onRequest: () => { bytes = 'after'; } } };
+  await assert.rejects(directAnswers('original', captureCredentials), /local credential state changed/u);
+  assert.deepEqual(asked, ['codex/gpt-6.2-sol:high']);
+});
+
+test('an available same-model account cannot answer when the selected account is unavailable', async () => {
+  replies = { 'other|codex/gpt-6.2-sol:high': servedBy('codex/gpt-6.2-sol') };
+  await assert.rejects(directAnswers(), /CODEX_TARGETED_V1: direct Codex validation failed/u);
+  assert.deepEqual(requests, [{ model: 'codex/gpt-6.2-sol:high', account: 'original' }]);
+});
+
+test('Codex contract rejects a fallback or quota response without retrying or printing full-health success', async () => {
+  for (const reply of [servedBy('claude/opus'), { status: 429, served: 'codex/gpt-6.2-sol', body: {} }, { status: 200, served: 'codex/gpt-6.2-sol', body: { choices: [] } }]) {
+    asked.length = 0;
+    replies = { 'original|codex/gpt-6.2-sol:high': reply };
+    await assert.rejects(directAnswers(), /CODEX_TARGETED_V1: direct Codex validation failed/u);
+    assert.deepEqual(asked, ['codex/gpt-6.2-sol:high']);
+  }
 });
 
 test('strips account, fast and effort selectors while keeping a model colon suffix', async () => {

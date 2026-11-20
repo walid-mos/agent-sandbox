@@ -1,0 +1,25 @@
+{
+  "scope": {
+    "contract": "CODEX_TARGETED_V1",
+    "claude": "DEFERRED",
+    "applicationRequests": 6,
+    "pots": ["accor", "mastermind", "nextnode", "personal"],
+    "recoveryPot": "nextnode",
+    "source": {
+      "parent": "6d71925e5467b58e7a935498c5a271cf5a9c059b",
+      "tip": null,
+      "branch": null,
+      "origin": "https://github.com/walid-mos/agent-sandbox.git",
+      "allowedCommits": []
+    },
+    "manifestSha256": null,
+    "runDirectory": null,
+    "window": { "notBefore": null, "admitUntil": null, "recoveryReserveSeconds": 1800, "minimumStartSeconds": 1800 },
+    "routes": { "mac": null, "accor": null, "mastermind": null, "nextnode": null, "personal": null, "nextnodeRecovery": null },
+    "routerEndpoints": { "mac": null, "accor": null, "mastermind": null, "nextnode": null, "personal": null },
+    "ownerHoldPaths": { "accor": null, "mastermind": null, "nextnode": null, "personal": null },
+    "sourceDeployment": "SEPARATE_EXACT_REVIEW_REQUIRED_NO_SIGN_PARENT_EXCEPTION"
+  },
+  "parentApproval": { "state": "PROPOSED", "scopeSha256": null, "at": null, "evidence": null },
+  "operatorApproval": { "state": "PROPOSED", "scopeSha256": null, "at": null, "evidence": null }
+}

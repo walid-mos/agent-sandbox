@@ -1,0 +1,5 @@
+export const READ_COMMAND_MS = 20_000;
+export const PREFLIGHT_MS = 180_000;
+export const RECOVERY_COMMAND_MS = 600_000;
+export const RECOVERY_VALIDATION_MS = 180_000;
+export const RESTORE_TRANSFER_MS = 240_000;

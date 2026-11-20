@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../lib/sandbox.sh"
+[ "${SANDBOX:-}" = nextnode ] || { echo 'CODEX_TARGETED_V1: recovery bootstrap is Nextnode only, refused' >&2; exit 2; }
+expected=${1:?expected the private restored snapshot path}
+session=$(running_session)
+session_exec "$session" node "$POTS_SESSION_REPOSITORY/session/router-codex-transfer.mjs" compare "$expected"
+for service in pots-router pots-tailnet pots-gateway pots-watcher pots-sources pots-human-relay pots-discord-human; do
+	sandbox_docker exec --user root "$session" s6-svc -r -wu -T 20000 "/run/service/custom-svc-$service"
+done
+for service in pots-router pots-gateway pots-human-relay pots-discord-human; do
+	state=$(sandbox_docker exec --user root "$session" s6-svstat -o up "/run/service/custom-svc-$service")
+	[ "$state" = true ] || { echo "CODEX_TARGETED_V1: $service is not up, recovery stopped without retry" >&2; exit 1; }
+done
+session_exec "$session" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-current
+session_exec "$session" node "$POTS_SESSION_REPOSITORY/session/router-codex-transfer.mjs" compare "$expected"
+printf 'CODEX_TARGETED_V1: gateway and human relay processes up, Claude DEFERRED\n'
