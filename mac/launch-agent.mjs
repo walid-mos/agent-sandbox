@@ -7,6 +7,8 @@ import { protectedPath, requireGate } from './launch-protection.mjs';
 import { loadSettings } from './launch-settings.mjs';
 
 const LABEL = 'fr.nextnode.agent-sandbox.mac-launch';
+const SERVICE = `system/${LABEL}`;
+const SERVICE_NOT_FOUND = 113;
 const PLIST = `/Library/LaunchDaemons/${LABEL}.plist`;
 const LOG = join(GATE_HOME, 'gate.log');
 const escape = value => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
@@ -42,8 +44,13 @@ function launchDaemonPlist(settings) {
 }
 
 function unload() {
-  const result = execFileSync('/bin/launchctl', ['print', `system/${LABEL}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  if (result) execFileSync('/bin/launchctl', ['bootout', `system/${LABEL}`], { stdio: 'inherit' });
+  try {
+    execFileSync('/bin/launchctl', ['print', SERVICE], { stdio: 'ignore' });
+  } catch (error) {
+    if (error.status === SERVICE_NOT_FOUND) return;
+    throw error;
+  }
+  execFileSync('/bin/launchctl', ['bootout', SERVICE], { stdio: 'inherit' });
 }
 
 export function install() {
@@ -53,8 +60,17 @@ export function install() {
   closeSync(openSync(LOG, 'a', 0o600));
   writeFileSync(PLIST, launchDaemonPlist(settings), { flag: 'wx', mode: 0o644 });
   chmodSync(PLIST, 0o644);
+  execFileSync('/bin/launchctl', ['enable', SERVICE], { stdio: 'inherit' });
   execFileSync('/bin/launchctl', ['bootstrap', 'system', PLIST], { env: gateEnvironment(), stdio: 'inherit' });
   console.log('Protected system launch gate installed. No inbound port was opened.');
+}
+
+export function disable() {
+  requireGate();
+  protectedPath(PLIST);
+  execFileSync('/bin/launchctl', ['disable', SERVICE], { stdio: 'inherit' });
+  unload();
+  console.log('Protected launch daemon disabled. Decisions and execution records were retained.');
 }
 
 export function remove() {

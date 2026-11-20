@@ -49,7 +49,7 @@ export function launchService({ store, discord, pots, runner, settings, warn, cl
 
   async function notice(message, applicationId) {
     const config = settings();
-    if (config.humanDiscord.macLaunchEnabled !== true || message.guild_id !== config.guildId || message.channel_id !== config.channelId
+    if (message.guild_id !== config.guildId || message.channel_id !== config.channelId
       || !config.announcers.includes(message.author?.id)) return;
     let proposed;
     try { proposed = noticeOf(message.content); } catch { return; }

@@ -69,7 +69,7 @@ function isAnswerWaiting(record) {
 }
 
 async function notifyAdminApproval(record) {
-  await commandWithInput('pots', ['wake', '--bot', botId, ...approvalWake(record.id)], '', { timeout: 10_000 });
+  await commandWithInput('pots', ['wake', '--bot', botId, ...approvalWake(record)], '', { timeout: 10_000 });
   await store.patch(record.id, { replySent: true });
 }
 

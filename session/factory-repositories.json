@@ -26,6 +26,14 @@
   "NextNodeSolutions/herdr-config": [
     { "name": "check", "run": ["./bin/check"] }
   ],
+  "NextNodeSolutions/syneva": [
+    { "name": "install", "run": ["pnpm", "install", "--frozen-lockfile"], "network": true },
+    { "name": "lint", "run": ["pnpm", "run", "lint"] },
+    { "name": "lint-types", "run": ["pnpm", "run", "lint:types"] },
+    { "name": "format-check", "run": ["pnpm", "run", "format:check"] },
+    { "name": "check", "run": ["pnpm", "run", "check"] },
+    { "name": "build", "run": ["pnpm", "run", "build"] }
+  ],
   "NextNodeSolutions/pi-agent": [
     { "name": "install", "run": ["pnpm", "install", "--frozen-lockfile"], "network": true },
     { "name": "lint", "run": ["pnpm", "run", "lint"] },

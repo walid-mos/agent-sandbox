@@ -163,3 +163,4 @@ usermod --password '*' --groups '' pots-repository-read
 configure_swap "$swap_gib"
 install_units
 install_signing
+/usr/bin/python3 -B "$here/usage_setup.py"

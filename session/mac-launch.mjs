@@ -5,7 +5,7 @@ import { find as findDoorRequest, OPEN as WAITING, RECEIVED } from './door-reque
 import { ownName } from './doors.mjs';
 import { isSnowflake, MASTERMIND_POT, text } from './human-contract.mjs';
 import { launchNotice, noticeOf, noticeText, OPEN } from './launch-contract.mjs';
-import { askClosure, launchSettings, launchStore, listedLaunches, openLaunch, recordStatus, shownLaunch, wakeBot } from './launch-requests.mjs';
+import { askClosure, launchStore, listedLaunches, openLaunch, recordStatus, shownLaunch, wakeBot } from './launch-requests.mjs';
 import { main, runOperation } from './main.mjs';
 import { command, commandWithInput } from './run.mjs';
 import { botId, isMastermind, sandbox } from './sandbox.mjs';
@@ -18,7 +18,7 @@ const asked = (launch, state) => ({ launch, asked: state, effective: false,
   next: `The Mac decides. It reports ${state} once it has closed this launch, or started with tooLate set if the operator's press came first.` });
 
 function postNotice(content) {
-  const { channelAccount, channelId } = launchSettings(sandbox);
+  const { channelAccount, channelId } = sandbox.macLaunch ?? {};
   if (!text(channelAccount) || !isSnowflake(channelId)) throw new Error('mac-launch: Mastermind\'s macLaunch names no channelAccount and channelId to post notices in.');
   return commandWithInput('pots', ['call', '--bot', botId, channelAccount, `POST /channels/${channelId}/messages`, '-'], JSON.stringify({ content, allowed_mentions: { parse: [] } }), { timeout: POST_MS });
 }
@@ -64,13 +64,12 @@ async function request(arguments_) {
   const { values, file } = requestOptions(arguments_);
   const store = launchStore();
   requireReplaceableLaunch(values, store);
-  const opened = await openLaunch(launchDraft(values, file), { store, settings: launchSettings(sandbox), pot: ownName() });
+  const opened = await openLaunch(launchDraft(values, file), { store, settings: sandbox.macLaunch, pot: ownName() });
   await publishRequest(opened, values, store);
   print(opened);
 }
 
 async function cancel([id]) {
-  launchSettings(sandbox);
   await askAndTell(id, 'cancelled', launchStore());
 }
 

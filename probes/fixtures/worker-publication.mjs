@@ -37,6 +37,11 @@ mock.module('../../session/run.mjs', { exports: { ...realRun, WITH_VAULT: '/unus
   if (args[1] === 'list') return JSON.stringify(githubState.pullRequests);
   return 'https://github.invalid/proof/repository/pull/1';
 } } });
+// The installed Pi harness is a boundary here: this fixture stands for a helper that takes --description.
+mock.module('../../session/draft-helper.mjs', { exports: {
+  DRAFT_PR: '/unused/draft-pr', draftHelperTakesDescription: () => true, requireDraftHelper: () => {},
+  owesDraft: () => false, requireDraftHelperFor: () => {},
+} });
 export const { save, workers } = await import('../../session/workers.mjs');
 export const { humanStore } = await import('../../session/human-store.mjs');
 export const { workerScope, publishWorker, openWorkerPR, pushWorker } = await import('../../session/worker-publication.mjs');
@@ -60,7 +65,8 @@ export function fixture({ publicationPolicy } = {}) {
   git(checkout, 'checkout', '-b', 'feat/probe');
   if (!publicationPolicy) git(checkout, 'commit', '--allow-empty', '-m', 'feat: bootstrap');
   const worker = { name: `proof-${sequence}`, kind: 'repository', owner: 'proof', repository: 'proof/repository',
-    branch: 'feat/probe', base: 'main', title: 'feat: probe', worktree: checkout, originUrl: remote, publication: 'local', publicationPolicy };
+    branch: 'feat/probe', base: 'main', title: 'feat: probe', worktree: checkout, originUrl: remote, publication: 'local', publicationPolicy,
+    description: '## Purpose\nProve first publication of a repository worker.\n\n## Behavior\nPush the approved head and open the draft.\n\n## Checks\nThe publication suite.\n' };
   save(worker);
   return { worker, remote, checkout };
 }
