@@ -11,10 +11,11 @@ import urllib.request
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "lib"))
+from launch import LAUNCH
 from vault_policy import ROOT, Refused, entries_for, read_repositories, read_root_json
 from repository_read import bundle_for
 
-LAUNCH = dict(line.split("=", 1) for line in (HERE.parent / "session/launch.env").read_text().splitlines() if line)
 SOCKET = Path(LAUNCH["POTS_VAULT_SOCKET"])
 IDENTITY = Path(LAUNCH["POTS_VAULT_IDENTITY"])
 CONFIG_DIRECTORY = Path(LAUNCH["POTS_SESSION_CONFIGURATION"])

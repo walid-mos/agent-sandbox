@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { probe } from './factory-checks.mjs';
-import { requireActionable } from './factory-github.mjs';
+import { reviewFacts } from './factory-publication.mjs';
 import { changeText } from './factory-mirror.mjs';
-import { pullArguments, pullUrl, requireRecord, withRecord } from './factory-records.mjs';
+import { pullArguments, requireRecord, withRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { deliverWakes, queueReport } from './factory-reports.mjs';
 import { push, resolve } from './factory-resolve.mjs';
 import { requireReview } from './factory-review.mjs';
@@ -14,7 +15,7 @@ function show(review, arguments_) {
   if (arguments_.length > 0) throw new Error('factory: the bound show command takes no arguments.');
   const record = requireReview(review);
   const { repository, head } = record;
-  const facts = requireActionable(record);
+  const facts = reviewFacts(record);
   const checks = record.checks.map(result => `- ${result.name}: passed, log ${result.log}`);
   process.stdout.write([
     `# ${pullUrl(record)}`,
@@ -42,7 +43,7 @@ function escalateReview(review, arguments_) {
   const record = requireReview(review);
   const escalated = withRecord(record, (_, save) => {
     const current = requireReview(review);
-    requireActionable(current);
+    reviewFacts(current);
     return save(reportEscalation(current, note));
   });
   deliverWakes(escalated);

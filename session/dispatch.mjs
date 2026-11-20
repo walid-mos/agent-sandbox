@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, sep } from 'node:path';
 import { parseArgs } from 'node:util';
+import { remoteUrl } from './github-url.mjs';
 import { accorPublicationPolicy } from './accor-publication-policy.mjs';
 import { repositoryOrigin } from './repository-origin.mjs';
 import { find } from './door-requests.mjs';
@@ -46,7 +47,7 @@ function openDraft(worktree, { title, description }, base) {
 function workspace(repository, branch, base, publication) {
   const checkout = join(WORKSPACES, repository);
   mkdirSync(join(checkout, '..'), { recursive: true });
-  if (!existsSync(join(checkout, '.git'))) command('git', ['clone', '--quiet', `https://github.com/${repository}.git`, checkout]);
+  if (!existsSync(join(checkout, '.git'))) command('git', ['clone', '--quiet', remoteUrl(repository), checkout]);
   const originUrl = publication === PUBLICATION.local ? repositoryOrigin(repository, checkout) : undefined;
   const config = JSON.parse(readFileSync(join(homedir(), '.pi/agent/extensions/subagent/config.json'), 'utf8'));
   const worktree = join(checkout, config.worktreeBaseDir, repository.split('/')[1], branch.replaceAll('/', '-'));

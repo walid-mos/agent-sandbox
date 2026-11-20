@@ -1,6 +1,9 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pullKey, pullUrl, readRecord, withRecord } from './factory-records.mjs';
+import { isIsolatedFactory, REPORT_SOURCE } from './factory-authority.mjs';
+import { askFactory } from './factory-channel.mjs';
+import { pullKey, readRecord, withRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
 import { bindReview } from './factory-review.mjs';
 import { command, WITH_VAULT } from './run.mjs';
 import { botId } from './sandbox.mjs';
@@ -9,7 +12,7 @@ export const FACTORY_BOT = { name: 'Factory', id: 'factory' };
 // The scan routine's name, and the source of the wakes it sends, by which the Factory bot recognises them.
 export const WATCH = 'factory-watch';
 const SESSION = dirname(fileURLToPath(import.meta.url));
-const PRINCIPAL_SOURCE = 'pr-factory';
+const PRINCIPAL_SOURCE = REPORT_SOURCE;
 
 export const factoryCommand = (operation, ...arguments_) => [WITH_VAULT, 'node', join(SESSION, 'factory.mjs'), operation, ...arguments_].join(' ');
 
@@ -60,7 +63,9 @@ function acknowledge(pull, id) {
 function deliverWake(record, { bot, source, id, note }) {
   const current = readRecord(record);
   if (!current?.pendingWakes?.some(wake => wake.id === id)) return;
-  if (source !== WATCH || id === wakeId('factory', current)) {
+  if (source === PRINCIPAL_SOURCE && isIsolatedFactory) {
+    askFactory('reports', { id, text: note });
+  } else if (source !== WATCH || id === wakeId('factory', current)) {
     command('pots', ['wake', '--bot', bot, '--from', source, '--id', id, '--note', note]);
   }
   acknowledge(record, id);

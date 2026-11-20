@@ -5,7 +5,9 @@ from pathlib import Path
 import sys
 
 HERE = Path(__file__).resolve().parent
-LAUNCH = dict(line.split("=", 1) for line in (HERE.parent / "session/launch.env").read_text().splitlines() if line)
+sys.path.insert(0, str(HERE.parent / "lib"))
+from launch import LAUNCH
+
 IDENTITY = Path(LAUNCH["POTS_VAULT_IDENTITY"])
 NAMES = ("INFISICAL_API_URL", "INFISICAL_UNIVERSAL_AUTH_CLIENT_ID", "INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET")
 INPUT_LIMIT_BYTES = 8192

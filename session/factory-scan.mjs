@@ -1,9 +1,13 @@
+import { isLandingPull, isRetiredSessionFactory, requireLandingAuthority } from './factory-authority.mjs';
 import { probe, runChecks } from './factory-checks.mjs';
 import { draftCandidates, draftFacts, draftPulls, FACTORY_TOPIC, isReadyHead, pullFacts, readyPulls, watchedRepositories } from './factory-github.mjs';
-import { mergeBase, refreshMirror } from './factory-mirror.mjs';
-import { logDirectory, pullUrl, readRecord, recordedHeads, withRecord } from './factory-records.mjs';
+import { branchTip, mergeBase, refreshMirror } from './factory-mirror.mjs';
+import { logDirectory, readRecord, recordedHeads, withRecord } from './factory-records.mjs';
+import { pullUrl } from './github-url.mjs';
+import { finishPublication } from './factory-publication.mjs';
 import { hasChecks } from './factory-repositories.mjs';
 import { deliverWakes, queueFactoryWake, queueReport, reportStaleDraft } from './factory-reports.mjs';
+import { isPendingSquash } from './factory-squash-publication.mjs';
 import { isOldDraft, staleDraftWakeId } from './factory-stale-draft.mjs';
 import { workers } from './workers.mjs';
 
@@ -35,7 +39,7 @@ function newHeads(repository, isChecked) {
 }
 
 function holdRecord(previous) {
-  if (!previous || previous.stage === HELD) return;
+  if (!previous || previous.stage === HELD || previous.recoveryOf || previous.squashPublication) return;
   withRecord(previous, (record, save) => {
     if (isSameStage(record, previous)) save({ ...record, stage: HELD });
   });
@@ -63,7 +67,11 @@ function failedCheckText(pull, failed) {
 }
 
 function check(subject) {
+  requireLandingAuthority(subject.repository);
   const base = mergeBase(subject.repository, subject.base, subject.head);
+  if (isLandingPull(subject) && branchTip(subject.repository, subject.base) !== base) {
+    return queueReport({ ...subject, stage: 'stale-base' }, `PR factory needs a fresh head containing the target tip for ${pullUrl(subject)}.`);
+  }
   const checks = runChecks(subject, base, logDirectory(subject));
   const failed = checks.find(result => !result.isPassed);
   if (failed) return queueReport({ ...subject, stage: 'checks-failed', mergeBase: base, checks }, failedCheckText(subject, failed));
@@ -162,7 +170,11 @@ function scanReadyPulls(repositories) {
 }
 
 export function scan() {
+  if (isRetiredSessionFactory) return;
   const repositories = watchedRepositories();
+  for (const record of recordedHeads().filter(isPendingSquash)) {
+    if (repositories.includes(record.repository)) handleLogged(record, () => finishPublication(record));
+  }
   scanReadyPulls(repositories);
   const now = Date.now();
   let workerRecords;
