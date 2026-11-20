@@ -1,171 +1,101 @@
-import { probe, runChecks } from './factory-checks.mjs';
-import { draftCandidates, draftFacts, draftPulls, FACTORY_TOPIC, isReadyHead, pullFacts, readyPulls, watchedRepositories } from './factory-github.mjs';
-import { mergeBase, refreshMirror } from './factory-mirror.mjs';
-import { logDirectory, pullUrl, readRecord, recordedHeads, withRecord } from './factory-records.mjs';
+import { isIsolatedFactory, isLandingPull, requireLandingAuthority } from './factory-authority.mjs';
+import { effectiveCheckRevision } from './factory-checks.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { logScanFailure, scanStaleDrafts } from './factory-draft-reminders.mjs';
+import { pullFacts, readyPulls, reviewSubject, watchedRepositories } from './factory-github.mjs';
+import { finishPublication } from './factory-publication.mjs';
+import { pullUrl } from './github-url.mjs';
+import { readRecord, recordedHeads, withRecord } from './factory-records.mjs';
 import { hasChecks } from './factory-repositories.mjs';
-import { deliverWakes, queueFactoryWake, queueReport, reportStaleDraft } from './factory-reports.mjs';
-import { isOldDraft, staleDraftWakeId } from './factory-stale-draft.mjs';
-import { workers } from './workers.mjs';
+import { isPendingSquash } from './factory-squash-publication.mjs';
+import { deliverWakes } from './factory-reports.mjs';
+import { withJobs } from './factory-state.mjs';
 
-// GitHub computes mergeability in the background, so a pull request it has not computed yet waits for the next scan.
-const isDecidable = pull => pull.mergeable === 'MERGEABLE' || pull.mergeable === 'CONFLICTING';
-const CHECKS_MISSING = 'checks-missing';
-const CHECKED = 'checked';
-const HELD = 'held';
+const MERGEABILITY_RETRY_MS = 5_000;
+const MAX_MERGEABILITY_RETRIES = 10;
 
-function isRetargetedReview(pull, record) {
-  return record?.stage === CHECKED && record.base !== pull.base;
-}
+const DECIDABLE = new Set(['MERGEABLE', 'CONFLICTING']);
 
-function isNew({ pull, previous }, isChecked) {
-  if (!previous || previous.stage === HELD) return true;
-  return isChecked && (previous.stage === CHECKS_MISSING || isRetargetedReview(pull, previous));
-}
-
-function isSameStage({ stage, generation } = {}, { stage: expectedStage, generation: expectedGeneration } = {}) {
-  return stage === expectedStage && generation === expectedGeneration;
-}
-
-function newHeads(repository, isChecked) {
-  return readyPulls(repository)
-    .map(pull => ({ repository, number: pull.number, head: pull.headRefOid, base: pull.baseRefName, branch: pull.headRefName, mergeable: pull.mergeable }))
-    .filter(isDecidable)
-    .map(pull => ({ pull, previous: readRecord(pull) }))
-    .filter(candidate => isNew(candidate, isChecked));
-}
-
-function holdRecord(previous) {
-  if (!previous || previous.stage === HELD) return;
-  withRecord(previous, (record, save) => {
-    if (isSameStage(record, previous)) save({ ...record, stage: HELD });
-  });
-}
-
-function holdDrafts(repository) {
-  for (const pull of draftPulls(repository)) {
-    holdRecord(readRecord({ repository, number: pull.number, head: pull.headRefOid }));
+function inspectPull(subject, jobs, read) {
+  try {
+    const pull = read(subject);
+    if (pull) return recordObservation(pull, jobs);
+  } catch (error) {
+    logScanFailure(pullUrl(subject), error);
   }
 }
 
-function holdUnwatched(repositories) {
-  const watched = new Set(repositories);
+function recordObservation(pull, jobs) {
+  if (pull.mergeable === 'UNKNOWN') return pull;
+  if (DECIDABLE.has(pull.mergeable)) jobs.observe(pull);
+}
+
+function readySubjects(repository) {
+  try {
+    return readyPulls(repository).map(({ number }) => ({ repository, number }));
+  } catch (error) {
+    logScanFailure(`${repository} ready discovery`, error);
+    return [];
+  }
+}
+
+export async function discoverReady(jobs, repositories, read = reviewSubject, wait = delay) {
+  const discover = subject => inspectPull(subject, jobs, read);
+  const unknown = repositories.flatMap(repository => readySubjects(repository).map(discover)).filter(Boolean).slice(0, MAX_MERGEABILITY_RETRIES);
+  if (unknown.length === 0) return;
+  await wait(MERGEABILITY_RETRY_MS);
+  unknown.forEach(discover);
+}
+
+function observeInputs(pull, revisions) {
+  if (pull && isLandingPull(pull)) requireLandingAuthority(pull.repository);
+  if (pull?.mergeable !== 'MERGEABLE' || !hasChecks(pull.repository)) return pull;
+  if (!revisions.has(pull.repository)) revisions.set(pull.repository, effectiveCheckRevision(pull.repository));
+  return { ...pull, inputRevision: revisions.get(pull.repository) };
+}
+
+function holdDraftReview(jobs, { repository, number }) {
+  const generation = jobs.current({ repository: repository.toLowerCase(), number });
+  const job = generation === undefined ? undefined : jobs.get(generation);
+  if (!job) return;
+  const record = readRecord({ ...job.subject, generation });
+  if (record?.generation !== generation || record.stage === 'held' || record.squashPublication) return;
+  withRecord(record, (current, save) => {
+    if (current?.generation !== generation || current.stage === 'held' || current.squashPublication || jobs.current(current) !== generation) return;
+    const facts = pullFacts(current);
+    if (facts.state === 'OPEN' && facts.isDraft === true && facts.headRefOid === current.head && jobs.current(current) === generation) {
+      return save({ ...current, stage: 'held' });
+    }
+    return current;
+  });
+}
+
+function recoverPublications(repositories) {
+  const watched = new Set(repositories.map(repository => repository.toLowerCase()));
   for (const record of recordedHeads()) {
-    if (!watched.has(record.repository)) holdRecord(record);
-  }
-}
-
-function missingChecksText(pull) {
-  return `PR factory cannot check ${pullUrl(pull)} at head ${pull.head}: ${pull.repository} has the ${FACTORY_TOPIC} topic, and session/factory-repositories.json in agent-sandbox defines no checks for it. Nothing was checked, judged or merged. Once its checks are defined there, the next scan takes this head.`;
-}
-
-function failedCheckText(pull, failed) {
-  return `PR factory stopped ${pullUrl(pull)} at head ${pull.head}: its ${failed.name} check failed. The log is ${failed.log}. The pull request stays open and unmerged until a new head passes.`;
-}
-
-function check(subject) {
-  const base = mergeBase(subject.repository, subject.base, subject.head);
-  const checks = runChecks(subject, base, logDirectory(subject));
-  const failed = checks.find(result => !result.isPassed);
-  if (failed) return queueReport({ ...subject, stage: 'checks-failed', mergeBase: base, checks }, failedCheckText(subject, failed));
-  return queueFactoryWake({ ...subject, stage: CHECKED, mergeBase: base, checks });
-}
-
-function reportMissingChecks({ mergeable, ...subject }) {
-  return queueReport({ ...subject, stage: CHECKS_MISSING }, missingChecksText(subject));
-}
-
-function handle({ mergeable, ...subject }) {
-  if (mergeable === 'CONFLICTING') return queueFactoryWake({ ...subject, stage: 'conflict' });
-  return check(subject);
-}
-
-function isCurrentCandidate(pull) {
-  const facts = pullFacts(pull);
-  return isReadyHead(pull, facts) && facts.baseRefName === pull.base
-    && facts.headRefName === pull.branch && facts.mergeable === pull.mergeable;
-}
-
-function recordCandidate({ pull, previous }, step) {
-  return withRecord(pull, (record, save) => {
-    if (!isSameStage(record, previous)) return undefined;
-    const isRetargeted = isRetargetedReview(pull, record);
-    if (isRetargeted && !isCurrentCandidate(pull)) return undefined;
-    const { generation = 0, stage, pendingWakes } = record ?? {};
-    const nextGeneration = stage === HELD || isRetargeted ? generation + 1 : generation;
-    return save(step({ ...pull, generation: nextGeneration, pendingWakes }));
-  });
-}
-
-function handleLogged(pull, step) {
-  try {
-    const record = step();
-    if (!record) return;
-    deliverWakes(record);
-    process.stdout.write(`factory: ${pullUrl(pull)} at ${pull.head}: ${record.stage}\n`);
-  } catch (error) {
-    logScanFailure(`${pullUrl(pull)} at ${pull.head}`, error);
-  }
-}
-
-function flushWakes() {
-  for (const record of recordedHeads().filter(head => head.pendingWakes?.length)) handleLogged(record, () => record);
-}
-
-function logScanFailure(subject, error) {
-  process.stderr.write(`factory: ${subject}: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-}
-
-function draftOwner(pull, readWorkers) {
-  if (pull.isCrossRepository) return undefined;
-  return readWorkers().find(worker => worker.owner && worker.repository?.toLowerCase() === pull.repository.toLowerCase()
-    && worker.branch === pull.headRefName && (!worker.pullRequest || worker.pullRequest.toLowerCase() === pullUrl(pull).toLowerCase()))?.owner;
-}
-
-function wakeStaleDraft(subject, now, readWorkers) {
-  const pull = draftFacts(subject.repository, subject.number);
-  if (pull.state !== 'OPEN') return;
-  const id = staleDraftWakeId(pull, now);
-  if (id) reportStaleDraft(pull, id, draftOwner(pull, readWorkers));
-}
-
-function scanStaleDrafts(repository, now, readWorkers) {
-  let candidates;
-  try {
-    candidates = draftCandidates(repository).filter(pull => isOldDraft(pull, now));
-  } catch (error) {
-    return logScanFailure(`${repository} draft discovery`, error);
-  }
-  for (const { number } of candidates) {
-    const subject = { repository, number };
+    const needsReadback = isIsolatedFactory && isPendingSquash(record);
+    if ((!needsReadback && !record.pendingWakes?.length) || !watched.has(record.repository.toLowerCase())) continue;
     try {
-      wakeStaleDraft(subject, now, readWorkers);
+      deliverWakes((needsReadback ? finishPublication(record) : undefined) ?? record);
     } catch (error) {
-      logScanFailure(`${pullUrl(subject)} draft reminder`, error);
+      logScanFailure(pullUrl(record), error);
     }
   }
 }
 
-function scanReadyPulls(repositories) {
-  holdUnwatched(repositories);
-  const { checked = [], unchecked = [] } = Object.groupBy(repositories, repository => (hasChecks(repository) ? 'checked' : 'unchecked'));
-  for (const repository of checked) holdDrafts(repository);
-  flushWakes();
-  for (const candidate of unchecked.flatMap(repository => newHeads(repository, false))) {
-    handleLogged(candidate.pull, () => recordCandidate(candidate, reportMissingChecks));
-  }
-  const pending = checked.flatMap(repository => newHeads(repository, true));
-  if (pending.length === 0) return;
-  process.stdout.write(`${probe()}\n`);
-  for (const repository of new Set(pending.map(({ pull }) => pull.repository))) refreshMirror(repository);
-  for (const candidate of pending) handleLogged(candidate.pull, () => recordCandidate(candidate, handle));
+export function scanReady(jobs, repositories = watchedRepositories()) {
+  const revisions = new Map();
+  return discoverReady(jobs, repositories, subject => observeInputs(reviewSubject(subject), revisions));
 }
 
-export function scan() {
-  const repositories = watchedRepositories();
-  scanReadyPulls(repositories);
-  const now = Date.now();
-  let workerRecords;
-  const readWorkers = () => (workerRecords ??= workers());
-  for (const repository of repositories) scanStaleDrafts(repository, now, readWorkers);
+export function scanMaintenance(jobs, repositories = watchedRepositories()) {
+  recoverPublications(repositories);
+  scanStaleDrafts(repositories, subject => holdDraftReview(jobs, subject));
+}
+
+export function scan({ routine }) {
+  return withJobs(async jobs => {
+    await scanReady(jobs);
+    if (routine) scanMaintenance(jobs);
+  });
 }

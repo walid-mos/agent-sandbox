@@ -1,5 +1,5 @@
 [Unit]
-Description=Fast-forward the agent-sandbox clone of this VM every five minutes
+Description=Check for trusted agent-sandbox releases every five minutes
 
 [Timer]
 OnCalendar=*:0/5

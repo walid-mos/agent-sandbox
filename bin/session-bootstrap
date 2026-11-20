@@ -26,6 +26,10 @@ restart_services "$session" pots-router pots-tailnet
 "$POTS_REPO/bin/sandbox-exec" node "$POTS_SESSION_REPOSITORY/session/bot.mjs"
 restart_services "$session" pots-gateway pots-watcher pots-sources
 # The Factory bot's routine needs a running gateway, so it comes after the restart.
+if session_exec "$session" node "$POTS_SESSION_REPOSITORY/session/factory-mode.mjs" ||
+	sandbox_docker exec --user root "$session" test -d /run/service/custom-svc-pots-factory; then
+	restart_services "$session" pots-factory
+fi
 "$POTS_REPO/bin/sandbox-exec" node "$POTS_SESSION_REPOSITORY/session/factory-bot.mjs"
 "$POTS_REPO/bin/tailnet-up"
 # Serving the pot's files needs the session node that tailnet-up joins, so it comes last.

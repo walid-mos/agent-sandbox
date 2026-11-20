@@ -5,6 +5,9 @@ from pathlib import Path
 import stat
 import subprocess
 import sys
+from types import SimpleNamespace
+
+sys.dont_write_bytecode = True
 
 BUNDLE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUNDLE / "lib"))
@@ -15,12 +18,13 @@ LAUNCH = dict(line.split("=", 1) for line in (BUNDLE / "session/launch.env").rea
 CLONE = Path(LAUNCH["POTS_SESSION_REPOSITORY"])
 SIGNERS = LAUNCH["POTS_TRUSTED_SIGNERS"]
 SOURCE_URL = LAUNCH["POTS_SOURCE_URL"]
+RECEIVER = Path(LAUNCH['POTS_RECEIVER'])
 TRUSTED_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 WRITABLE_BY_OTHERS = stat.S_IWGRP | stat.S_IWOTH
 ROOT = 0
 # Git refuses a clone another user owns; the ownership walk has already proven this one root-owned.
 CLONE_GIT_OPTIONS = ("-c", f"safe.directory={CLONE}")
-USAGE = "usage: trusted_source.py update [--branch BRANCH] | run SCRIPT [ARGUMENT...] | verify"
+USAGE = 'usage: trusted_source.py scheduled|keep|initialize-receiver|status-receiver|sealskin-server-started|bootstrap [--branch BRANCH]|update [--branch BRANCH]|run SCRIPT [ARGUMENT...]|verify'
 
 
 def clone_git(*arguments):
@@ -80,6 +84,10 @@ def run_environment():
 
 
 def run(script, *arguments):
+    if os.path.lexists(RECEIVER) and script in ('vm/keeper', 'bin/pots-session', 'bin/sealskin-apply'):
+        if script == 'bin/pots-session' and arguments == ('ensure',):
+            return keep()
+        raise Untrusted('trusted-source: the managed receiver owns session starts and restarts. Use keep for the known-good release.')
     require_trusted_clone()
     target = tracked_script(script)
     os.chdir("/")
@@ -98,6 +106,8 @@ def require_signed_candidate(directory, revision):
 def update(*arguments):
     if os.geteuid() != ROOT:
         raise Untrusted("trusted-source: update runs as root.")
+    if os.path.lexists(RECEIVER):
+        raise Untrusted('trusted-source: the managed receiver owns scheduled updates for this VM.')
     if arguments and arguments[0] != "--branch":
         raise Untrusted(USAGE)
     read_signers(SIGNERS)
@@ -107,7 +117,60 @@ def update(*arguments):
     print(json.dumps(refresh(SOURCE_URL, CLONE, branch=branch, verify=require_signed_candidate)))
 
 
+def vm_receiver(root):
+    from receiver_vm import VmReceiver
+    return VmReceiver(root, LAUNCH, BUNDLE, run_environment())
+
+
+def receiver_operation(operation):
+    from managed_receiver import run as run_receiver
+    result = run_receiver(SimpleNamespace(root=RECEIVER, operation=operation), vm_receiver)
+    print(json.dumps(result))
+    return int(result['blocked'] is not None)
+
+
+def scheduled():
+    if not os.path.lexists(RECEIVER):
+        return update()
+    return receiver_operation('poll')
+
+
+def keep():
+    if not os.path.lexists(RECEIVER):
+        return run('vm/keeper')
+    print(vm_receiver(RECEIVER).keep())
+
+
+def initialize_receiver():
+    return receiver_operation('initialize')
+
+
+def bootstrap(*arguments):
+    if os.path.lexists(RECEIVER):
+        if arguments:
+            raise Untrusted('trusted-source: the managed receiver holds this VM\'s release selection, so bootstrap takes no branch.')
+        return verify()
+    return update(*arguments)
+
+
+def status_receiver():
+    return receiver_operation('status')
+
+
+def sealskin_server_started():
+    try:
+        RECEIVER.lstat()
+    except FileNotFoundError:
+        return run('bin/sealskin-apply')
+
+
 COMMANDS = {
+    'scheduled': (scheduled, lambda count: count == 0),
+    'keep': (keep, lambda count: count == 0),
+    'initialize-receiver': (initialize_receiver, lambda count: count == 0),
+    'status-receiver': (status_receiver, lambda count: count == 0),
+    'sealskin-server-started': (sealskin_server_started, lambda count: count == 0),
+    'bootstrap': (bootstrap, lambda count: count in (0, 2)),
     "update": (update, lambda count: count in (0, 2)),
     "run": (run, lambda count: count >= 1),
     "verify": (verify, lambda count: count == 0),
@@ -120,11 +183,10 @@ def main(arguments):
         print(USAGE, file=sys.stderr)
         return 2
     try:
-        command(*arguments[1:])
+        return command(*arguments[1:]) or 0
     except (RuntimeError, OSError) as error:
         print(str(error), file=sys.stderr)
         return 1
-    return 0
 
 
 if __name__ == "__main__":

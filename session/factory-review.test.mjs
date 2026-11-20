@@ -181,7 +181,7 @@ test('scan retries a failed notification without repeating the transition', t =>
 test('conflict escalation retains its repository and head command', t => {
   const rig = fixture(t);
   const { escalate } = handoff(rig, { ...checked, stage: 'conflict' });
-  assert.match(escalate, /escalate walid-mos\/agent-sandbox 22 0123456789abcdef0123456789abcdef01234567 NOTE_FILE/);
+  assert.deepEqual(escalate.split(' ').slice(-5), ['escalate', checked.repository, '22', head, 'NOTE_FILE']);
   const notes = join(rig.home, 'conflict notes');
   writeFileSync(notes, 'Principal must resolve the conflict.');
   assert.equal(action(rig, escalate.replace(' NOTE_FILE', ''), notes).status, 0);

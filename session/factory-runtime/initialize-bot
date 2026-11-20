@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+. "$(dirname "$0")/../lib.sh"
+exec node "$(dirname "$0")/init.mjs" "$POTS_ROUTER_API"

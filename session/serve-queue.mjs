@@ -1,3 +1,4 @@
+import { AdmissionDeferred } from './admission.mjs';
 import { dequeue, queued, updateRequest } from './queue.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId } from './sandbox.mjs';
@@ -34,6 +35,7 @@ function start(request, worker) {
   try {
     launch(worker, conversationOf(worker));
   } catch (error) {
+    if (error instanceof AdmissionDeferred) return undefined;
     reportNotStarted(request, worker, error);
     return false;
   }
@@ -58,7 +60,13 @@ function startWaiting(request, worker, view) {
   let needsSpacing = true;
   try {
     // hc can open the terminal and fail before returning its address.
-    needsSpacing = start(request, worker) || liveTerminals().some(terminal => terminal.name === worker.name);
+    const started = start(request, worker);
+    if (started === undefined) {
+      needsSpacing = false;
+      view.retryAfter = view.admission.attempted();
+      return;
+    }
+    needsSpacing = started || liveTerminals().some(terminal => terminal.name === worker.name);
   } finally {
     if (needsSpacing) view.retryAfter = view.admission.attempted();
   }

@@ -10,6 +10,7 @@ import { allTerminals, closeTerminal, isLive, isPublicationRecord, liveTerminals
 import { botId } from './sandbox.mjs';
 import { createAdmission } from './worker-admission.mjs';
 import { LIFECYCLE } from './worker-lifecycle.mjs';
+import { idleWorkerPolicy } from './limits.mjs';
 
 // One change of a terminal comes as several events, so a pass waits for the burst to end.
 const SETTLE_MS = 200;
@@ -32,13 +33,15 @@ function sweep(terminals, records, logged) {
 export function createWatcher({ readText, now, logFailure = writeFailure } = {}) {
   const admission = createAdmission({ readText, now, logFailure });
   let deadline;
+  const idleWorkers = new Map();
 
   function logged(subject, step) {
     try {
       return step();
     } catch (error) {
+      idleWorkers.delete(subject);
       logFailure(subject, error);
-      return undefined;
+      return Date.now() + RESUBSCRIBE_MS;
     }
   }
 
@@ -54,7 +57,8 @@ export function createWatcher({ readText, now, logFailure = writeFailure } = {})
       const records = workers();
       sweep(terminals, new Map(records.map(worker => [worker.name, worker])), logged);
       const queue = queued();
-      const view = { terminals, now: Date.now(), queue, pending: new Set(queue.map(request => request.worker)) };
+      const view = { terminals, now: Date.now(), monotonicNow: performance.now(), idleWorkers,
+        queue, pending: new Set(queue.map(request => request.worker)) };
       const times = records.map(worker => logged(worker.name, () => inspectWorker(worker, view)));
       // Inspection can end terminals, so the queue is served from a fresh list.
       const live = liveTerminals();
@@ -63,12 +67,13 @@ export function createWatcher({ readText, now, logFailure = writeFailure } = {})
       const idleStackDue = logged('idle stacks', () => stopIdleStacks(records.filter(worker => worker.kind !== 'task').map(worker => worker.worktree), live, logFailure));
       lookAgainAt([...times, idleStackDue, admissionDue]);
     } catch (error) {
+      idleWorkers.clear();
       logFailure('workers', error);
       lookAgainAt([Date.now() + RESUBSCRIBE_MS]);
     }
   }
 
-  return pass;
+  return Object.assign(pass, { resetIdle: () => idleWorkers.clear() });
 }
 
 const pass = createWatcher();
@@ -85,8 +90,10 @@ function isWaking(line) {
   try {
     const { method, params } = JSON.parse(line);
     if (method === 'heartbeat') return false;
+    if (method !== 'event') pass.resetIdle();
     return method !== 'event' || WAKING_EVENTS.has(params?.type);
   } catch {
+    pass.resetIdle();
     return true;
   }
 }
@@ -98,7 +105,10 @@ function followTerminals() {
     if (isWaking(line)) passSoon();
   });
   events.on('error', error => writeFailure('hc events', error));
-  events.on('close', () => setTimeout(followTerminals, RESUBSCRIBE_MS));
+  events.on('close', () => {
+    pass.resetIdle();
+    setTimeout(followTerminals, RESUBSCRIBE_MS);
+  });
 }
 
 // Removing a request and writing its temporary file also stir the folder, and neither brings work.
@@ -110,6 +120,8 @@ function followQueue() {
 }
 
 main(import.meta, () => {
+  const policy = idleWorkerPolicy();
+  process.stdout.write(`pots-watcher: idle policy ${JSON.stringify(policy)}\n`);
   followQueue();
   mkdirSync(LIFECYCLE, { recursive: true });
   watch(LIFECYCLE, passSoon);

@@ -4,16 +4,14 @@ set -eu
 [ "$POTS_TRANSPORT" = provider ] || refuse_inside_vm vm-trust
 
 SIGNERS="$POTS_RUNTIME/trusted-signers.asc"
-LAUNCHER_FILES="lib/trusted_source.py lib/signed_commit.py lib/source_refresh.py session/launch.env"
-
 install_in_vm() {
-	sandbox_vm sudo install -D -m 0644 -o root -g root /dev/stdin "$1" < "$2"
+	sandbox_vm sudo install -D -m "$1" -o root -g root /dev/stdin "$2" < "$3"
 }
 
 [ -f "$SIGNERS" ] || { echo "vm-trust: $SIGNERS is missing. Export the operator's public signing key: gpg --export --armor KEY_ID > $SIGNERS" >&2; exit 1; }
 # Checked on the Mac so that no private key material ever reaches a VM.
 python3 -I "$POTS_REPO/lib/signed_commit.py" signers "$SIGNERS" > /dev/null
-for file in $LAUNCHER_FILES; do
-	install_in_vm "$POTS_TRUSTED_SOURCE/$file" "$POTS_REPO/$file"
-done
-install_in_vm "$POTS_TRUSTED_SIGNERS" "$SIGNERS"
+while read -r mode file; do
+	install_in_vm "$mode" "$POTS_TRUSTED_SOURCE/$file" "$POTS_REPO/$file"
+done < "$POTS_REPO/vm/trusted-bundle"
+install_in_vm 0644 "$POTS_TRUSTED_SIGNERS" "$SIGNERS"
