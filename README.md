@@ -405,6 +405,20 @@ Bootstrap's last step runs [`cloud.mjs`](session/cloud.mjs), which runs `tailnet
 
 On the Mastermind, the step also writes `~/Public/deliverables/pots/index.html`, which links and frames the root page of every pot that `doors` names, the Mastermind's first. Each root page lists that pot's files and servers live, so the index holds no copy. The step prints the index's address, and `tailnet-link ~/Public/deliverables/pots/` prints it again.
 
+## Reviewed rules-only import
+
+[The rules-only runner](rollouts/rules-only/README.md) imports one private recipe and prepares its approved client rules as a local commit, with no push and no service. No installed unit or task runs it, and it is invoked only after its own review. Its manifest prints the pinned hashes of the source files:
+
+```sh
+python3 -I rollouts/rules-only/run.py manifest
+```
+
+Its suite needs no credential and builds its fixtures in the OS temporary directory. `./bin/check` compiles the runner and runs that suite; on its own, from the repository root:
+
+```sh
+python3 -I -B -m unittest discover -s rollouts/rules-only/tests -t rollouts/rules-only/tests
+```
+
 ## Clean pass
 
 A worker whose task builds a feature or changes a lot of code runs `/untangle-codebase`, `/code-review` and `/simplify` before its final report, as [its guide](session/clean-pass.md) says. Each pass is Claude Code running the real command in its own terminal, in the worker's worktree, on the person's Claude account. That traffic goes to Anthropic and not through the router, and an empty Claude quota stops the pass.

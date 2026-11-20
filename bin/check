@@ -8,7 +8,7 @@ compile_python() {
 	PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 -m py_compile "$1"
 }
 
-for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/proxmox/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/session/factory-runtime/* "$root"/mac/* "$root"/probes/* "$root"/vm/*; do
+for path in "$root"/bin/* "$root"/lib/*.sh "$root"/lib/providers/*.sh "$root"/proxmox/*.sh "$root"/lib/*.py "$root"/session/* "$root"/session/services.d/* "$root"/session/factory-image/* "$root"/session/factory-runtime/* "$root"/mac/* "$root"/probes/* "$root"/vm/* "$root"/rollouts/*/*.py; do
 	[ -f "$path" ] || continue
 	IFS= read -r interpreter < "$path" || true
 	case "$interpreter" in
@@ -102,5 +102,7 @@ python3 -B "$root/probes/repository-read.py"
 python3 -B "$root/probes/repository-read-supervision.py"
 python3 -B "$root/probes/vault-broker-startup.py"
 python3 -B "$root/probes/usage-bootstrap.py"
+# The rules-only runner and its suite run from this checkout, so a change to either is compiled and exercised here.
+python3 -I -B -m unittest discover -s "$root"/rollouts/rules-only/tests -t "$root"/rollouts/rules-only/tests
 git -C "$root" diff --check
 printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'
