@@ -73,7 +73,7 @@ function resumesUntil(worker, state, queue) {
   const unread = requestsFor(worker.name, queue).filter(request => request.message && !state?.received?.includes(request.file));
   const hasUnreadBrief = worker.isBriefed && (state?.phase ?? 'starting') === 'starting';
   if (unread.length === 0 && !hasUnreadBrief) return undefined;
-  return Math.max(worker.startedAt, ...unread.map(queuedAt)) + DELIVERY_LIMIT_MS;
+  return Math.max(worker.startedAt, ...unread.map(request => queuedAt(request) ?? worker.startedAt)) + DELIVERY_LIMIT_MS;
 }
 
 // A worker that waits for the person is blocked however idle Pi looks, and never reaches the settled close.

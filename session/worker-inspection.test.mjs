@@ -24,7 +24,7 @@ mock.module('./run.mjs', { exports: {
 } });
 const { inspectWorker } = await import('./inspect-worker.mjs');
 const { WorkerRuntime } = await import('./worker-runtime.mjs');
-const { queued, dequeue, enqueue } = await import('./queue.mjs');
+const { queued, dequeue, enqueue, QUEUE } = await import('./queue.mjs');
 const { clearStop, markStopped, recordPublication, save, workers, WORKERS } = await import('./workers.mjs');
 const { writePrivateJson } = await import('./private-json.mjs');
 const { canFinish, statePath, SETTLED_GRACE_MS } = await import('./worker-lifecycle.mjs');
@@ -106,6 +106,16 @@ test('an unread follow-up holds the idle report for the delivery limit', t => {
   inspect();
   assert.equal(wakes.length, 1);
   assert.equal(wakes[0].status, 'idle');
+});
+
+test('a follow-up queued before the record carried a time counts from the worker start', t => {
+  const now = 2_100_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  save({ ...workers()[0], startedAt: now - 10_000 });
+  writePrivateJson(statePath(worker), { ...worker, phase: 'active', generation: 'result-1', received: [] });
+  writePrivateJson(join(QUEUE, 'q-19.json'), { worker: worker.name, message: 'Continue.' });
+  assert.equal(inspect(), now + 50_000);
+  assert.equal(wakes.length, 0);
 });
 
 test('an initial brief not yet begun holds the idle report for the delivery limit', t => {
