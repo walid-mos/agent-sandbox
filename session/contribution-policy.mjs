@@ -14,18 +14,29 @@ export function isRepositoryName(value) {
   return typeof value === 'string' && REPOSITORY.test(value) && !value.endsWith('.git') && nameOf(value) !== '..';
 }
 
-function grantFrom(upstream, grant, owners) {
+function checkGrantShape(upstream, grant) {
   if (!isRepositoryName(upstream)) throw refusal(`${JSON.stringify(upstream)} is not one canonical OWNER/REPOSITORY key.`);
   if (!isObject(grant) || Object.keys(grant).sort().join() !== 'fork,operations') throw refusal(`${upstream} holds only fork and operations.`);
-  const { fork, operations } = grant;
-  if (!isRepositoryName(fork) || sameName(fork, upstream)) throw refusal(`${upstream} needs a fork that is another canonical OWNER/REPOSITORY.`);
-  if (!Array.isArray(operations) || !operations.length || new Set(operations).size !== operations.length || !operations.every(name => OPERATIONS.includes(name))) {
-    throw refusal(`${upstream} operations are a nonempty list of distinct names from ${OPERATIONS.join(', ')}.`);
-  }
-  const credentialOwner = Object.keys(owners).find(owner => sameName(owner, ownerOf(fork)));
+  if (!isRepositoryName(grant.fork) || sameName(grant.fork, upstream)) throw refusal(`${upstream} needs a fork that is another canonical OWNER/REPOSITORY.`);
+}
+
+const isOperationList = operations => Array.isArray(operations) && operations.length > 0
+  && new Set(operations).size === operations.length && operations.every(name => OPERATIONS.includes(name));
+
+const ownerEntry = (owners, owner) => Object.keys(owners).find(listed => sameName(listed, owner));
+
+function credentialFor(upstream, fork, owners) {
+  const credentialOwner = ownerEntry(owners, ownerOf(fork));
   if (!credentialOwner) throw refusal(`the fork owner ${ownerOf(fork)} of ${upstream} is not in owners.`);
-  if (Object.keys(owners).some(owner => sameName(owner, ownerOf(upstream)))) throw refusal(`${upstream} belongs to an owner in owners. Use the ordinary route.`);
-  return { upstream, fork, operations, credential: owners[credentialOwner] };
+  if (ownerEntry(owners, ownerOf(upstream))) throw refusal(`${upstream} belongs to an owner in owners. Use the ordinary route.`);
+  return owners[credentialOwner];
+}
+
+function grantFrom(upstream, grant, owners) {
+  checkGrantShape(upstream, grant);
+  const { fork, operations } = grant;
+  if (!isOperationList(operations)) throw refusal(`${upstream} operations are a nonempty list of distinct names from ${OPERATIONS.join(', ')}.`);
+  return { upstream, fork, operations, credential: credentialFor(upstream, fork, owners) };
 }
 
 export function contributionPolicy(sandbox) {
