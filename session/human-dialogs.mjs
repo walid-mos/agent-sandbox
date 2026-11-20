@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { answersOf, dialogSource, discordEvidence, discordMessage, LOCAL_POLICY, MASTERMIND_POT, onlyFor, packet, policyOf, questionsOf, SECRET_TTL_MS, targetOf, VERSION } from './human-contract.mjs';
+import { isRequestId } from './door-messages.mjs';
 import { ANSWERED, ASKED } from './door-requests.mjs';
 import { humanStore } from './human-store.mjs';
 import { humanNeed } from './human-door-packets.mjs';
@@ -25,15 +26,20 @@ function checkedReply(dialog, reply) {
   if (reply?.type !== 'human.answer' || reply.version !== VERSION || reply.dialog !== dialog.id || reply.request !== dialog.delivery?.id || reply.digest !== questionDigest(dialog)) {
     throw new Error('human: answer packet does not match the dialog, its request and its scope.');
   }
-  if (!Array.isArray(reply.clicks) || reply.clicks.length !== dialog.questions.length) throw new Error('human: answer must carry one click per question.');
+}
+
+function checkedClicks(dialog, clicks, identity) {
+  if (!Array.isArray(clicks) || clicks.length !== dialog.questions.length) throw new Error('human: answer must carry one click per question.');
   if (!dialog.posted) throw new Error('human: no registered Discord message context.');
-  const messages = dialog.questions.map(question => {
-    const click = clickOf(question, reply.clicks);
+  const evidence = dialog.questions.map(question => {
+    const click = clickOf(question, clicks);
     const message = dialog.posted.messages.find(item => item.question === question.id);
     if (click.messageUrl !== message?.messageUrl || click.guildId !== dialog.posted.guildId) throw new Error('human: click does not match its registered message.');
-    return discordMessage(click.messageUrl).messageId;
+    return { question: question.id, ...discordEvidence(click, identity, dialog.policy) };
   });
+  const messages = evidence.map(click => discordMessage(click.messageUrl).messageId);
   if (new Set(messages).size !== messages.length) throw new Error('human: each question needs its own Discord message.');
+  return evidence;
 }
 
 export async function openDialog(input, store = humanStore()) {
@@ -60,16 +66,33 @@ function newDialog(input, id) {
   return { ...common, purpose: input.purpose, target, expiresAt: Date.now() + SECRET_TTL_MS };
 }
 
-export async function answerQuestion(id, answer, { store = humanStore(), identity, origin = 'terminal', messageId } = {}) {
+function checkedDiscordAnswer(dialog, reply, identity) {
+  if (dialog.policy === LOCAL_POLICY) throw new Error('human: this question requires the pot terminal.');
+  checkedReply(dialog, reply);
+  return { clicks: checkedClicks(dialog, reply.clicks, identity) };
+}
+
+export function checkDiscordReceipt(dialog, identity) {
+  const { result, posted } = dialog;
+  if (result.origin !== 'discord' || !isRequestId(result.request) || posted?.request !== result.request || posted.digest !== result.digest) {
+    throw new Error('human: first publication requires a checked receipt for its registered Discord request.');
+  }
+  checkAnswerDoor(dialog, result.evidence?.door);
+  checkedClicks(dialog, result.evidence?.clicks, identity);
+  answersOf(dialog.questions, result.answers);
+}
+
+export async function answerQuestion(id, answer, { store = humanStore(), origin = 'terminal', messageId, replyDoor } = {}) {
+  const readDiscordSettings = origin === 'discord' && (await import('./sandbox.mjs')).readHumanDiscord;
   return store.locked(({ get, save }) => {
     const dialog = get(id);
     if (dialog?.kind !== 'question') throw new Error('human: no such question.');
     if (dialog.result) return dialog;
     let evidence;
     if (origin === 'discord') {
-      if (dialog.policy === LOCAL_POLICY) throw new Error('human: this question requires the pot terminal.');
-      checkedReply(dialog, answer);
-      evidence = { clicks: answer.clicks.map(click => ({ question: click.question, ...discordEvidence(click, identity, dialog.policy) })) };
+      if (replyDoor) checkAnswerDoor(dialog, replyDoor);
+      const identity = dialog.policy === 'push' ? readDiscordSettings() : undefined;
+      evidence = { ...checkedDiscordAnswer(dialog, answer, identity), ...(replyDoor && { door: replyDoor }) };
     }
     const answers = answersOf(dialog.questions, answer.answers);
     return save({ ...dialog, result: { status: 'answered', origin, answers, evidence, messageId, dialog: id, request: dialog.delivery?.id, digest: questionDigest(dialog), scope: dialog.scope, at: Date.now() } });
@@ -85,11 +108,16 @@ export async function cancelDialog(id, status = 'cancelled', store = humanStore(
   }, id);
 }
 
-export async function acceptDoorAnswer(dialog, request, options) {
-  if (request.pot !== MASTERMIND_POT || request.direction !== ASKED || request.id !== dialog.delivery?.id || request.state !== ANSWERED) throw new Error('human: answer is not a reply to this dialog from Mastermind.');
+function checkAnswerDoor(dialog, request) {
+  if (request?.pot !== MASTERMIND_POT || request.direction !== ASKED || request.id !== dialog.delivery?.id || request.state !== ANSWERED) throw new Error('human: answer is not a reply to this dialog from Mastermind.');
+}
+
+export async function acceptDoorAnswer(dialog, request, { store } = {}) {
+  checkAnswerDoor(dialog, request);
   let reply;
   try { reply = JSON.parse(request.reply); } catch { throw new Error('human: Mastermind reply is not an answer packet.'); }
-  return answerQuestion(dialog.id, reply, { ...options, origin: 'discord' });
+  const { pot, direction, id, state } = request;
+  return answerQuestion(dialog.id, reply, { store, origin: 'discord', replyDoor: { pot, direction, id, state } });
 }
 
 export function questionNeed(dialog) {

@@ -24,7 +24,7 @@ function neighbour(pot) {
 }
 
 // A door takes a request only under the name its key is bound to, which is the name of this pot's tailnet node.
-function ownName() {
+export function ownName() {
   try {
     const status = JSON.parse(command('tailscale', ['status', '--json', '--peers=false']));
     const [name] = `${status.Self?.DNSName ?? ''}`.split('.');

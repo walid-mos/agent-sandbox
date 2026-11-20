@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { command, failureReason } from './run.mjs';
 import { botHome, sandbox } from './sandbox.mjs';
 import { groupModel, ROUTER_MODEL } from './models.mjs';
-import { liveTerminals, terminalOf } from './workers.mjs';
+import { liveTerminals, terminalOf, workerTitle } from './workers.mjs';
 
 const AGENT = join(homedir(), '.pi/agent');
 const BOT = join(botHome, 'bot.json');
@@ -44,15 +44,16 @@ function chosen(choices, typed) {
 // hc signs text sent from inside one of its terminals with that terminal's name, and Pi then reads it as a prompt.
 function typeInto(worker, line) {
   const terminal = terminalOf(worker, liveTerminals());
-  if (!terminal) throw new Error(`pots: the worker on ${worker.branch} is not running. Ask ${sandbox.bot} to bring it back, then run the command again.`);
+  const title = workerTitle(worker, terminal);
+  if (!terminal) throw new Error(`pots: ${title} is not running. Ask ${sandbox.bot} to bring it back, then run the command again.`);
   const { HC_TERMINAL_ID: _sender, ...environment } = process.env;
   try {
     command('hc', ['send', '--', terminal.address, line], { env: environment });
   } catch (error) {
     const reason = failureReason(error) || 'hc did not answer.';
-    throw new Error(`pots: ${line} did not reach the worker on ${worker.branch}. ${reason}`, { cause: error });
+    throw new Error(`pots: ${line} did not reach ${title}. ${reason}`, { cause: error });
   }
-  return `Sent ${line} to the worker on ${worker.branch}.`;
+  return `Sent ${line} to ${title}.`;
 }
 
 function listing(name, choices, worker) {

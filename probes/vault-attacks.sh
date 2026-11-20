@@ -41,6 +41,22 @@ for (const [name, source] of Object.entries(catalog)) {
 }' "$clone/session/agent-sources.json" "$configuration/sandbox.json"
 }
 
+read_refusals() {
+	"$node" -e 'const { readFileSync } = require("node:fs");
+const grants = JSON.parse(readFileSync(process.argv[1], "utf8")).readRepositories ?? {};
+let repository = "UnselectedOrg/reference";
+while (Object.hasOwn(grants, repository)) repository += "x";
+const base = { kind: "read", repository, commits: [] };
+for (const request of [base, { ...base, url: "https://evil.invalid" }, { ...base, commits: ["bad"] }]) console.log(JSON.stringify(request));
+for (const selected of Object.keys(grants)) {
+  let other = selected.split("/")[0] + "/unselected-reference";
+  while (Object.hasOwn(grants, other)) other += "x";
+  console.log(JSON.stringify({ ...base, repository: other }));
+  console.log(JSON.stringify({ ...base, repository: selected, public: true }));
+  console.log(JSON.stringify({ ...base, repository: selected, commits: ["bad"] }));
+}' "$configuration/sandbox.json"
+}
+
 worker_keeps_session_login() {
 	"$clone/session/with-vault" "$node" -e 'const { readFileSync } = require("node:fs");
 const pairs = readFileSync(process.argv[1], "utf8").trim().split("\n").map(line => { const index = line.indexOf("="); return [line.slice(0, index), line.slice(index + 1)]; });
@@ -103,4 +119,10 @@ while read -r name request; do
 	[ -n "$name" ] || continue
 	expect fail "broker-serves-token-of-$name" ask "$request"
 done <<< "$unserved"
+read_attacks=$(read_refusals) || { echo "FAIL read-repository-policy"; failures=$((failures + 1)); }
+while read -r request; do
+	[ -n "$request" ] || continue
+	expect fail broker-serves-unselected-or-malformed-read ask "$request"
+done <<< "$read_attacks"
+expect succeed bundle-only-repository-read-local-proofs python3 -B "$clone/probes/repository-read.py"
 exit "$failures"
