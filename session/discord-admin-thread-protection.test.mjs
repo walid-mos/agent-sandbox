@@ -25,11 +25,32 @@ test('moving the parent of a tracked archived thread is refused even when guild 
   assert.equal(dependencies.mutations.length, 0);
 });
 
-test('a tracked thread Discord reports as deleted does not block other administration', async () => {
+test('a tracked thread that Discord cannot resolve blocks channel edits too', async () => {
   const dependencies = fixture();
   trackedLookupFails(dependencies, discordError(404, 10003));
-  assert.equal((await administerDiscord(request('channel.edit', { channelId, payload: { name: 'renamed' } }), dependencies)).status, 'completed');
-  assert.equal(dependencies.mutations.length, 1);
+  await assert.rejects(administerDiscord(request('channel.edit', { channelId, payload: { name: 'renamed' } }), dependencies), /HTTP 404/);
+  assert.equal(dependencies.mutations.length, 0);
+});
+
+test('Unknown Channel for a tracked thread blocks creation when its parent is unknown', async () => {
+  const dependencies = fixture();
+  trackedLookupFails(dependencies, discordError(404, 10003));
+  await assert.rejects(administerDiscord(request('thread.create', {
+    channelId, messageId: '100000000000000051', payload: { name: 'Discussion' },
+  }), dependencies), /HTTP 404/);
+  assert.equal(dependencies.mutations.length, 0);
+});
+
+test('protected metadata without an authoritative thread parent blocks creation', async () => {
+  const dependencies = fixture();
+  dependencies.protection.threadIds = [trackedId];
+  const api = dependencies.api;
+  dependencies.api = async (method, path) => method === 'GET' && path === `/channels/${trackedId}`
+    ? { id: trackedId, guild_id: guildId, type: 11 } : api(method, path);
+  await assert.rejects(administerDiscord(request('thread.create', {
+    channelId, messageId: '100000000000000051', payload: { name: 'Discussion' },
+  }), dependencies), /cannot verify protected channel or thread parent/);
+  assert.equal(dependencies.mutations.length, 0);
 });
 
 test('a tracked thread Discord refuses to show still blocks administration', async () => {

@@ -1,28 +1,7 @@
 import { isThread, operationOf } from './discord-admin-operations.mjs';
 import { guardChannels, guardRoles, requirePermission, requiresApproval } from './discord-admin-policy.mjs';
-import { isApplicationRole, protectedIds, requireProtection, withThreadParents } from './discord-admin-protection.mjs';
+import { guildChannel, isApplicationRole, protectedChannels, requireProtection } from './discord-admin-protection.mjs';
 import { serverLogEvent, SERVER_LOG_EVENT } from './server-log-events.mjs';
-
-async function guildChannel(id, guildId, api) {
-  const channel = await api('GET', `/channels/${id}`);
-  if (!channel || channel.guild_id !== guildId) throw new Error('discord-admin: channel does not belong to the configured guild.');
-  return channel;
-}
-
-async function trackedChannel(id, guildId, api) {
-  try { return await guildChannel(id, guildId, api); }
-  catch (error) {
-    if (error.discordCode !== 10003) throw error;
-  }
-}
-
-async function protectedChannels(channels, protection, api) {
-  const ids = [...new Set(protectedIds(protection))];
-  const missing = ids.filter(id => !channels.some(channel => channel.id === id));
-  const resolved = await Promise.all(missing.map(id => trackedChannel(id, protection.guildId, api)));
-  const tracked = [...channels, ...resolved.filter(Boolean)];
-  return { channels: tracked, protection: withThreadParents(protection, tracked) };
-}
 
 async function snapshotOf(request, operation, { api, protection }) {
   requireProtection(protection, request.guildId);

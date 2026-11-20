@@ -91,10 +91,12 @@ export function hasUncollectedHelpers(terminal, terminals) {
     .some(helper => isUncollected(helper, terminal.address));
 }
 
-export function canFinish(state, terminal, terminals, now) {
-  if (!state) return false;
+export function canRest(state, terminal, terminals, dialogCheck = waitsForHuman) {
   const { labels = {} } = terminal;
-  return [state.phase === 'settled', now >= readyAt(state),
-    terminal.address === state.terminal, ownsTerminal(state, terminal), isLive(terminal), ['done', 'idle'].includes(terminal.status),
-    !labels['agent.waiting'], !labels['agent.goal'], !labels['lifecycle.keep'], !hasUncollectedHelpers(terminal, terminals)].every(Boolean) && !waitsForHuman(state, terminal);
+  return [terminal.address === state.terminal, ownsTerminal(state, terminal), isLive(terminal), ['done', 'idle'].includes(terminal.status),
+    !labels['agent.waiting'], !labels['agent.goal'], !labels['lifecycle.keep'], !hasUncollectedHelpers(terminal, terminals)].every(Boolean) && !dialogCheck(state, terminal);
+}
+
+export function canFinish(state, terminal, terminals, now) {
+  return state?.phase === 'settled' && now >= readyAt(state) && canRest(state, terminal, terminals);
 }
