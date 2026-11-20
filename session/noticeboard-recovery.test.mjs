@@ -6,29 +6,15 @@ import { noticeboardPass } from './noticeboard-worker.mjs';
 const attachment = { id: '99999999999999999', filename: 'evidence.txt', size: 5, contentType: 'text/plain',
   url: 'https://cdn.discordapp.com/attachments/fixture/evidence.txt' };
 
- test('saves text and attachment metadata durably even when attachment bytes are unavailable', async () => {
+ test('an attachment comment keeps its text and metadata and is held without reaction or copy', async () => {
   const context = fixture({ attachments: [attachment] });
-  context.client.download = async () => { throw new Error('expired CDN url'); };
   await noticeboardPass(context);
   const [record] = context.store.records();
   assert.equal(record?.snapshot.content, 'Please keep this comment. @everyone');
   assert.equal(record.snapshot.attachments[0].filename, 'evidence.txt');
-  assert.equal(record.stage, 'observed');
+  assert.equal(record.stage, 'held');
+  assert.equal(record.reason, 'attachment-transport-unavailable');
   assert.deepEqual(context.effects, []);
-});
-
- test('verifies attachment bytes rather than trusting returned names and sizes', async () => {
-  const context = fixture({ attachments: [attachment] });
-  context.client.download = async () => Buffer.from('hello');
-  const read = context.client.readCopy;
-  context.client.readCopy = async identity => {
-    const copy = await read(identity);
-    copy.files[0].bytes = Buffer.from('other').toString('base64');
-    return copy;
-  };
-  await noticeboardPass(context);
-  assert.equal(context.store.records()[0].reason, 'copy-verification-failed');
-  assert.deepEqual(context.effects, ['react', 'copy']);
 });
 
  test('reconciles an uncertain send by verifying the existing copy without another post', async () => {
@@ -59,7 +45,7 @@ const attachment = { id: '99999999999999999', filename: 'evidence.txt', size: 5,
  test('permission revocation after snapshot prevents all subsequent writes', async () => {
   const context = fixture();
   let reads = 0;
-  context.client.permissions = async () => ({ canRead: true, canWrite: true, canAttach: true,
+  context.client.permissions = async () => ({ canRead: true, canWrite: true,
     canManageMessages: ++reads === 1, isThreadBound: true });
   await noticeboardPass(context);
   assert.deepEqual(context.effects, []);

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { SNOWFLAKE } from './human-contract.mjs';
 
 export const NOTICEBOARD_LIMITS = Object.freeze({ channels: 2, records: 1024, bytes: 64 * 1024 * 1024,
-  attachmentBytes: 8 * 1024 * 1024, attachments: 9, snapshotBytes: 64 * 1024, content: 6000,
+  attachments: 9, snapshotBytes: 64 * 1024, content: 6000,
   attempts: 5, retryMs: 2000, retentionMs: 30 * 24 * 60 * 60_000, batch: 16 });
 export const fingerprint = value => createHash('sha256').update(value).digest('hex');
 const canonicalJson = value => JSON.stringify(value, (key, entry) => {
@@ -59,13 +59,4 @@ export function snapshotOf(message, event, route) {
 export function isHumanComment(snapshot) {
   if (snapshot.isPinned || snapshot.components.length || snapshot.embeds.length) return false;
   return !snapshot.author.isBot && !snapshot.webhookId;
-}
-
-export function attachmentOf(attachment) {
-  requireValue(isId(attachment.id) && isText(attachment.filename, 128) && attachment.filename.length > 0);
-  requireValue(Number.isSafeInteger(attachment.size) && attachment.size >= 0 && attachment.size <= NOTICEBOARD_LIMITS.attachmentBytes);
-  const url = new URL(attachment.url);
-  requireValue(url.protocol === 'https:' && ['cdn.discordapp.com', 'media.discordapp.net'].includes(url.hostname));
-  requireValue(!url.username && !url.password && !url.port && url.pathname.startsWith('/attachments/'));
-  return attachment;
 }

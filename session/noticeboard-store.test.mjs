@@ -30,14 +30,10 @@ function database(t) {
   assert.equal(statSync(database_.path).mode & 0o777, 0o600);
 });
 
-test('binary attachment bytes survive failed readback and verify after reopening the archive', async t => {
+test('a copied archive survives failed readback and verifies after reopening the store', async t => {
   const archiveDatabase = database(t);
-  const bytes = Buffer.from([0x00, 0xff, 0x0d, 0x0a, 0x80]);
-  const attachment = { id: '99999999999999999', filename: 'fixture.bin', size: bytes.length,
-    url: 'https://cdn.discordapp.com/attachments/fixture/fixture.bin' };
-  const context = fixture({ attachments: [attachment] });
+  const context = fixture();
   const readCopy = context.client.readCopy;
-  context.client.download = async () => Buffer.from(bytes);
   context.client.readCopy = async () => { throw new Error('fixture readback interrupted'); };
 
   await noticeboardPass({ ...context, store: archiveDatabase.store });
@@ -46,8 +42,7 @@ test('binary attachment bytes survive failed readback and verify after reopening
   const [record] = store.records();
   const [copy] = context.copies.values();
   assert.equal(record.stage, 'copied');
-  assert.deepEqual(Buffer.from(record.archive.files[0].bytes, 'base64'), bytes);
-  assert.deepEqual(Buffer.from(copy.files[0].bytes, 'base64'), bytes);
+  assert.equal(record.archive.content, copy.content);
 
   context.client.readCopy = readCopy;
   await noticeboardPass({ ...context, event: undefined, store, now: context.now + 10_000 });
@@ -69,11 +64,11 @@ test('binary attachment bytes survive failed readback and verify after reopening
   assert.equal(reopened.cursor(), 1);
 });
 
- test('retention removes verified archive bytes but keeps duplicate suppression and unknown copies', t => {
+ test('retention removes verified archive payloads but keeps duplicate suppression and unknown copies', t => {
   const database_ = database(t);
   const key = 'a'.repeat(64);
   const unknownKey = 'b'.repeat(64);
-  const base = { key, stage: 'verified', snapshot: { content: 'Private original' }, archive: { files: ['bytes'] },
+  const base = { key, stage: 'verified', snapshot: { content: 'Private original' }, archive: { content: 'Private copy' },
     route: {}, copy: { id: 'copy' }, nonce: 'nonce', createdAt: 0, verifiedAt: 0 };
   database_.store.put(base);
   database_.store.put({ ...base, key: unknownKey, stage: 'copy-unknown' });
@@ -82,5 +77,5 @@ test('binary attachment bytes survive failed readback and verify after reopening
   assert.equal(reopened.get(key)?.stage, 'retained');
   assert.equal(reopened.get(key).archive, undefined);
   assert.equal(reopened.get(key).snapshot, undefined);
-  assert.equal(reopened.get(unknownKey).archive.files[0], 'bytes');
+  assert.equal(reopened.get(unknownKey).archive.content, 'Private copy');
 });

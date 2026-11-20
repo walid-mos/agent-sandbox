@@ -28,9 +28,8 @@ export function fixture(overrides = {}) {
   const effects = [];
   let original = source(overrides);
   const client = {
-    permissions: async () => ({ canRead: true, canWrite: true, canManageMessages: true, canAttach: true, isThreadBound: true }),
+    permissions: async () => ({ canRead: true, canWrite: true, canManageMessages: true, isThreadBound: true }),
     read: async () => structuredClone(original),
-    download: async attachment => Buffer.from(attachment.fixtureBytes ?? ''),
     react: async () => { effects.push('react'); },
     createCopy: async request => {
       effects.push('copy');

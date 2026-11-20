@@ -1,9 +1,9 @@
-import { captureArchive, matchesArchive } from './noticeboard-archive.mjs';
+import { matchesArchive, prepareArchive } from './noticeboard-archive.mjs';
 import { isHumanComment, noticeboardConfiguration, NOTICEBOARD_LIMITS, routeFor, snapshotKey, snapshotOf } from './noticeboard-policy.mjs';
 import { SNOWFLAKE } from './human-contract.mjs';
 import { deferredAttempt } from './noticeboard-retry.mjs';
 
-const canPreserve = permissions => ['canRead', 'canWrite', 'canManageMessages', 'canAttach', 'isThreadBound'].every(key => permissions[key] === true);
+const canPreserve = permissions => ['canRead', 'canWrite', 'canManageMessages', 'isThreadBound'].every(key => permissions[key] === true);
 const isCopy = (copy, route) => typeof copy?.id === 'string' && SNOWFLAKE.test(copy.id) && copy.channelId === route.threadId;
 const pending = record => ['observed', 'captured', 'acknowledged', 'copy-unknown', 'copied'].includes(record.stage);
 
@@ -25,7 +25,7 @@ async function observe(context, configuration) {
 async function sendCopy(record, context) {
   const { store, client } = context;
   if (record.stage === 'observed') {
-    const prepared = client.prepareArchive ? await client.prepareArchive(record.snapshot) : { archive: await captureArchive(record.snapshot, client) };
+    const prepared = prepareArchive(record.snapshot);
     record = prepared.archive ? { ...record, archive: prepared.archive, stage: 'captured' } : { ...record, stage: 'held', reason: prepared.reason };
     store.put(record);
   }
@@ -65,7 +65,7 @@ async function advance(record, context) {
     }
     const resolved = attempted.stage === 'copy-unknown' ? await reconcile(attempted, context) : await sendCopy(attempted, context);
     if (resolved.stage !== 'copied') return;
-    const actual = await client.readCopy(resolved.copy, resolved.route, { maxBytes: NOTICEBOARD_LIMITS.attachmentBytes });
+    const actual = await client.readCopy(resolved.copy, resolved.route);
     const isVerified = matchesArchive(resolved.archive, actual, resolved.copy);
     store.put({ ...resolved, stage: isVerified ? 'verified' : 'held', verifiedAt: isVerified ? now : undefined,
       reason: isVerified ? 'conditional-delete-unavailable' : 'copy-verification-failed' });

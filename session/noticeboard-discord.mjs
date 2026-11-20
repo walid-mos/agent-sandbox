@@ -1,5 +1,5 @@
 import { SNOWFLAKE } from './human-contract.mjs';
-import { DISCORD_CONTENT, messageLink } from './noticeboard-archive.mjs';
+import { DISCORD_CONTENT } from './noticeboard-archive.mjs';
 import { noticeboardConfiguration } from './noticeboard-policy.mjs';
 
 const isId = value => typeof value === 'string' && SNOWFLAKE.test(value);
@@ -60,27 +60,18 @@ function sourceOf(message, route, id) {
     reply: replyOf(message.message_reference), thread: {} };
 }
 
-function prepareArchive(snapshot) {
-  if (snapshot.attachments.length) return { reason: 'attachment-transport-unavailable' };
-  const author = JSON.stringify(snapshot.author.displayName);
-  const content = `Archived by automation. Original author: ${author}. Original: <${messageLink(snapshot)}>\n${JSON.stringify({ original: snapshot })}`;
-  if (content.length > DISCORD_CONTENT) return { reason: 'text-archive-exceeds-limit' };
-  return { archive: { content, files: [] } };
-}
-
 export function noticeboardDiscord({ account, appUserId, channels, call }) {
   const scope = noticeboardDiscordScope({ account, channels });
   if (!isId(appUserId) || typeof call !== 'function') throw new Error('noticeboards: provide the shared app identity and Pots call transport.');
   const callDiscord = (method, body) => call(scope.account, method, body);
   return {
-    prepareArchive,
     async read(candidate, id) {
       const route = requireRoute(scope.channels, candidate);
       return sourceOf(await callDiscord(`GET ${messagePath(route.channelId, id)}`), route, id);
     },
     async createCopy(request, candidate) {
       const route = requireRoute(scope.channels, candidate);
-      if (request.channelId !== route.threadId || typeof request.content !== 'string' || request.content.length > DISCORD_CONTENT || request.files?.length !== 0) {
+      if (request.channelId !== route.threadId || typeof request.content !== 'string' || request.content.length > DISCORD_CONTENT || request.files !== undefined) {
         throw new Error('noticeboards: only bounded text archives can be posted to a configured discussion thread.');
       }
       const reply = await callDiscord(`POST /channels/${route.threadId}/messages`, {
@@ -94,7 +85,7 @@ export function noticeboardDiscord({ account, appUserId, channels, call }) {
       const reply = await callDiscord(`GET ${messagePath(route.threadId, identity.id)}`);
       const isOwnedByApp = reply?.author?.id === appUserId && reply.author.bot === true && reply.webhook_id === undefined;
       if (reply?.id !== identity.id || reply.channel_id !== route.threadId || !isOwnedByApp || reply.attachments?.length !== 0) return;
-      return { id: reply.id, channelId: reply.channel_id, content: reply.content, files: [], isOwnedByApp };
+      return { id: reply.id, channelId: reply.channel_id, content: reply.content, isOwnedByApp };
     },
     findCopy: () => ({ status: 'unknown' }),
   };

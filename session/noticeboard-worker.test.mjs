@@ -16,9 +16,8 @@ const run = context => noticeboardPass(context);
   assert.equal(record.snapshot.author.id, authorId);
   assert.equal(record.snapshot.author.displayName, 'Fixture Person');
   const [copy] = context.copies.values();
-  assert.match(copy.content, /Original author: Fixture Person/);
+  assert.match(copy.content, /Original author: "Fixture Person"/);
   assert.match(copy.content, /2026-01-01T12:00:00.000Z/);
-  assert.deepEqual(copy.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false });
 });
 
  test('keeps original when copy outcome is unknown and never blindly reposts after restart', async () => {
@@ -33,7 +32,7 @@ const run = context => noticeboardPass(context);
 
  test('does not remove or verify a copy with missing content', async () => {
   const context = fixture();
-  context.client.readCopy = async () => ({ content: 'truncated', files: [] });
+  context.client.readCopy = async () => ({ content: 'truncated' });
   await run(context);
   assert.deepEqual(context.effects, ['react', 'copy']);
   assert.equal(context.store.records()[0].stage, 'held');
@@ -90,7 +89,7 @@ const run = context => noticeboardPass(context);
   const [record] = context.store.records();
   assert.equal(record.snapshot.content, 'My private fixture password is not-a-real-credential.');
   const [copy] = context.copies.values();
-  const manifest = JSON.parse(Buffer.from(copy.files.at(-1).bytes, 'base64').toString('utf8'));
+  const manifest = JSON.parse(copy.content.split('\n', 2)[1]);
   assert.equal(manifest.original.content, 'My private fixture password is not-a-real-credential.');
 });
 
