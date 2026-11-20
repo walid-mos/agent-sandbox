@@ -56,8 +56,7 @@ beforeEach(() => {
 });
 after(() => { mock.restoreAll(); rmSync(scratch, { force: true, recursive: true }); });
 
-test('repeated settlement keeps the 15-minute deadline until the worker re-enters waiting', t => {
-  const waitWindow = 15 * 60_000;
+test('repeated settlement keeps the 15-minute deadline until the worker re-enters waiting', t => {  const waitWindow = 15 * 60_000;
   t.mock.timers.enable({ apis: ['Date'], now: 1000 });
   const runtime = new WorkerRuntime({ events: { emit: (_event, request) => { request.result = { version: 1, awaited: 1 }; } } }, worker);
   const context = { ui: { onTerminalInput: () => () => {} },
@@ -78,6 +77,46 @@ test('repeated settlement keeps the 15-minute deadline until the worker re-enter
   runtime.invalidate(context);
   runtime.settle(context);
   assert.equal(inspect(), deadline + waitWindow);
+});
+
+test('a worker waiting on its own work reports once at the 15-minute limit', t => {
+  const now = 1_000_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  writePrivateJson(statePath(worker), { ...worker, phase: 'waiting', generation: 'result-1', received: [], waitingSince: now });
+  const deadline = now + 15 * 60_000;
+  assert.equal(inspect(), deadline);
+  assert.equal(wakes.length, 0);
+  t.mock.timers.tick(deadline - now);
+  inspect();
+  assert.equal(wakes.length, 1);
+  inspect();
+  assert.equal(wakes.length, 1);
+});
+
+test('an unread follow-up holds the idle report for the delivery limit', t => {
+  const now = 2_000_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  save({ ...workers()[0], startedAt: now - 10_000 });
+  writePrivateJson(statePath(worker), { ...worker, phase: 'active', generation: 'result-1', received: [] });
+  enqueue({ worker: worker.name, message: 'Continue.' });
+  assert.equal(inspect(), now + 60_000);
+  assert.equal(wakes.length, 0);
+  t.mock.timers.tick(60_000);
+  inspect();
+  assert.equal(wakes.length, 1);
+  assert.equal(wakes[0].status, 'idle');
+});
+
+test('an initial brief not yet begun holds the idle report for the delivery limit', t => {
+  const now = 3_000_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  save({ ...workers()[0], isBriefed: true, startedAt: now });
+  writePrivateJson(statePath(worker), { ...worker, phase: 'starting', generation: 'result-1', received: [] });
+  assert.equal(inspect(), now + 60_000);
+  assert.equal(wakes.length, 0);
+  t.mock.timers.tick(60_000);
+  inspect();
+  assert.equal(wakes.length, 1);
 });
 
 test('watcher restart cannot repeatedly relaunch a recovery that crashes before settling', async () => {
