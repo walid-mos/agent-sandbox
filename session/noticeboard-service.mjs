@@ -23,6 +23,7 @@ export async function noticeboardServicePass(context) {
     else store.defer(event.id, now, result?.retry);
   }
   await noticeboardPass({ ...context, event: undefined });
+  store.exhaust(now);
   store.prune(now);
   return { status: 'preservation-only', intake: intakeStatus, deletion: 'conditional-delete-unavailable' };
 }
