@@ -6,6 +6,8 @@ import { reconcileHuman } from '../../session/human-relay.mjs';
 import { WorkerRuntime } from '../../session/worker-runtime.mjs';
 import { inspectWorker } from '../../session/inspect-worker.mjs';
 import { serveQueue } from '../../session/serve-queue.mjs';
+import { createAdmission } from '../../session/worker-admission.mjs';
+import { healthyWorkerMemory } from './worker-memory.mjs';
 import { reportTasks } from '../../session/task-view.mjs';
 import { allTerminals, save, workers } from '../../session/workers.mjs';
 import { queued } from '../../session/queue.mjs';
@@ -33,8 +35,10 @@ async function relayNotice() {
 const [operation] = process.argv.slice(2);
 const worker = workers()[0];
 const terminals = allTerminals();
-if (operation === 'serve') serveQueue(terminals, (_subject, error) => { throw error; });
-else if (operation === 'relay') await relayNotice();
+if (operation === 'serve') {
+  const logFailure = (_subject, error) => { throw error; };
+  serveQueue(terminals, logFailure, createAdmission({ logFailure, readText: healthyWorkerMemory }));
+} else if (operation === 'relay') await relayNotice();
 else if (operation === 'register') save(JSON.parse(readFileSync(0, 'utf8')));
 else if (operation === 'runtime-wait') {
   const waitingSince = Number(readFileSync(0, 'utf8'));

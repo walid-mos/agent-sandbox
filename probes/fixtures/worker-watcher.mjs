@@ -38,7 +38,7 @@ function command(binary, [action, ...args]) {
   throw new Error(`Unexpected hc command: ${action}`);
 }
 
-mock.module('../../session/sandbox.mjs', { exports: { botId: BOT, sandbox: {} } });
+mock.module('../../session/sandbox.mjs', { exports: { botId: BOT, sandbox: {}, botHome: join(scratch, 'bot'), potsBotHome: id => join(scratch, 'bots', id) } });
 mock.module('../../session/run.mjs', { exports: { command, failureReason: error => error.message, WITH_VAULT: '/unused' } });
 const { createWatcher } = await import('../../session/watcher.mjs');
 export const { enqueue, queued } = await import('../../session/queue.mjs');

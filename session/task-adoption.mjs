@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { readConversation } from './adopted-execution.mjs';
-import { isPublished, publication } from './worker-lifecycle.mjs';
+import { completionFacts, isPublished } from './worker-lifecycle.mjs';
 import { keepResult } from './worker-results.mjs';
 import { hasFinalReply } from './worker-runtime.mjs';
 import { botId } from './sandbox.mjs';
@@ -52,7 +52,7 @@ export function recordAdoptedResult({ id, sessionDigest, summary, ...unexpected 
     const terminal = terminalOf(worker, terminals);
     if (!terminal) throw new Error('task: original execution is absent or changed. Disappearance never proves completion.');
     if (!['idle', 'done'].includes(terminal.status)) throw new Error('task: execution is still working or blocked. Read its final report first.');
-    if (!isPublished(publication(worker.worktree))) throw new Error('task: worktree must be clean and published before recording its final outcome.');
+    if (!isPublished(completionFacts(worker))) throw new Error('task: worktree must be clean and published before recording its final outcome.');
     const state = { name: worker.name, owner: botId, launchId: worker.launchId, terminal: worker.terminal, sessionFile: worker.sessionFile,
       sessionId: worker.sessionId, sessionDigest: digest, summary, kind: 'coordinator-attestation' };
     const result = { ...keepResult(worker, terminal, state), sessionDigest: digest, summary, kind: state.kind };

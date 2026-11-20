@@ -11,7 +11,8 @@ const persist = boundary => writeFileSync(boundaryFile, JSON.stringify(boundary)
 const botHome = join(home, 'bot');
 mock.module('node:os', { exports: { homedir: () => home, tmpdir: os.tmpdir, totalmem: os.totalmem } });
 mock.module('../../session/sandbox.mjs', { exports: {
-  botId: 'synthetic', botHome, potsHome: home, owners: ['example'], isMastermind: false,
+  botId: 'synthetic', botHome, potsHome: home, potsBotHome: id => join(home, 'bots', id), owners: ['example'], isMastermind: false,
+  readHumanDiscord: () => ({}),
   sandbox: { bot: 'synthetic', owners: { example: 'UNUSED' }, maxWorkers: 1 },
 } });
 
