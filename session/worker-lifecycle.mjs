@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { readJson } from './private-json.mjs';
 import { isRequestName } from './queue.mjs';
 import { command } from './run.mjs';
-import { waitsForHuman } from './worker-human.mjs';
+import { openWorkerDialog } from './worker-human.mjs';
 import { isLive, ownsTerminal, PUBLICATION, WORKERS, withPublication } from './workers.mjs';
 
 export const LIFECYCLE = join(WORKERS, 'lifecycle');
@@ -96,5 +96,5 @@ export function canFinish(state, terminal, terminals, now) {
   const { labels = {} } = terminal;
   return [state.phase === 'settled', now >= readyAt(state),
     terminal.address === state.terminal, ownsTerminal(state, terminal), isLive(terminal), ['done', 'idle'].includes(terminal.status),
-    !labels['agent.waiting'], !labels['agent.goal'], !labels['lifecycle.keep'], !hasUncollectedHelpers(terminal, terminals)].every(Boolean) && !waitsForHuman(state, terminal);
+    !labels['agent.waiting'], !labels['agent.goal'], !labels['lifecycle.keep'], !hasUncollectedHelpers(terminal, terminals)].every(Boolean) && !openWorkerDialog(state, terminal);
 }

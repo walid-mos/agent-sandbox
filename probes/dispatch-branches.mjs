@@ -12,10 +12,10 @@ const binaries = join(fixture, 'bin');
 const policyGuide = join(fixture, 'docs/human-dialogs.md');
 const clientRules = join(fixture, 'client-rules.md');
 const clientRuleText = 'Ask the person before every push.';
-const allowedRepository = 'accor-hotels/product-data-apps';
-const jiraBranch = 'feat/DA-250-freeze-campaign-establishments';
+const allowedRepository = 'example-org/synthetic-project';
+const jiraBranch = 'feat/TASK-250-synthetic-report';
 const pullRequest = 'https://github.invalid/probe/pull/1';
-const launch = { title: 'feat(api): DA-250 — freeze campaign establishments', subject: 'feat(api): freeze campaign establishments (DA-250)' };
+const launch = { title: 'feat(api): TASK-250 — synthetic report', subject: 'feat(api): synthetic report (TASK-250)' };
 const BRANCH_REFUSAL = /^dispatch: use .*branch/;
 const OWNER_REFUSAL = /^dispatch: use owner\/repo/;
 const LAUNCH_REFUSAL = /^dispatch: give --title/;
@@ -27,7 +27,7 @@ function prepare() {
   copyFileSync(join(repository, 'session/dispatch.mjs'), join(session, 'dispatch.mjs'));
   copyFileSync(join(repository, 'docs/human-dialogs.md'), policyGuide);
   writeFileSync(clientRules, clientRuleText);
-  writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "accor-hotels": "UNUSED_PROBE_TOKEN" }, bot: "Probe", rules: process.env.PROBE_CLIENT_RULES, sources: ["pi", "accor"], publicationPolicy: process.env.PROBE_PUBLICATION_POLICY, humanDiscord: { pushApprovalsEnabled: false } }; export const owners = Object.keys(sandbox.owners); export const botId = sandbox.bot.toLowerCase();\n');
+  writeFileSync(join(session, 'sandbox.mjs'), 'export const sandbox = { owners: { "example-org": "UNUSED_PROBE_TOKEN" }, bot: "Probe", rules: process.env.PROBE_CLIENT_RULES, sources: ["pi", "accor"], publicationPolicy: process.env.PROBE_PUBLICATION_POLICY, humanDiscord: { pushApprovalsEnabled: false } }; export const owners = Object.keys(sandbox.owners); export const botId = sandbox.bot.toLowerCase(); export const botHome = process.env.HOME + "/bot";\n');
   writeFileSync(join(fixture, 'copy-imports.mjs'), `
 import { appendFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';
@@ -127,7 +127,7 @@ function accepted(branch, values = launch) {
   assert.equal(Object.hasOwn(worker, 'ahead'), false);
   assert.equal(Object.hasOwn(worker, 'maxWorkers'), false);
   const checkout = join(result.home, 'Development', allowedRepository);
-  const worktree = join(checkout, '.worktree/product-data-apps', branch.replaceAll('/', '-'));
+  const worktree = join(checkout, '.worktree/synthetic-project', branch.replaceAll('/', '-'));
   assert.deepEqual(result.calls, [
     ['git', 'clone', '--quiet', `https://github.com/${allowedRepository}.git`, checkout],
     ['git', 'fetch', '--quiet', 'origin', 'develop'],
@@ -197,14 +197,14 @@ try {
   assert.equal(readdirSync(join(task.home, '.config/agent-sandbox/workers/queue')).filter(file => file.endsWith('.json')).length, 1);
   accepted(jiraBranch);
   accepted(jiraBranch, { ...launch, rules: clientRules });
-  accepted(jiraBranch, { title: '[DA-250] Freeze campaign establishments', subject: 'Start DA-250' });
+  accepted(jiraBranch, { title: '[TASK-250] Synthetic report', subject: 'Start TASK-250' });
   for (const prefix of ['feat', 'fix', 'chore', 'docs', 'refactor', 'test']) accepted(`${prefix}/worker-task-250`);
-  for (const branch of ['', 'feat/', 'Feat/DA-250-task', 'feature/DA-250-task', 'main', '-feat/task', 'feat/task/extra',
+  for (const branch of ['', 'feat/', 'Feat/TASK-250-task', 'feature/TASK-250-task', 'main', '-feat/task', 'feat/task/extra',
     'feat//task', 'feat/../task', 'feat/task..name', 'feat/task.lock', 'feat/.hidden', 'feat/task.', 'feat/task@{1}',
     'feat/task name', 'feat/task\tname', 'feat/task\n', 'feat/task\r', 'feat/task\\name', 'feat/task:name',
     'feat/task?name', 'feat/task*name', 'feat/task[name', 'feat/$(touch marker)', 'feat/task;touch-marker']) refused(BRANCH_REFUSAL, branch);
-  refused(OWNER_REFUSAL, jiraBranch, 'outside-owner/product-data-apps');
-  refused(OWNER_REFUSAL, jiraBranch, 'https://github.com/accor-hotels/product-data-apps');
+  refused(OWNER_REFUSAL, jiraBranch, 'outside-owner/synthetic-project');
+  refused(OWNER_REFUSAL, jiraBranch, 'https://github.com/example-org/synthetic-project');
   refused(LAUNCH_REFUSAL, jiraBranch, allowedRepository, { subject: launch.subject });
   refused(LAUNCH_REFUSAL, jiraBranch, allowedRepository, { title: launch.title });
   for (const value of ['', ' leading space', 'trailing space ', 'two\nlines', 'tab\there', 'carriage\rreturn', 'line\u2028separator', 'bidi \u202Eoverride', 'zero\u200Bwidth']) {

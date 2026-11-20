@@ -1,4 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { associateTask, decideTask, resolveTaskDelivery, submitTask } from './tasks.mjs';
+import { taskViews } from './task-view.mjs';
+import { selectTask } from './task-selection.mjs';
+import { TASK_CONTRACT_VERSION, taskRequest } from './task-contract.mjs';
+import { adoptTask, recordAdoptedResult } from './task-adoption.mjs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 import { botModel, runCommand } from './commands.mjs';
@@ -6,10 +11,11 @@ import { answerBotQuestion, storeBotSecret, syncBotDialogs } from './human-bot.m
 import { main } from './main.mjs';
 import { questionIn } from './pots-questions.mjs';
 import { conversation, isFromBot, say, secretRequests, TERMINAL } from './terminal-conversation.mjs';
-import { queued } from './queue.mjs';
+import { observeWorker } from './worker-observation.mjs';
+import { standaloneExecutions } from './standalone-executions.mjs';
 import { commandOutput } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { endTerminal, isStopped, liveTerminals, markStopped, terminalOf, workerTitle, workers } from './workers.mjs';
+import { allTerminals, endTerminal, isLive, liveTerminals, markStopped, terminalOf, workerTitle, workers } from './workers.mjs';
 import { answerDialog, waitingDialog } from './worker-dialogs.mjs';
 
 const MESSAGE_LIMIT = 80;
@@ -66,19 +72,24 @@ async function snapshot() {
     section(['routine', 'list', '--bot', botId]),
     section(['trace', '--bot', botId, '--last', TRACE_LIMIT]),
   ]);
-  const terminals = liveTerminals();
-  const waiting = new Set(queued().map(request => request.worker));
-  const rows = workers().map(worker => {
-    const terminal = terminalOf(worker, terminals);
-    const isQueued = !terminal && waiting.has(worker.name);
-    const status = isStopped(worker) ? 'offline' : terminal?.status ?? (isQueued ? 'starting' : worker.status ?? 'starting');
-    const dialog = status === 'blocked' && terminal ? waitingDialog(terminal) : null;
-    return { ...worker, title: workerTitle(worker, terminal), terminal: terminal?.address ?? null, status, dialog, isQueued };
+  const terminals = allTerminals();
+  const live = terminals.filter(isLive);
+  const records = workers();
+  const observations = new Map();
+  const rows = records.map(worker => {
+    const terminal = terminalOf(worker, live);
+    const observation = observeWorker(worker, terminal);
+    observations.set(worker.name, observation);
+    const dialog = observation.status === 'blocked' && terminal ? waitingDialog(terminal) : null;
+    const isQueued = !terminal && observation.deliveries.length > 0;
+    return { ...worker, ...observation, title: workerTitle(worker, terminal), terminal: terminal?.address ?? null, dialog, isQueued };
   });
   const [status, children, routines, trace] = await sections;
   return {
     bot: { model: botModel(), activity: activityIn(status) },
-    status, messages: recentMessages(), workers: rows, children, routines, trace,
+    taskContract: { version: TASK_CONTRACT_VERSION, target: botId, operations: Object.keys(OPERATIONS).filter(name => name.startsWith('task-')) },
+    status, messages: recentMessages(), workers: rows, tasks: taskViews(records, live, observations),
+    standaloneExecutions: standaloneExecutions(records, terminals), children, routines, trace,
   };
 }
 
@@ -180,7 +191,16 @@ function command(request) {
   return runCommand({ name, worker: worker && workerNamed(worker), argument });
 }
 
+const taskOperation = operation => request => JSON.stringify(operation(taskRequest(JSON.parse(request === '-' ? readFileSync(STANDARD_INPUT, 'utf8') : request))));
+
 const OPERATIONS = {
+  'task-submit': { usage: 'json|-', run: taskOperation(submitTask) },
+  'task-select': { usage: 'json|-', run: taskOperation(selectTask) },
+  'task-adopt': { usage: 'json|-', run: taskOperation(adoptTask) },
+  'task-delivery': { usage: 'json|-', run: taskOperation(resolveTaskDelivery) },
+  'task-result': { usage: 'json|-', run: taskOperation(recordAdoptedResult) },
+  'task-decide': { usage: 'json|-', run: taskOperation(decideTask) },
+  'task-associate': { usage: 'json|-', run: taskOperation(associateTask) },
   snapshot: { usage: '', run: async () => JSON.stringify(await snapshot()) },
   send: { usage: 'json', run: send },
   attach: { usage: 'name <file', run: attach },

@@ -10,9 +10,9 @@ export function publishedDialog(terminal, session, call) {
 export const SESSION_LABEL = 'pi.session';
 export const readTerminal = terminal => JSON.parse(command('hc', ['get', terminal.address]));
 
-export function waitsForHuman(worker, terminal, { store = humanStore(), inspect = readTerminal } = {}) {
+export function openWorkerDialog(worker, terminal, { store = humanStore(), inspect = readTerminal } = {}) {
   const pending = store.all().filter(dialog => !dialog.result && dialog.source.type === 'worker' && dialog.source.worker === worker.name);
-  if (!pending.length || !terminal.address) return false;
-  const current = inspect(terminal);
-  return pending.some(dialog => dialog.source.session === current.labels?.[SESSION_LABEL]);
+  if (!pending.length || !terminal.address) return undefined;
+  const session = inspect(terminal).labels?.[SESSION_LABEL];
+  return pending.find(dialog => dialog.source.session === session);
 }

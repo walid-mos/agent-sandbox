@@ -1,7 +1,8 @@
+import { readConversation } from './adopted-execution.mjs';
 import { dequeue, queued, updateRequest } from './queue.mjs';
 import { command, failureReason } from './run.mjs';
 import { botId } from './sandbox.mjs';
-import { isStopped, launch, liveTerminals, terminalOf, workers } from './workers.mjs';
+import { isStopped, launch, liveTerminals, save, terminalOf, workers } from './workers.mjs';
 import { lifecycleOf, wrappedFollowUp } from './worker-lifecycle.mjs';
 
 function conversationOf(worker) {
@@ -15,8 +16,17 @@ function sendWhenOpen(request, terminal, worker, state) {
   updateRequest(request, { sentTo: worker.launchId });
 }
 
+function deliverAdopted(request, terminal, worker) {
+  if (readConversation(worker.sessionFile).id !== worker.sessionId) throw new Error('dispatch: adopted conversation identity changed. Inspect its original session before sending.');
+  if (request.delivery === 'unknown') return;
+  updateRequest(request, { delivery: 'unknown' });
+  command('hc', ['send', '--', terminal.address, request.message]);
+  dequeue(request);
+}
+
 function deliver(request, terminal, worker) {
   if (!terminal.status) return;
+  if (worker.adoption) return deliverAdopted(request, terminal, worker);
   const state = lifecycleOf(worker);
   if (!state) return;
   if (state.received.includes(request.file)) return dequeue(request);
@@ -25,11 +35,15 @@ function deliver(request, terminal, worker) {
 
 function reportNotStarted(request, worker, error) {
   const reason = failureReason(error) || (error instanceof Error ? error.message : 'hc did not answer');
+  const current = workers().find(candidate => candidate.name === worker.name);
+  if (!current) throw new Error('dispatch: failed worker record disappeared. Inspect its task before retrying.');
+  save({ ...current, status: 'not started', failure: reason });
   const note = JSON.stringify({ worker: worker.name, status: 'not started', reason, pullRequest: worker.pullRequest });
-  command('pots', ['wake', '--bot', botId, '--id', `${request.file}-not-started`, '--note', note]);
+  if (!worker.taskId) command('pots', ['wake', '--bot', botId, '--id', `${request.file}-not-started`, '--note', note]);
   if (!request.message) dequeue(request);
 }
 
+/** Starts the worker a request names, and resolves to whether it took a slot. */
 function start(request, worker) {
   try {
     launch(worker, conversationOf(worker));
@@ -76,6 +90,7 @@ function serve(request, view) {
   const terminal = terminalOf(worker, terminals);
   if (terminal) return deliverRequest(request, terminal, worker);
   if (terminals.some(candidate => candidate.name === worker.name)) throw new Error('dispatch: terminal ownership changed. Inspect it before sending.');
+  if (worker.adoption) throw new Error('dispatch: adopted execution is absent. Restore its exact terminal explicitly. No replacement was started.');
   startWaiting(request, worker, view);
 }
 

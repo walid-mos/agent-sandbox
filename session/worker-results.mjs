@@ -39,6 +39,11 @@ function verifyCurrentResult(worker, id) {
 
 export function acknowledgeResult([name, id]) {
   const worker = workerForResult(name, id);
+  if (worker.adoption) {
+    writePrivateJson(receiptPath(worker), { id, receivedBy: botId, receivedAt: Date.now() });
+    process.stdout.write(`Acknowledged ${id}. Adopted execution ${worker.terminal} keeps its native parent and stays open.\n`);
+    return;
+  }
   verifyCurrentResult(worker, id);
   if (hasQueued(name)) throw new Error('dispatch: a follow-up is queued. Let the worker read it first.');
   writePrivateJson(receiptPath(worker), { id, receivedBy: botId, receivedAt: Date.now() });

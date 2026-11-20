@@ -80,6 +80,7 @@ node --disable-warning=ExperimentalWarning --experimental-test-module-mocks --te
 node --disable-warning=ExperimentalWarning --experimental-test-module-mocks --test "$root"/probes/human-*.mjs
 PYTHONPYCACHEPREFIX="${TMPDIR:-/tmp}/agent-sandbox-pycache" python3 "$root/probes/human-door-vm.py"
 node "$root/probes/dispatch-branches.mjs"
+node --disable-warning=ExperimentalWarning --experimental-test-module-mocks --test "$root"/probes/task-*.mjs
 python3 -B "$root/probes/client-rules.py"
 python3 -B "$root/probes/client-rules-activation.py"
 python3 -B "$root/probes/repository-read-policy.py"
