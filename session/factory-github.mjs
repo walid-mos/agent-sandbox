@@ -8,7 +8,7 @@ import { owners, sandbox } from './sandbox.mjs';
 export const FACTORY_TOPIC = 'factory';
 const REPOSITORY_LIMIT = '1000';
 const LIST_FIELDS = 'number,headRefOid,headRefName,baseRefName,isDraft,mergeable';
-const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeCommit';
+const VIEW_FIELDS = 'state,title,body,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,mergeCommit,mergeable';
 const DRAFT_LIST_QUERY = `query($owner: String!, $name: String!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(first: 100, after: $endCursor, states: OPEN) {
@@ -75,12 +75,23 @@ function requireTopic(repository) {
   if (!hasFactoryTopic(topicNames)) throw new Error(`factory: ${repository} no longer has the ${FACTORY_TOPIC} topic, so the factory leaves its pull requests alone.`);
 }
 
+export function isReadyHead(pull, facts) {
+  return facts.state === 'OPEN' && !facts.isDraft && facts.headRefOid === pull.head;
+}
+
+function requireCurrentReview(pull, facts) {
+  if (!isReadyHead(pull, facts)) {
+    throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);
+  }
+  if (facts.baseRefName !== pull.base) {
+    throw new Error(`factory: ${pullUrl(pull)} now targets ${facts.baseRefName}, and this step covers ${pull.base} only. Use a fresh Factory attempt for the new target.`);
+  }
+}
+
 export function requireActionable(pull) {
   if (accorPublicationPolicy(sandbox)) throw new Error('factory: the Accor publication policy requires a separate human decision to merge.');
   const facts = pullFacts(pull);
-  if (facts.state !== 'OPEN' || facts.isDraft || facts.headRefOid !== pull.head) {
-    throw new Error(`factory: ${pullUrl(pull)} is ${facts.isDraft ? 'a draft' : facts.state} at ${facts.headRefOid}, and this step covers ${pull.head} only, while it is open and ready. The next scan takes a new head once the pull request is ready.`);
-  }
+  requireCurrentReview(pull, facts);
   requireTopic(pull.repository);
   checkSteps(pull.repository);
   return facts;

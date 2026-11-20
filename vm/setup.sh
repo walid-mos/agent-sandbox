@@ -150,3 +150,4 @@ id pots-repository-read > /dev/null 2>&1 || useradd --system --no-create-home --
 usermod --password '*' --groups '' pots-repository-read
 configure_swap "$swap_gib"
 install_units
+/usr/bin/python3 -B "$here/usage_setup.py"
