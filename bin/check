@@ -87,5 +87,6 @@ python3 -B "$root/probes/repository-read-policy.py"
 python3 -B "$root/probes/repository-read.py"
 python3 -B "$root/probes/repository-read-supervision.py"
 python3 -B "$root/probes/vault-broker-startup.py"
+python3 -B "$root/probes/usage-bootstrap.py"
 git -C "$root" diff --check
 printf 'Shell, Python, JavaScript and sandbox configuration syntax, pane file name and diff whitespace checks passed.\n'
