@@ -1,9 +1,10 @@
+import { launchGraceMs } from './limits.mjs';
 import { dequeue, enqueue, queuedAt, requestsFor } from './queue.mjs';
 import { command } from './run.mjs';
 import { botId } from './sandbox.mjs';
 import { endTerminal, isLive, isStopped, passes, save, terminalOf, workerTitle } from './workers.mjs';
 import { canFinish, isPublished, lifecycleOf, readyAt, reportFacts } from './worker-lifecycle.mjs';
-import { waitsForHuman } from './worker-human.mjs';
+import { SESSION_LABEL, waitsForHuman } from './worker-human.mjs';
 import { keepResult } from './worker-results.mjs';
 import { trackCandidate, RESTING_PHASE } from './worker-release.mjs';
 
@@ -23,15 +24,24 @@ function report(worker, terminal, status, wake, state, facts, isSettled) {
   save({ ...worker, status, lastReport: wake, result, ...facts });
 }
 
-// A launch whose terminal never opened failed to start, which the bot hears about and answers with a send, so only a crash resumes.
+// A launch whose terminal never opened failed to start, which the bot hears about and answers with a send, so an unfinished task resumes alone.
 function recover(worker, state, pending) {
-  if (state?.phase === 'closing') {
+  if (state?.phase === 'closing' || !hasWorkInHand(state)) {
     if (!worker.isClosed) save({ ...worker, isClosed: true });
     return;
   }
   if ([!worker.terminal, worker.isClosed, pending.has(worker.name), worker.recoveryAttempted].some(Boolean)) return;
   save({ ...worker, recoveryAttempted: true });
   enqueue({ worker: worker.name });
+}
+
+// A worker whose saved session was settled or at rest has nothing to resume, so it waits for the dispatcher's next follow-up.
+const hasWorkInHand = state => !['settled', 'resting', 'closing'].includes(state?.phase);
+
+// A terminal restored without Pi, as after a VM restart, is a bare shell: no agent status, no Pi session, and past the startup grace.
+function hasLostItsAgent(worker, terminal, now) {
+  return [isLive(terminal), terminal.status === undefined, !terminal.labels?.[SESSION_LABEL],
+    now - worker.startedAt >= launchGraceMs].every(Boolean);
 }
 
 // Pi records the follow-ups it accepted per launch, and a resume starts a new launch, so the ended launch's are dropped before they are sent again.
@@ -94,7 +104,9 @@ function inspectLaunch(worker, view) {
   const state = lifecycleOf(worker);
   const current = recordSession(worker, state);
   const terminal = terminalOf(current, view.terminals);
-  if (!terminal || terminal.state === 'finished') {
+  const isLost = terminal !== undefined && hasLostItsAgent(current, terminal, view.now);
+  if (isLost) endTerminal(current, view.terminals);
+  if (!terminal || isLost || terminal.state === 'finished') {
     view.resting.delete(worker.name);
     forgetReceived(current, state, view);
     recover(current, state, view.pending);

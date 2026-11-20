@@ -156,14 +156,24 @@ test('a terminal removed while the list is read is left out, and one still liste
   assert.throws(allTerminals);
 });
 
-test('startup without an agent status stays live regardless of age', () => {
+test('a terminal restored without an agent past the startup grace counts as lost', () => {
+  writePrivateJson(statePath(worker), { ...worker, phase: 'active', received: [] });
   setTerminals([{ ...terminal, status: undefined }]);
   inspect();
-  assert.equal(queued().length, 0);
-  assert.deepEqual(boundary().calls, []);
+  assert.deepEqual(boundary().calls.map(call => call.args[0]), ['read', 'kill', 'rm']);
+  assert.equal(queued()[0].worker, 'owned');
+});
+
+test('a settled worker whose terminal came back without an agent keeps its session and no resume', () => {
+  setTerminals([{ ...terminal, status: undefined }]);
+  inspect();
+  assert.deepEqual(queued(), []);
+  assert.equal(workers()[0].isClosed, true);
+  assert.equal(workers()[0].sessionFile, sessionFile);
 });
 
 test('crash recovery does not reread a terminal the watcher has already swept', () => {
+  writePrivateJson(statePath(worker), { ...worker, phase: 'active', received: [] });
   setTerminals([{ ...terminal, state: 'finished' }]);
   inspect();
   assert.equal(queued()[0].worker, 'owned');
@@ -171,6 +181,7 @@ test('crash recovery does not reread a terminal the watcher has already swept', 
 });
 
 test('a resumed launch that crashes before it settles is not resumed again', () => {
+  writePrivateJson(statePath(worker), { ...worker, phase: 'active', received: [] });
   setTerminals([{ ...terminal, state: 'finished' }]);
   inspect();
   setTerminals([]);

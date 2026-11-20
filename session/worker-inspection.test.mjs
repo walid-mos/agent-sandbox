@@ -129,16 +129,25 @@ test('watcher restart cannot repeatedly relaunch a recovery that crashes before 
   assert.equal(queued().length, 0);
 });
 
-test('observing a settled recovery permits recovery after a later crash', async () => {
+test('a settled launch clears the recovery bound for a task taken up again', async () => {
   inspect([]);
   queued().forEach(dequeue);
   const recovered = { ...workers()[0], launchId: 'recovered', terminal: 't-recovered' };
   save(recovered);
   settle(recovered);
   inspect([{ ...terminal, address: recovered.terminal, labels: { ...terminal.labels, 'pots.launch': recovered.launchId } }]);
+  writePrivateJson(statePath(recovered), { ...recovered, phase: 'active', generation: 'result-2', received: [] });
   const restarted = await import(`./inspect-worker.mjs?restart=${++restart}`);
   inspect([], restarted.inspectWorker);
   assert.equal(queued().length, 1);
+});
+
+test('a settled worker whose terminal is gone keeps its session instead of resuming', async () => {
+  settle();
+  inspect([]);
+  assert.deepEqual(queued(), []);
+  assert.equal(workers()[0].isClosed, true);
+  assert.equal(workers()[0].sessionFile, sessionFile);
 });
 
 test('a pending published question blocks both watcher collection and runtime closure until settlement', async () => {
