@@ -17,7 +17,7 @@ mock.module('./run.mjs', { exports: {
 } });
 const { newReportId, newRequestId, parse, Refusal, REPORT, REQUEST } = await import('./door-messages.mjs');
 const { receiveMessage } = await import('./door-deliveries.mjs');
-const { ANSWERED, ASKED, DELIVERED, find, OPEN, RECEIVED, save, UNKNOWN } = await import('./door-requests.mjs');
+const { all, ANSWERED, ASKED, DELIVERED, find, OPEN, RECEIVED, save, UNKNOWN } = await import('./door-requests.mjs');
 
 const deliver = (caller, wire) => receiveMessage(caller, Buffer.from(wire));
 const report = id => `request ${id} 0\nBoundary probe: the job finished.\n`;
@@ -61,6 +61,12 @@ test('a report takes no unanswered request slot', () => {
   const id = newReportId('probe');
   deliver('probe', report(id));
   assert.equal(find(id).state, DELIVERED);
+});
+
+test('a pot keeps a bounded number of delivered reports', () => {
+  for (let index = 0; index < 21; index += 1) deliver('probe', report(newReportId('probe')));
+  const delivered = all().filter(request => request.pot === 'probe' && request.kind === REPORT);
+  assert.equal(delivered.length, 20);
 });
 
 test('a report must carry hop 0', () => {
