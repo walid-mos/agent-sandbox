@@ -10,6 +10,15 @@ SPEC.loader.exec_module(door)
 
 
 class DialogWireBoundary(unittest.TestCase):
+    def test_board_uses_distinct_wire_with_ask_access_and_exact_origin(self):
+        wire = "board alpha.12345678\n{}"
+        self.assertEqual(door.request_id(wire, "alpha", "mastermind", "ask"), "alpha.12345678")
+        for caller, access in [("other", "ask"), ("alpha", "reply")]:
+            with self.subTest(caller=caller, access=access), self.assertRaises(door.Refusal):
+                door.request_id(wire, caller, "mastermind", access)
+        with self.assertRaises(door.Refusal):
+            door.request_id("board alpha.12345678 0\n{}", "alpha", "mastermind", "ask")
+
     def test_dialog_uses_ask_access_and_exact_caller_origin(self):
         wire = "dialog nextnode.12345678\n{}"
         self.assertEqual(door.request_id(wire, "nextnode", "mastermind", "ask"), "nextnode.12345678")

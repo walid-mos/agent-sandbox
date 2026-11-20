@@ -24,7 +24,7 @@ REFUSALS = "refusals"
 POT = re.compile(r"[a-z][a-z0-9-]{0,30}")
 ACCESS = ("ask", "reply")
 REPLIES_ONLY = "reply"
-HEADER = re.compile(r"(?:(request) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32}) [0-9]|(reply) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32})|(dialog) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32}))")
+HEADER = re.compile(r"(?:(request) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32}) [0-9]|(reply) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32})|(dialog|board) ([a-z][a-z0-9-]{0,30})\.([a-z0-9]{8,32}))")
 MALFORMED = 64
 TOO_LARGE = 65
 NO_SESSION = 69
@@ -119,7 +119,7 @@ def request_id(text, caller, receiver, access):
     header, separator, note = text.partition("\n")
     match = HEADER.fullmatch(header)
     if not separator or not match:
-        raise Refusal(MALFORMED, "the first line must be 'request <origin>.<nonce> <hop>' or 'reply <origin>.<nonce>' or 'dialog <origin>.<nonce>', ended by LF")
+        raise Refusal(MALFORMED, "the first line must be 'request <origin>.<nonce> <hop>' or 'reply <origin>.<nonce>' or 'dialog <origin>.<nonce>' or 'board <origin>.<nonce>', ended by LF")
     if not note.strip():
         raise Refusal(MALFORMED, "the note is empty")
     kind, origin, nonce = [part for part in match.groups() if part is not None]

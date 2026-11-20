@@ -2,7 +2,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pullKey, pullUrl, writeRecord } from './factory-records.mjs';
 import { command, WITH_VAULT } from './run.mjs';
-import { botId } from './sandbox.mjs';
+import { botId, sandbox } from './sandbox.mjs';
 
 export const FACTORY_BOT = { name: 'Factory', id: 'factory' };
 // The scan routine's name, and the source of the wakes it sends, by which the Factory bot recognises them.
@@ -35,6 +35,7 @@ export function handToFactory(record) {
 }
 
 export function reportToPrincipal(record, text) {
+  if (record.stage === 'merged' && sandbox.pullRequestBoard?.enabled === true) return writeRecord(record);
   command('pots', ['wake', '--bot', botId, '--from', PRINCIPAL_SOURCE, '--id', `pr-factory-${record.stage}-${pullKey(record)}-${record.generation ?? 0}`, '--note', text]);
   return writeRecord(record);
 }

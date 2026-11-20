@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { captureFactoryEvent } from './pr-board-events.mjs';
 
 export const FACTORY_HOME = join(homedir(), '.config/agent-sandbox/factory');
 const HEADS = join(FACTORY_HOME, 'heads');
@@ -47,6 +48,7 @@ export function requireRecord(pull, stage) {
 }
 
 export function writeRecord(record) {
+  captureFactoryEvent(record);
   mkdirSync(HEADS, { recursive: true });
   const path = recordPath(record);
   writeFileSync(`${path}.tmp`, `${JSON.stringify(record, null, 2)}\n`);

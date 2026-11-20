@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+here=$(dirname "$0")
+. "$here/lib.sh"
+if ! command -v node > /dev/null || ! command -v pots > /dev/null; then
+	idle_until_bootstrap pots-pr-board
+fi
+if ! node --input-type=module -e 'import { sandbox } from "file:///opt/agent-sandbox/session/sandbox.mjs"; process.exit(sandbox.pullRequestBoard?.enabled === true ? 0 : 1)'; then
+	idle_until_bootstrap pots-pr-board
+fi
+exec node "$here/pr-board.mjs"
