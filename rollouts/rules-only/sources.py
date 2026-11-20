@@ -2,7 +2,7 @@ import sys
 import types
 from pathlib import Path
 
-from guards import digest, read_json, regular, require
+from guards import digest, regular, require
 
 
 def prove_files(directory, resources):

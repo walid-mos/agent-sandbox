@@ -49,6 +49,16 @@ function confirmLandingComment(record, decision, notes, save) {
   return save({ ...record, verdictDelivery: { ...delivery, isConfirmed: true } });
 }
 
+// The record is saved before the wakes leave, so a failed delivery is reported and left to the next scan.
+function deliverRecorded(outcome) {
+  try {
+    return deliverWakes(outcome);
+  } catch (error) {
+    process.stderr.write(`factory: the verdict is saved and its wake delivery failed. The next scan retries it. ${error.message}\n`);
+    return outcome;
+  }
+}
+
 function signedVerdict(record, decision, notes) {
   requireLandingAuthority(record.repository);
   const outcome = withRecord(record, (current, save) => {
@@ -61,7 +71,7 @@ function signedVerdict(record, decision, notes) {
     if (judged.recoveryOf) return save(judged);
     return startPublication(judged, save);
   });
-  return deliverWakes(outcome);
+  return deliverRecorded(outcome);
 }
 
 function land(record, report) {
@@ -102,7 +112,7 @@ function sharedOrdinaryVerdict(record, decision, notes) {
     if (current?.generation !== record.generation || current.stage !== 'checked') throw new Error('factory: checked review changed');
     return ordinaryVerdict(current, decision, notes, save, (result, text) => save(queueReport(result, text)));
   });
-  return deliverWakes(outcome);
+  return deliverRecorded(outcome);
 }
 
 function recordVerdict(record, decision, notes) {

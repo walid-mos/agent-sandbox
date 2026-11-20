@@ -60,7 +60,7 @@ A missing or invalid tag anywhere in the range, including at an unsigned tip, bl
 4. Record `switching`, restart the named consumers on the candidate, and require a health report that names the candidate as loaded.
 5. After the candidate or a restored release is healthy, resume the gateway with the same hold ID and confirm the response before reopening worker admission. If any restart or health check fails, restore the known-good release first. The previous checkout is never modified.
 
-`dispatch` takes the lock shared, so it cannot start during a switch, and it re-checks health before handing the call to the runtime. A killed process leaves `switching`. The next `advance` restores the known-good release before anything else.
+`dispatch` takes the lock shared, so it cannot start during a switch, and it re-checks health before handing the call to the runtime. On a VM the installed receiver takes no dispatch call itself: it answers `vm-dispatch-requires-session-admission` and the session's own admission gate runs the operation. A killed process leaves `switching`. The next `advance` restores the known-good release before anything else.
 
 ## Status
 
@@ -74,6 +74,8 @@ A missing or invalid tag anywhere in the range, including at an unsigned tip, bl
 | `activation-interrupted` | A previous process died mid-switch. |
 | `factory-*` | The signed landing did not match the rule above. |
 | `candidate-checkpoint-mismatch` | The candidate is not the known-good release or its accepted successor. |
+| `vm-dispatch-requires-session-admission` | A dispatch reached the VM receiver, which hands every dispatch to the session admission gate instead of running it. |
+| `receiver-not-initialized` | `RECEIVER` exists without `control/status.json`, so no release is enrolled yet. The keeper reports it and starts no session through the receiver until the initialization below has run. |
 
 ## Proof
 

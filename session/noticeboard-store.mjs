@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { NOTICEBOARD_LIMITS, routeFor } from './noticeboard-policy.mjs';
+import { NOTICEBOARD_LIMITS, fingerprint, routeFor } from './noticeboard-policy.mjs';
 
 const KEY = /^[a-f0-9]{64}$/;
 const LOCK_DESCRIPTOR = 3;
@@ -70,7 +70,8 @@ function enqueue(database, events) {
 }
 
 function prune(database, now) {
-  const expired = database.prepare("SELECT body FROM records WHERE json_extract(body, '$.stage') = 'verified' AND json_extract(body, '$.verifiedAt') < ?").all(now - NOTICEBOARD_LIMITS.retentionMs);
+  const cutoff = now - NOTICEBOARD_LIMITS.retentionMs;
+  const expired = database.prepare("SELECT body FROM records WHERE (json_extract(body, '$.stage') = 'verified' AND json_extract(body, '$.verifiedAt') < ?) OR (json_extract(body, '$.stage') = 'exhausted' AND json_extract(body, '$.exhaustedAt') < ?)").all(cutoff, cutoff);
   transaction(database, () => {
     for (const { body } of expired) {
       const { snapshot, archive, ...record } = JSON.parse(body);
@@ -113,13 +114,24 @@ export function noticeboardStore(path) {
     database.prepare('INSERT INTO records VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET body = excluded.body').run(record.key, JSON.stringify(record));
     requireCapacity(database);
   });
+  const complete = id => database.prepare('DELETE FROM inbox WHERE id = ?').run(id);
+  // An event that spent every attempt would otherwise stay in the inbox for good, counting against its cap.
+  function exhaust(now) {
+    const spent = database.prepare("SELECT id, body FROM inbox WHERE coalesce(json_extract(body, '$.attempts'), 0) >= ?").all(NOTICEBOARD_LIMITS.attempts);
+    for (const { id, body } of spent) {
+      const event = JSON.parse(body);
+      put({ key: fingerprint(`inbox ${id}`), stage: 'exhausted', event, attempts: event.attempts, exhaustedAt: now });
+      complete(id);
+    }
+  }
   return { get, put, exclusive,
     records: () => database.prepare('SELECT body FROM records ORDER BY key').all().map(row => JSON.parse(row.body)),
     enqueue: events => enqueue(database, events),
     events: () => database.prepare('SELECT body FROM inbox ORDER BY id LIMIT ?').all(NOTICEBOARD_LIMITS.batch).map(row => JSON.parse(row.body)),
     pendingEvents: now => database.prepare("SELECT body FROM inbox WHERE coalesce(json_extract(body, '$.attempts'), 0) < ? AND coalesce(json_extract(body, '$.retryAt'), 0) <= ? ORDER BY id LIMIT ?").all(NOTICEBOARD_LIMITS.attempts, now, NOTICEBOARD_LIMITS.batch).map(row => JSON.parse(row.body)),
     cursor: () => database.prepare('SELECT cursor FROM progress').get().cursor,
-    complete: id => database.prepare('DELETE FROM inbox WHERE id = ?').run(id),
+    complete,
     defer: (id, now, retry) => defer(database, id, now, retry),
+    exhaust,
     prune: now => prune(database, now), close: () => database.close() };
 }

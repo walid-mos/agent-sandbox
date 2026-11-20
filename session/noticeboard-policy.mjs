@@ -25,7 +25,6 @@ export function noticeboardConfiguration(configuration = {}) {
     requireValue([route.channelId, route.guildId, route.threadId, route.parentMessageId].every(isId));
     requireValue(route.threadId === route.parentMessageId && route.channelId !== route.threadId);
     requireValue(['pull-requests', 'server-log'].includes(route.kind));
-
   }
   requireValue(new Set(channels.map(route => route.channelId)).size === channels.length);
   return { enabled: true, channels };

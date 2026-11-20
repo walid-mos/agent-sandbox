@@ -5,6 +5,15 @@ import { command, failureReason } from './run.mjs';
 import { botId, sandbox } from './sandbox.mjs';
 
 const UNANSWERED_REQUESTS_PER_POT = 20;
+const DELIVERED_REPORTS_PER_POT = 20;
+
+function pruneDeliveredReports(pot) {
+  const delivered = all()
+    .filter(request => request.direction === RECEIVED && request.pot === pot && request.kind === REPORT)
+    .sort((left, right) => left.at - right.at);
+  delivered.slice(0, Math.max(0, delivered.length - DELIVERED_REPORTS_PER_POT + 1))
+    .forEach(report => remove(report.id));
+}
 
 function received({ caller, id, origin, hop, text, kind }) {
   if (origin !== caller) throw new Refusal(`pots: request ${id} is in the name of ${origin}, and ${caller} sent it.`);
@@ -13,7 +22,10 @@ function received({ caller, id, origin, hop, text, kind }) {
   const known = find(id);
   if (known?.direction === RECEIVED && known.need === text && known.hop === hop && (known.kind ?? REQUEST) === kind) return undefined;
   if (known) throw new Refusal(`pots: ${id} already names another message.`);
-  if (kind === REPORT) return { id, direction: RECEIVED, pot: caller, need: text, kind, state: DELIVERED, at: Date.now() };
+  if (kind === REPORT) {
+    pruneDeliveredReports(caller);
+    return { id, direction: RECEIVED, pot: caller, need: text, kind, state: DELIVERED, at: Date.now() };
+  }
   const unanswered = all().filter(request => request.direction === RECEIVED && request.pot === caller && (request.kind === DIALOG) === (kind === DIALOG) && !SETTLED.includes(request.state));
   if (unanswered.length >= UNANSWERED_REQUESTS_PER_POT) throw new Refusal(`pots: ${caller} has ${unanswered.length} requests here that wait for their reply.`);
   return { id, direction: RECEIVED, pot: caller, need: text, hop, ...(kind === DIALOG && { kind }), state: OPEN, at: Date.now() };

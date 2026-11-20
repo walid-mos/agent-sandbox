@@ -48,7 +48,7 @@ function contextFor(t) {
   assert.equal(JSON.stringify(context.store.events()).includes('fixture-not-a-secret'), false);
 });
 
- test('exhausted event references cannot block later recoverable work', async t => {
+ test('exhausted event references leave the inbox and are held as records', async t => {
   const context = contextFor(t);
   const events = Array.from({ length: 16 }, (_, index) => ({ ...context.event, id: index + 1 }));
   context.store.enqueue(events);
@@ -57,8 +57,24 @@ function contextFor(t) {
   }
   context.client.readEvents = async () => [{ ...context.event, id: 17 }];
   await noticeboardServicePass(context);
-  assert.equal(context.store.records().length, 1);
-  assert.equal(context.store.records()[0].stage, 'verified');
+  const stages = context.store.records().map(record => record.stage);
+  assert.equal(stages.filter(stage => stage === 'verified').length, 1);
+  assert.equal(stages.filter(stage => stage === 'exhausted').length, events.length);
+  assert.deepEqual(context.store.events(), []);
+});
+
+ test('a busy store keeps the event for the next pass instead of spending an attempt', async t => {
+  const context = contextFor(t);
+  const exclusive = context.store.exclusive;
+  context.store.exclusive = async () => ({ status: 'busy' });
+  await noticeboardServicePass(context);
+  assert.equal(context.store.events().length, 1);
+  assert.equal(context.store.events()[0].attempts, undefined);
+  context.store.exclusive = exclusive;
+  context.client.readEvents = async () => [];
+  await noticeboardServicePass(context);
+  assert.deepEqual(context.store.events(), []);
+  assert.equal(context.store.records()[0]?.stage, 'verified');
 });
 
  test('disabled service does not open its inbox or call the adapter', async t => {

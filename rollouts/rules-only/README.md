@@ -82,3 +82,13 @@ Keep the original contract, ownership record, journal and private backups until 
 Only fixed diagnostics, hashes, booleans, process status and operation identifiers, and the exact private commit/remote/branch are emitted. Recipe text, rule text, raw configuration bundles and subprocess diagnostics stay out of reports. Backups contain private bytes and remain in the owner's private journal directory.
 
 The [trust boundary](trust-boundary.md) names the cooperating processes and the checks that constrain untrusted source files. Synthetic fixtures use the public command in an explicitly isolated temporary directory. Their hash substitution, delays and injected failures are available only through the fixture subcommand. Production execution exposes no fixture override.
+
+## Tests
+
+The suite needs no credential and writes its fixtures in the OS temporary directory. Run it from the repository root:
+
+```sh
+python3 -I -B -m unittest discover -s rollouts/rules-only/tests -t rollouts/rules-only/tests
+```
+
+[`./bin/check`](../../bin/check) compiles every runner file and runs this suite.

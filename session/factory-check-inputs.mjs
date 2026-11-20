@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { cpSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { cpSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { command } from './run.mjs';
 
@@ -11,9 +11,10 @@ export function checkInputRevision({ steps, image, imageDirectory, snapshot }) {
   if (!IMAGE_ID.test(imageId)) throw new Error('factory: Docker did not confirm an immutable check image ID');
   if (snapshot) cpSync(imageDirectory, snapshot, { recursive: true, preserveTimestamps: true });
   const helpersPath = snapshot ?? imageDirectory;
-  const helpers = readdirSync(helpersPath).sort().map(name => {
+  const helpers = readdirSync(helpersPath).sort().flatMap(name => {
     const path = join(helpersPath, name);
-    return [name, statSync(path).mode, readFileSync(path).toString('base64')];
+    const metadata = lstatSync(path);
+    return metadata.isFile() ? [[name, metadata.mode, readFileSync(path).toString('base64')]] : [];
   });
   const execution = SHARED_EXECUTION_FILES.map(name => readFileSync(new URL(name, import.meta.url)).toString('base64'));
   return { image: imageId, imageDirectory: helpersPath, inputRevision: digest([imageId, steps, helpers, execution]) };

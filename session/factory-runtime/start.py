@@ -14,6 +14,8 @@ HOME = Path(ENVIRONMENT["HOME"])
 FACTORY_UID = int(LAUNCH["POTS_FACTORY_UID"])
 CHILDREN = []
 BOOTSTRAP = Path(LAUNCH["POTS_FACTORY_BOOTSTRAP"])
+# A runtime that installs the controller as an s6 service must not start a second one, which loses the store lock.
+CONTROLLER_SERVICE = Path("/custom-services.d/pots-factory")
 
 
 def spawn(arguments, *, privilege, stderr=None):
@@ -110,7 +112,7 @@ def main():
         command(["node", str(SESSION / "factory-bot.mjs")])
         mode = subprocess.run(["node", str(SESSION / "factory-mode.mjs")], env=ENVIRONMENT,
                               user=FACTORY_UID, group=FACTORY_UID, extra_groups=[], check=False)
-        if mode.returncode == 0:
+        if mode.returncode == 0 and not CONTROLLER_SERVICE.exists():
             spawn(["node", str(SESSION / "factory-controller.mjs")], privilege="factory")
         raise SystemExit(gateway.wait())
     finally:

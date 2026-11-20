@@ -1,7 +1,7 @@
 from pathlib import Path
 import stat
 
-from guards import digest, encode, regular, require
+from guards import digest, regular, require
 from sources import plan_import, prove_checkout, prove_private
 
 NAMES = ('sandbox.json', 'vault.json', 'git-identity.json', 'tailnet.json')

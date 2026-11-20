@@ -147,6 +147,10 @@ if verb == 'dispatch':
 
 
 class Activation(ActivationFixture):
+    def test_an_uninitialized_receiver_reports_its_missing_status(self):
+        code, status = self.activate('status')
+        self.assertEqual((code, status['blocked']), (1, 'receiver-not-initialized'))
+
     def test_busy_receiver_stays_healthy_then_activates_on_retry(self):
         revision = self.arrange_activation()
         busy = self.receiver / 'busy'

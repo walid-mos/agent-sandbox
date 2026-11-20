@@ -1,10 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { assignments } from './environment.mjs';
-import { botId } from './sandbox.mjs';
+import { isDurableFactory, isIsolatedFactory, isRetiredSessionFactory } from './factory-mode-facts.mjs';
 
 const launch = assignments(readFileSync(new URL('./launch.env', import.meta.url), 'utf8'));
-export const isIsolatedFactory = process.env.POTS_ISOLATED_FACTORY === '1';
-export const isRetiredSessionFactory = Boolean(launch.POTS_SIGNING_FACTORY_BOT) && botId === launch.POTS_SIGNING_FACTORY_BOT && !isIsolatedFactory;
+export { isDurableFactory, isIsolatedFactory, isRetiredSessionFactory };
 export const landingRepository = launch.POTS_LANDING_REPOSITORY ?? '';
 export const REPORT_SOURCE = launch.POTS_FACTORY_REPORT_SOURCE;
 export const LANDING_BRANCH = 'main';
@@ -18,6 +17,9 @@ export function requireFactoryRuntime() {
 
 export function requireLandingAuthority(repository) {
   if (repository.toLowerCase() !== landingRepository.toLowerCase()) return;
+  if (!isDurableFactory) {
+    throw new Error('factory: a signed landing needs the durable factory, because its publication is bound to a review generation and to the check inputs of that review.');
+  }
   if (!existsSync(new URL('../lib/factory_squash.py', import.meta.url))) {
     throw new Error('factory: the signed landing verifier prerequisite is missing');
   }

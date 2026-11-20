@@ -5,7 +5,7 @@ from pathlib import Path
 import signal
 import time
 
-from guards import Commands, Refused, check_window, digest, read_json, require
+from guards import Commands, Refused, check_window, require
 from journal import Journal
 from local_steps import (acknowledge, canonical_commit, capture_backups, create_branch, link_original,
                          stage_acknowledgement, stage_canonical, stage_link, transfer,

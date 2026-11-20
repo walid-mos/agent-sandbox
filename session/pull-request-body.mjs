@@ -44,7 +44,8 @@ export function requireChangeBody(description, checkout) {
   if (proseWords(text).length < MINIMUM_PROSE_WORDS) {
     throw new Error('dispatch: --description must describe the real change in a sentence or more. A placeholder, a bare heading or an empty body is refused.');
   }
-  const missing = headings(templateText(checkout) ?? '').filter(heading => !text.toLowerCase().includes(heading.toLowerCase()));
+  const written = headings(text).map(heading => heading.toLowerCase());
+  const missing = templateSections(checkout).filter(heading => !written.includes(heading.toLowerCase()));
   if (missing.length) throw new Error(`dispatch: --description must follow the repository's pull request template. Add the missing sections: ${missing.join(', ')}.`);
   return description;
 }

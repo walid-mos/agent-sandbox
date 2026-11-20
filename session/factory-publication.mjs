@@ -42,7 +42,7 @@ function continuePublication(record, save, adapters) {
   if (record.stage === PENDING && facts.state === 'open') {
     const request = record.squashPublication.request;
     if (facts.repository !== request.repository || facts.number !== request.number
-        || facts.head !== request.head || !facts.ref) {
+        || facts.head !== request.head) {
       throw new Error('factory: the open PR no longer matches the saved merge intent.');
     }
     if (facts.ref !== request.ref || currentGeneration(record) !== record.generation
