@@ -1,7 +1,4 @@
 #!/bin/sh
 set -eu
 export HOME=/config
-if ! jq -e '.macLaunch.enabled == true' /etc/agent-sandbox/sandbox.json > /dev/null; then
-	exec sleep infinity
-fi
 exec s6-setuidgid abc /opt/agent-sandbox/session/watch-human launch-expiry.mjs

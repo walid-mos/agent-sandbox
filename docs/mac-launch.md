@@ -2,7 +2,7 @@
 
 A pot proposes a prompt for a Mac. The Mac posts its exact bytes in Discord, and the operator's own click starts Pi in a restricted account inside a protected Herdr terminal. The requesting pot receives status and the final report.
 
-The feature remains disabled until the [protected installation and native checks](mac-launch-install.md) pass. There is no operator-user execution mode.
+Mac launches require the protected daemon. See the [installation procedure and native checks](mac-launch-install.md). There is no operator-user execution mode.
 
 ## Threat model
 
@@ -89,7 +89,7 @@ The Mac writes and flushes one exclusive decision before acting. Closure and cla
 
 Cancellation and replacement are requests until the Mac records their closure and reports it. A pot lists the request as open with `asked` set in the meantime. A claim that wins first stands, and the pot's start note includes `tooLate`. The gate does not kill a committed run or claim that it was cancelled.
 
-The gate rechecks the source at the press. A closed source becomes a Mac closure. An outage starts nothing, leaves approval unused and gives the operator a private explanation. A pot that hides its cancellation cannot receive confirmation for it. A stale or disabled press also receives an explanation and consumes nothing.
+The gate rechecks the source at the press. A closed source becomes a Mac closure. An outage starts nothing, leaves approval unused and gives the operator a private explanation. A pot that hides its cancellation cannot receive confirmation for it. A stale press also receives an explanation and consumes nothing.
 
 The source expires locally if the Mac remains silent. A late start that the Mac validly claimed before expiry still reaches the pot with `tooLate`. The contract defines the time limits. Expiry notices and report delivery retry within their documented lifecycle.
 
@@ -111,10 +111,10 @@ All identifiers and credentials below are placeholders. The human-dialog contrac
 
 ### Pot configuration and commands
 
-A private pot `sandbox.json` enables `macLaunch` and names its allowed target Macs. Mastermind also names its Discord channel account and launch channel.
+A pot can request launches on the targets listed in its private `sandbox.json`. Mastermind uses its configured Discord channel account and launch channel to post notices.
 
 ```json
-{"macLaunch":{"enabled":true,"targets":{"mac-studio":"Mac Studio","macbook-pro":"MacBook Pro"}}}
+{"macLaunch":{"targets":{"mac-studio":"Mac Studio","macbook-pro":"MacBook Pro"}}}
 ```
 
 ```sh
