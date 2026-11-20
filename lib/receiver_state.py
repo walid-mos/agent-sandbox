@@ -49,6 +49,8 @@ def admission(root, mode):
 
 def read_state(root):
     path = root / CONTROL / STATUS
+    if not os.path.lexists(path):
+        raise Blocked('receiver-not-initialized')
     require_protected(path, stat.S_ISREG, (os.geteuid(),))
     try:
         state = json.loads(path.read_text())
