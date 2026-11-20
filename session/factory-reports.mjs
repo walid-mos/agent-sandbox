@@ -121,10 +121,6 @@ export function deliverWakes(record) {
 }
 
 export function handToFactory(record) {
-  if (!isDurableFactory) {
-    wakeFactory(record, {}, [record.repository, String(record.number), record.head]);
-    return usesSharedRecord(record) ? withRecord(record, (_, save) => save(record)) : writeRecord(record);
-  }
   if (usesSharedRecord(record)) return deliverWakes(withRecord(record, (prior, save) => {
     if (prior?.generation >= record.generation) return prior;
     if (prior?.squashPublication && prior.stage !== SUPERSEDED_SQUASH) throw new Error('factory: a prior squash still needs readback');
