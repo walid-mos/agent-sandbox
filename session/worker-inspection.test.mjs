@@ -56,7 +56,8 @@ beforeEach(() => {
 });
 after(() => { mock.restoreAll(); rmSync(scratch, { force: true, recursive: true }); });
 
-test('repeated settlement keeps the 15-minute deadline until the worker re-enters waiting', t => {  const waitWindow = 15 * 60_000;
+test('repeated settlement keeps the 15-minute deadline until the worker re-enters waiting', t => {
+  const waitWindow = 15 * 60_000;
   t.mock.timers.enable({ apis: ['Date'], now: 1000 });
   const runtime = new WorkerRuntime({ events: { emit: (_event, request) => { request.result = { version: 1, awaited: 1 }; } } }, worker);
   const context = { ui: { onTerminalInput: () => () => {} },
