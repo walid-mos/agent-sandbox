@@ -71,7 +71,7 @@ test('worker admission defers while switching, while the lock is held, and on st
 });
 
 test('queued fresh work survives deferral and resumes through the same gate as saved work and clean passes', () => {
-  const worker = { name: 'queued-worker', owner: 'fixture', repository: 'fixture/project', worktree: root, brief: '/fixture/brief' };
+  const worker = { name: 'queued-worker', owner: 'fixture', repository: 'fixture/project', worktree: root, brief: '/fixture/brief', pullRequest: 'https://example.test/pr/22' };
   const saved = join(root, 'worker.jsonl');
   writeFileSync(saved, '{"type":"session","id":"saved"}\n');
   save(worker);
