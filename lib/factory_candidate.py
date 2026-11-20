@@ -62,11 +62,15 @@ def require_landing_parents(stage, candidate, base):
         raise Blocked('factory-base-mismatch')
 
 
+def repository_name(origin):
+    return origin.removeprefix('https://github.com/').removesuffix('.git')
+
+
 def signed_landing(root, origin, stage, candidate):
     signers = root / 'factory-signers.asc'
     require_protected(signers, stat.S_ISREG, (os.geteuid(),))
     signer = verify_signature(stage, candidate, signers, SIGNATURE_UNVERIFIED)
-    repository = origin.removeprefix('https://github.com/').removesuffix('.git')
+    repository = repository_name(origin)
     return signer, landing_request(stage, candidate, repository)
 
 

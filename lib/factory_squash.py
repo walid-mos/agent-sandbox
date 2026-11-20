@@ -3,7 +3,7 @@ import os
 import stat
 
 from factory_candidate import (LANDING_REF, PROVENANCE_HEADER, REQUEST_FIELDS, SIGNATURE_UNVERIFIED,
-                               require_landing_parents, require_review_request, require_reviewed_head)
+                               repository_name, require_landing_parents, require_review_request, require_reviewed_head)
 from managed_update import GIT_READ_OPTIONS, SHA1, Blocked, read_git, require_exact_commit, require_protected, verify_signature
 from signed_commit import Untrusted
 from signed_tag import require_signed_tag
@@ -16,10 +16,6 @@ SQUASH_FIELDS = REQUEST_FIELDS | {'squash'}
 LANDED_FIELDS = {'head', 'base', 'tree', 'generation'}
 REVIEW_ROOT = 'refs/factory/review/'
 FACTORY_SIGNERS = 'factory-signers.asc'
-
-
-def repository_name(origin):
-    return origin.removeprefix('https://github.com/').removesuffix('.git')
 
 
 def is_landing(stage, revision):
