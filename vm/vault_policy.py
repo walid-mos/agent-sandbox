@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import sys
 
 VAULT_PATH = re.compile(r"/([A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*)?")
 SECRET_NAME = re.compile(r"[A-Z][A-Z0-9_]*")
@@ -121,6 +122,49 @@ def source_entries(request, sandbox, registry):
     return [listed_entry(GITHUB_PATH, credential)]
 
 
+READ_REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*")
+COMMIT = re.compile(r"[0-9a-f]{40}")
+MAX_COMMITS = 16
+
+
+def repository_key(repository):
+    if not isinstance(repository, str) or not READ_REPOSITORY.fullmatch(repository) or repository.endswith('.git'):
+        raise Refused("a read names one canonical OWNER/REPOSITORY policy key, without a URL or .git suffix.")
+    return repository
+
+
+def read_repositories(sandbox):
+    if not isinstance(sandbox, dict):
+        raise Refused('sandbox.json must hold one JSON object.')
+    grants = sandbox.get('readRepositories', {})
+    if not isinstance(grants, dict):
+        raise Refused("sandbox.json readRepositories must be an object.")
+    for repository, grant in grants.items():
+        repository_key(repository)
+        if not isinstance(grant, dict) or set(grant) != {'credential'}:
+            raise Refused("each readRepositories entry holds only credential.")
+        listed_entry(GITHUB_PATH, grant['credential'])
+    return grants
+
+
+def read_request(request):
+    if not isinstance(request, dict) or set(request) != {'kind', 'repository', 'commits'} or request['kind'] != 'read':
+        raise Refused("a read request holds only kind, repository and commits.")
+    repository_key(request['repository'])
+    commits = request['commits']
+    if not isinstance(commits, list) or len(commits) > MAX_COMMITS or not all(isinstance(commit, str) and COMMIT.fullmatch(commit) for commit in commits):
+        raise Refused(f"a read accepts at most {MAX_COMMITS} full lowercase hexadecimal commit IDs.")
+
+
+def read_grant(request, sandbox):
+    read_request(request)
+    grants = read_repositories(sandbox)
+    repository = request['repository']
+    if repository not in grants:
+        raise Refused("repository is not selected in this pot's readRepositories policy.")
+    return grants[repository]['credential']
+
+
 REQUESTS = {"sandbox": sandbox_entries, "secret": secret_entries, "source": source_entries}
 
 
@@ -133,4 +177,13 @@ def entries_for(request, sandbox, registry):
     if not isinstance(sandbox, dict) or not isinstance(registry, dict):
         raise Refused("sandbox.json and the source catalog must each hold one JSON object.")
     refused_jira(sandbox)
+    read_repositories(sandbox)
     return list(dict.fromkeys(REQUESTS[kind](request, sandbox, registry)))
+
+
+if __name__ == '__main__':
+    try:
+        for path in sys.argv[1:]:
+            read_repositories(json.loads(Path(path).read_text()))
+    except (Refused, OSError, ValueError) as error:
+        sys.exit(f'readRepositories policy check failed: {error}')

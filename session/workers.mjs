@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { withAdmission } from './admission.mjs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { requireDraftHelperFor } from './draft-helper.mjs';
 import { ROUTER_MODEL } from './models.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
 import { command, WITH_VAULT } from './run.mjs';
+import { workerPushPolicy } from './worker-push-policy.mjs';
 
 export const WORKERS = join(homedir(), '.config/agent-sandbox/workers');
 export const WORKER_PREFIX = 'pots-';
@@ -22,15 +25,28 @@ export function terminalName(text, identity = text) {
   return `${readable.slice(0, TERMINAL_NAME_LIMIT - DIGEST_LENGTH - 1)}-${digest}`;
 }
 
+export const workerTitle = (worker, terminal) => terminal?.labels?.['agent.title'] ?? worker.title ?? worker.name.slice(WORKER_PREFIX.length);
+
 export function workers() {
   if (!existsSync(WORKERS)) return [];
   return readdirSync(WORKERS).filter(path => path.endsWith('.json'))
-    .map(path => JSON.parse(readFileSync(join(WORKERS, path), 'utf8')));
+    .map(path => JSON.parse(readFileSync(join(WORKERS, path), 'utf8')))
+    .map(withPublication);
 }
+
+export const ownedWorker = (name, owner) => workers().find(worker => worker.name === name && worker.owner === owner);
 
 export function save(worker) {
   writePrivateJson(join(WORKERS, `${worker.name}.json`), worker);
 }
+
+export const PUBLICATION = Object.freeze({ local: 'local', awaitingPr: 'awaiting-pr', published: 'published' });
+const PUBLICATION_SUFFIX = '.publication';
+const publicationRecord = worker => join(WORKERS, `${worker.name}${PUBLICATION_SUFFIX}`);
+export const isPublicationRecord = file => `${file}`.endsWith(PUBLICATION_SUFFIX);
+// Publication is its own file, which the watcher never rewrites, so it wins over the copy in the worker's record.
+export const withPublication = worker => ({ ...worker, ...readJson(publicationRecord(worker)) });
+export const recordPublication = (worker, changes) => writePrivateJson(publicationRecord(worker), { ...readJson(publicationRecord(worker)), ...changes });
 
 export function writeBrief(name, text) {
   mkdirSync(WORKERS, { recursive: true });
@@ -114,10 +130,12 @@ export function endTerminal(worker, terminals) {
 }
 
 export function openTerminal({ name, cwd, tab, options = [], labels = [], label, vaultCommand }) {
-  command('hc', ['run', '--bg', ...options, '--name', name, '--cwd', cwd, '--label', label, ...labels.flatMap(value => ['--label', value]),
-    '--label', 'herdr.space=sppots', '--label', `herdr.tab=tb${tab}`,
-    '--', 'nice', '-n', WORKER_NICENESS, WITH_VAULT, ...vaultCommand]);
-  return JSON.parse(command('hc', ['get', name])).address;
+  return withAdmission(() => {
+    command('hc', ['run', '--bg', ...options, '--name', name, '--cwd', cwd, '--label', label,
+      ...labels.flatMap(value => ['--label', value]), '--label', 'herdr.space=sppots', '--label', `herdr.tab=tb${tab}`,
+      '--', 'nice', '-n', WORKER_NICENESS, WITH_VAULT, ...vaultCommand]);
+    return JSON.parse(command('hc', ['get', name])).address;
+  });
 }
 
 // The session can install another Pi while this launcher lives, so every launch asks the installed one.
@@ -133,20 +151,30 @@ function sessionArguments(worker, sessionDir, sessionId) {
   return ['--session', worker.sessionFile];
 }
 
+const LAUNCH_VARIABLES = { name: 'POTS_WORKER', owner: 'POTS_OWNER', launchId: 'POTS_LAUNCH' };
+export const launchedWorker = environment => Object.fromEntries(Object.entries(LAUNCH_VARIABLES).map(([field, variable]) => [field, environment[variable]]));
+const launchEnvironment = worker => Object.entries(LAUNCH_VARIABLES).map(([field, variable]) => `${variable}=${worker[field]}`);
+
 export function launch(worker, conversation) {
+  return withAdmission(() => launchAdmitted(worker, conversation));
+}
+
+function launchAdmitted(worker, conversation) {
   const launchId = randomUUID();
   if (!worker.owner) throw new Error('dispatch: worker has no recorded Pots owner. Inspect it before relaunching.');
+  requireDraftHelperFor(worker);
   const { sessionId = randomUUID(), sessionDir = join(WORKERS, 'sessions', worker.name), model = ROUTER_MODEL } = worker;
   mkdirSync(sessionDir, { recursive: true });
   const session = sessionArguments(worker, sessionDir, sessionId);
-  const launched = { ...worker, launchId, sessionId, sessionDir, terminal: undefined, startedAt: Date.now(), isClosed: false, lastReport: undefined, result: undefined };
+  const publicationPolicy = worker.repository ? ['--append-system-prompt', workerPushPolicy] : [];
+  const launched = { ...worker, launchId, sessionId, sessionDir, terminal: undefined, startedAt: Date.now(), isBriefed: conversation.length > 0, isClosed: false, lastReport: undefined, result: undefined };
   save(launched);
   const terminal = openTerminal({
     name: worker.name, cwd: worker.worktree, tab: worker.name, label: 'pots.worker=true',
-    labels: [`pots.owner=${worker.owner}`, `pots.launch=${launchId}`],
+    labels: [`pots.owner=${worker.owner}`, `pots.launch=${launchId}`, ...(worker.title ? [`agent.title=${worker.title}`] : [])],
     options: ['--no-parent', '--no-notify', '--outlive-parent'],
-    vaultCommand: ['env', `POTS_WORKER=${worker.name}`, `POTS_OWNER=${worker.owner}`, `POTS_LAUNCH=${launchId}`,
-      'pi', '--extension', join(import.meta.dirname, 'worker-agent.mjs'), ...session,
+    vaultCommand: ['env', ...launchEnvironment(launched),
+      'pi', '--extension', join(import.meta.dirname, 'worker-agent.mjs'), ...session, ...publicationPolicy,
       '--provider', 'magpie', '--model', model, ...humanDialogFlags(worker), ...conversation],
   });
   save({ ...launched, terminal });

@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+import os
+from pathlib import Path
+import sys
+import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from factory_root import require_private_directory
+from factory_socket import Refused, serve
+from landing import Signer, SquashSigner, created_key
+from launch import LAUNCH
+
+REQUEST_BYTES = 2048
+KEY_POLL_SECONDS = 10
+
+
+def key_home():
+    home = Path(LAUNCH["POTS_LANDING_KEY_HOME"])
+    if not home.is_dir():
+        return None
+    require_private_directory(home)
+    return home if created_key(home) else None
+
+
+def main():
+    if os.geteuid() != 0:
+        raise SystemExit("landing-signer: only VM root can open the signing key.")
+    while key_home() is None:
+        print("landing-signer: waiting for the factory key. The operator creates it from the Mac with bin/landing-key create.", flush=True)
+        time.sleep(KEY_POLL_SECONDS)
+    serve_signer()
+
+
+def serve_signer():
+    serve(LAUNCH["POTS_LANDING_SOCKET"], "landing", REQUEST_BYTES, signer_operation(), "No signature was published.")
+
+
+def signer_operation():
+    if LAUNCH.get("POTS_LANDING_SQUASH_ENROLLED") != "1":
+        return Signer().sign
+    signer = SquashSigner()
+
+    def sign(request):
+        if not isinstance(request, dict) or set(request) != {"squashEvidence"}:
+            raise Refused("landing: expected the enrolled native squash evidence operation.")
+        return signer.sign(request["squashEvidence"])
+
+    return sign
+
+
+if __name__ == "__main__":
+    main()

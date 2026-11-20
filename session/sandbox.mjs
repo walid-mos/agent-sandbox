@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { potsBotHome } from './pots-home.mjs';
 
 const CONFIG = '/etc/agent-sandbox/sandbox.json';
 const MASTERMIND = 'mastermind';
@@ -13,6 +12,7 @@ function load() {
   }
 }
 
+export const readHumanDiscord = () => load().humanDiscord;
 export const sandbox = load();
 if (sandbox.role !== undefined && sandbox.role !== MASTERMIND) {
   throw new Error(`sandbox: role is ${JSON.stringify(sandbox.role)} in ${CONFIG}. Leave it out for a pot that owns a domain, or set it to "${MASTERMIND}".`);
@@ -20,6 +20,5 @@ if (sandbox.role !== undefined && sandbox.role !== MASTERMIND) {
 export const isMastermind = sandbox.role === MASTERMIND;
 export const botId = sandbox.bot.toLowerCase();
 export const owners = Object.keys(sandbox.owners);
-export const potsHome = join(homedir(), '.pots');
-export const potsBotHome = id => join(potsHome, 'bots', id);
+export { potsHome, potsBotHome } from './pots-home.mjs';
 export const botHome = potsBotHome(botId);

@@ -15,6 +15,8 @@
   ],
   "NextNodeSolutions/agent-sandbox": [
     { "name": "check", "run": ["./bin/check"] },
+    { "name": "landing", "run": ["python3", "-I", "probes/landing-policy.py"], "network": true },
+    { "name": "landing-trust", "run": ["python3", "-I", "probes/landing-trust.py"], "network": true },
     { "name": "shellcheck", "run": ["node", "/factory/shellcheck-new.mjs", "{base}"] },
     { "name": "fallow", "run": ["fallow", "audit", "--base", "{base}"] }
   ],
@@ -23,6 +25,14 @@
   ],
   "NextNodeSolutions/herdr-config": [
     { "name": "check", "run": ["./bin/check"] }
+  ],
+  "NextNodeSolutions/syneva": [
+    { "name": "install", "run": ["pnpm", "install", "--frozen-lockfile"], "network": true },
+    { "name": "lint", "run": ["pnpm", "run", "lint"] },
+    { "name": "lint-types", "run": ["pnpm", "run", "lint:types"] },
+    { "name": "format-check", "run": ["pnpm", "run", "format:check"] },
+    { "name": "check", "run": ["pnpm", "run", "check"] },
+    { "name": "build", "run": ["pnpm", "run", "build"] }
   ],
   "NextNodeSolutions/pi-agent": [
     { "name": "install", "run": ["pnpm", "install", "--frozen-lockfile"], "network": true },

@@ -5,7 +5,6 @@ export POTS_TRANSPORT=local
 
 "$POTS_REPO/bin/pots-session" ensure > /dev/null
 session=$(running_session)
-if ! session_exec "$session" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-current; then
-	session_exec "$session" "$POTS_SESSION_REPOSITORY/session/bootstrap" --router-only
-	restart_services "$session" pots-router
+if ! "$POTS_REPO/bin/pots-session" router-current "$session"; then
+	"$POTS_REPO/bin/pots-session" restart-router "$session"
 fi

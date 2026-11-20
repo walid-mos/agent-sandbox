@@ -5,4 +5,4 @@ require_sealskin
 
 export SEALSKIN_PORT="$POTS_SERVER_PORT"
 sandbox_docker compose --env-file "$POTS_REPO/vm/network.env" -f "$POTS_REPO/sealskin/compose.yaml" up -d --wait
-"$POTS_REPO/bin/sealskin-apply"
+sandbox_vm sudo env POTS_TRANSPORT=local python3 -I "$POTS_TRUSTED_LAUNCHER" sealskin-server-started

@@ -1,19 +1,20 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FACTORY_BOT, factoryCommand, WATCH } from './factory-reports.mjs';
+import { factoryCommand, reconcileCommand, WATCH } from './factory-reports.mjs';
+import { FACTORY_BOT } from './factory-identity.mjs';
 import { FACTORY_TOPIC } from './factory-github.mjs';
+import { isDurableFactory } from './factory-mode.mjs';
 import { linkFolder } from './link.mjs';
 import { main } from './main.mjs';
-import { ROUTER_MODEL } from './models.mjs';
+import { ensureRouterBot } from './router-bot.mjs';
 import { command } from './run.mjs';
-import { owners, potsBotHome } from './sandbox.mjs';
+import { owners } from './sandbox.mjs';
+import { isRetiredSessionFactory } from './factory-authority.mjs';
 
 const VERSIONED = join(dirname(fileURLToPath(import.meta.url)), 'factory');
-const BOT_HOME = potsBotHome(FACTORY_BOT.id);
-const SCAN_EVERY = '5m';
-const SCAN_TIMEOUT = '60m';
+const LEGACY_ROUTINE = { every: '1m', timeout: '30m', run: factoryCommand('scan') };
+const DURABLE_ROUTINE = { every: '10m', timeout: '15s', run: reconcileCommand };
 const ABOUT = `checks, judges and merges ready pull requests in repositories with the ${FACTORY_TOPIC} topic`;
 const HOLD_SOURCE = 'factory-install';
 const HOLD_FOR = '365d';
@@ -22,11 +23,6 @@ const READY_TIMEOUT_MS = 60000;
 const READY_POLL_MS = 1000;
 
 const pots = arguments_ => execFileSync('pots', arguments_, { stdio: 'inherit' });
-
-function create() {
-  pots(['bot', 'new', FACTORY_BOT.name, '--id', FACTORY_BOT.id, '--model', ROUTER_MODEL, '--judge', 'off', '--about', ABOUT]);
-  if (!existsSync(BOT_HOME)) throw new Error(`factory: pots bot new made no ${BOT_HOME}. Check pots status, then run this again.`);
-}
 
 // The gateway starts a new bot, or comes back from its restart, a few seconds after the command, and adds a routine only to a running bot.
 function waitUntilRunning() {
@@ -45,14 +41,18 @@ function holdCheckIn() {
 }
 
 main(import.meta, () => {
+  if (isRetiredSessionFactory) {
+    process.stdout.write('factory: this factory runs in its own VM-started container. No session routine is installed.\n');
+    return;
+  }
   if (owners.length === 0) {
     process.stdout.write('factory: this pot owns no repositories, so it runs no Factory bot\n');
     return;
   }
-  if (!existsSync(BOT_HOME)) create();
-  linkFolder(VERSIONED, BOT_HOME);
+  linkFolder(VERSIONED, ensureRouterBot(FACTORY_BOT, ABOUT));
   waitUntilRunning();
   holdCheckIn();
-  pots(['routine', 'add', WATCH, '--bot', FACTORY_BOT.id, '--every', SCAN_EVERY, '--timeout', SCAN_TIMEOUT, '--run', factoryCommand('scan')]);
-  process.stdout.write(`factory: ${FACTORY_BOT.name} follows ${VERSIONED} and scans repositories of ${owners.join(', ')} with the ${FACTORY_TOPIC} topic every ${SCAN_EVERY}\n`);
+  const { every, timeout, run } = isDurableFactory ? DURABLE_ROUTINE : LEGACY_ROUTINE;
+  pots(['routine', 'add', WATCH, '--bot', FACTORY_BOT.id, '--every', every, '--timeout', timeout, '--run', run]);
+  process.stdout.write(`factory: ${FACTORY_BOT.name} follows ${VERSIONED} and scans repositories of ${owners.join(', ')} with the ${FACTORY_TOPIC} topic every ${every}\n`);
 });
