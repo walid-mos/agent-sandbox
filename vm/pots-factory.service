@@ -1,0 +1,15 @@
+[Unit]
+Description=Run the isolated PR factory in its own container
+Wants=network-online.target docker.service pots-landing.service pots-vault.service pots-factory-reports.service
+After=network-online.target docker.service pots-landing.service pots-vault.service pots-factory-reports.service
+
+[Service]
+ExecStart=/usr/bin/python3 -I /usr/local/lib/agent-sandbox/lib/trusted_source.py run vm/factory-runtime
+Restart=always
+RestartSec=60
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

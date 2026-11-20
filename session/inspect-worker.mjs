@@ -5,6 +5,7 @@ import { endTerminal, isLive, isStopped, passes, save, terminalOf, workerTitle }
 import { canFinish, isPublished, lifecycleOf, readyAt, reportFacts } from './worker-lifecycle.mjs';
 import { waitsForHuman } from './worker-human.mjs';
 import { keepResult } from './worker-results.mjs';
+import { hasNoUnreportedWork, IDLE_PHASE, measureIdle } from './worker-idle.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
 const RESUMABLE = new Set(['done', 'idle']);
@@ -51,10 +52,20 @@ function recordSession(worker, state) {
 
 // A closing worker had its result acknowledged and is exiting, so it has nothing new to report.
 function inspectLive(worker, terminal, state, view) {
+  const { now, idleWorkers } = view;
+  if (state?.phase !== IDLE_PHASE) idleWorkers?.delete(worker.name);
   if (state?.phase === 'closing') return undefined;
   const due = readyAt(state);
-  if (view.now < due) return due;
-  return reportCurrent(worker, terminal, state, view);
+  if (now < due) return due;
+  const { facts, resumes } = reportCurrent(worker, terminal, state, view);
+  if (resumes !== undefined) {
+    idleWorkers?.delete(worker.name);
+    return resumes;
+  }
+  if (state?.phase !== IDLE_PHASE) return undefined;
+  if (facts && hasNoUnreportedWork(facts)) return measureIdle(worker, terminal, state, view);
+  idleWorkers?.delete(worker.name);
+  return undefined;
 }
 
 function resumesUntil(worker, state, queue) {
@@ -70,16 +81,16 @@ function reportCurrent(worker, terminal, state, { now, terminals, queue }) {
   const isWaiting = terminal.status === 'blocked' || waitsForHuman(worker, terminal);
   const { turn = 0 } = terminal;
   const status = isWaiting ? 'blocked' : terminal.status ?? 'starting';
-  if (!REPORTABLE.has(status)) return undefined;
+  if (!REPORTABLE.has(status)) return {};
   const canSettle = canFinish(state, terminal, terminals, now);
   const resumes = RESUMABLE.has(status) && !canSettle ? resumesUntil(worker, state, queue) : undefined;
-  if (now < resumes) return resumes;
+  if (now < resumes) return { resumes };
   const facts = reportFacts(worker);
   const result = !isWaiting && canSettle && isPublished(facts) ? state.generation : 'open';
   const publication = facts.publication ? `-${facts.publication}` : '';
   const wake = `${worker.name}-${worker.launchId}-${turn}-${status}${publication}-${result}`;
   if (worker.lastReport !== wake) report(worker, terminal, status, wake, state, facts, canSettle && !isWaiting);
-  return undefined;
+  return { facts };
 }
 
 function inspectLaunch(worker, view) {
@@ -87,6 +98,7 @@ function inspectLaunch(worker, view) {
   const current = recordSession(worker, state);
   const terminal = terminalOf(current, view.terminals);
   if (!terminal || terminal.state === 'finished') {
+    view.idleWorkers?.delete(worker.name);
     forgetReceived(current, state, view);
     recover(current, state, view.pending);
     return undefined;

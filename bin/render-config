@@ -17,6 +17,17 @@ def assignments(path):
 
 launch = assignments("session/launch.env")
 
+# VM root and the isolated factory hold these paths, and no session mount may reach them.
+FACTORY_ONLY = ("POTS_LANDING_KEY_HOME", "POTS_LANDING_STATE", "POTS_LANDING_SOCKET", "POTS_FACTORY_STATE", "POTS_FACTORY_REPORT_SOCKET")
+
+
+def require_no_factory_path(shared):
+    for name in FACTORY_ONLY:
+        protected = Path(launch[name])
+        for path in shared:
+            if Path(path).is_relative_to(protected) or protected.is_relative_to(path):
+                raise SystemExit(f"render-config: the session would mount {path}, which reaches {protected} ({name}). Fix session/launch.env.")
+
 
 # The session reads the pot's clone, its configuration and the vault broker's socket at the paths the VM keeps them at.
 def session_binds():
@@ -32,6 +43,7 @@ def session_binds():
     shared = (checkout, configuration, broker, *(value for value in (control, revision) if value))
     if any(Path(launch["POTS_VAULT_IDENTITY"]).is_relative_to(path) for path in shared):
         raise SystemExit("render-config: POTS_VAULT_IDENTITY must stay outside every path the session mounts. Fix session/launch.env.")
+    require_no_factory_path(shared)
     return [
         f"{checkout}:{clone}:ro",
         f"{checkout}/session/services.d:/custom-services.d:ro",
