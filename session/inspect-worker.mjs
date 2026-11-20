@@ -5,7 +5,7 @@ import { endTerminal, isLive, isStopped, passes, save, terminalOf, workerTitle }
 import { canFinish, isPublished, lifecycleOf, readyAt, reportFacts } from './worker-lifecycle.mjs';
 import { waitsForHuman } from './worker-human.mjs';
 import { keepResult } from './worker-results.mjs';
-import { hasNoUnreportedWork, IDLE_PHASE, measureIdle } from './worker-idle.mjs';
+import { trackCandidate, RESTING_PHASE } from './worker-release.mjs';
 
 const REPORTABLE = new Set(['done', 'idle', 'blocked', 'error', 'finished']);
 const RESUMABLE = new Set(['done', 'idle']);
@@ -52,19 +52,16 @@ function recordSession(worker, state) {
 
 // A closing worker had its result acknowledged and is exiting, so it has nothing new to report.
 function inspectLive(worker, terminal, state, view) {
-  const { now, idleWorkers } = view;
-  if (state?.phase !== IDLE_PHASE) idleWorkers?.delete(worker.name);
+  if (state?.phase !== RESTING_PHASE) view.resting.delete(worker.name);
   if (state?.phase === 'closing') return undefined;
   const due = readyAt(state);
-  if (now < due) return due;
+  if (view.now < due) return due;
   const { facts, resumes } = reportCurrent(worker, terminal, state, view);
   if (resumes !== undefined) {
-    idleWorkers?.delete(worker.name);
+    view.resting.delete(worker.name);
     return resumes;
   }
-  if (state?.phase !== IDLE_PHASE) return undefined;
-  if (facts && hasNoUnreportedWork(facts)) return measureIdle(worker, terminal, state, view);
-  idleWorkers?.delete(worker.name);
+  if (state?.phase === RESTING_PHASE) trackCandidate(worker, terminal, state, view, facts);
   return undefined;
 }
 
@@ -98,7 +95,7 @@ function inspectLaunch(worker, view) {
   const current = recordSession(worker, state);
   const terminal = terminalOf(current, view.terminals);
   if (!terminal || terminal.state === 'finished') {
-    view.idleWorkers?.delete(worker.name);
+    view.resting.delete(worker.name);
     forgetReceived(current, state, view);
     recover(current, state, view.pending);
     return undefined;

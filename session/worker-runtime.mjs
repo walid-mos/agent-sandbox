@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync, watch } from 'node:fs';
 import { basename } from 'node:path';
 import { allTerminals, isStopped } from './workers.mjs';
-import { idleWorkerPolicy } from './limits.mjs';
-import { hasNoUnreportedWork, IDLE_CLOSE, IDLE_PHASE, IDLE_RECHECK_MS, idleWitness } from './worker-idle.mjs';
+import { memoryShortage } from './memory-signals.mjs';
+import { hasNoUnreportedWork, RELEASE_REASON, RELEASE_RECHECK_MS, restWitness, RESTING_PHASE } from './worker-release.mjs';
 import { hasQueued } from './queue.mjs';
 import { canFinish, completionFacts, followUp, isPublished, LIFECYCLE, receiptPath, resultId, statePath } from './worker-lifecycle.mjs';
 import { readJson, writePrivateJson } from './private-json.mjs';
@@ -76,7 +76,7 @@ export class WorkerRuntime {
   #removeInput;
   #closeAttempt;
   #closeTimer;
-  #idleTimer;
+  #restTimer;
 
   constructor(pi, worker) {
     this.#pi = pi;
@@ -113,30 +113,30 @@ export class WorkerRuntime {
     this.#removeInput = context.ui.onTerminalInput(() => {
       if (this.#state?.phase !== 'active') this.invalidate(context);
     });
-    if (idleWorkerPolicy().enabled) this.#checkIdleLater(context);
+    this.#checkRestLater(context);
   }
 
-  #checkIdleLater(context) {
-    this.#idleTimer = setTimeout(() => {
+  #checkRestLater(context) {
+    this.#restTimer = setTimeout(() => {
       try {
-        this.#reconcileIdle(context);
+        this.#reconcileRest(context);
       } catch (error) {
         this.invalidate(context);
-        process.stderr.write(`pots lifecycle: idle check deferred: ${error.message}\n`);
+        process.stderr.write(`pots lifecycle: rest check deferred: ${error.message}\n`);
       }
-      if (this.#state.phase !== 'closing') this.#checkIdleLater(context);
-    }, IDLE_RECHECK_MS);
-    this.#idleTimer.unref();
+      if (this.#state.phase !== 'closing') this.#checkRestLater(context);
+    }, RELEASE_RECHECK_MS);
+    this.#restTimer.unref();
   }
 
-  #reconcileIdle(context) {
+  #reconcileRest(context) {
     const { phase } = this.#state;
     if (phase === 'settled' || phase === 'closing') return;
-    if (!this.#canIdle(context)) {
-      if (phase === IDLE_PHASE) this.invalidate(context);
+    if (!this.#isAtRest(context)) {
+      if (phase === RESTING_PHASE) this.invalidate(context);
       return;
     }
-    if (phase !== IDLE_PHASE || !this.#isSameSession(context)) this.#publish(context, IDLE_PHASE);
+    if (phase !== RESTING_PHASE || !this.#isSameSession(context)) this.#publish(context, RESTING_PHASE);
   }
 
   input(event, context) {
@@ -187,13 +187,13 @@ export class WorkerRuntime {
   #hasReceipt() {
     const receipt = readJson(receiptPath(this.#worker));
     return this.#state && receipt?.id === resultId(this.#state)
-      && (this.#state.phase === IDLE_PHASE ? Boolean(receipt.idleWitness) : !receipt.idleWitness);
+      && (this.#state.phase === RESTING_PHASE ? Boolean(receipt.restWitness) : !receipt.restWitness);
   }
 
   #closeWhenFinished(context) {
     if (!this.#hasReceipt()) return;
-    if (this.#state.phase === IDLE_PHASE) {
-      if (this.#canCloseIdle(context)) this.#close(context, IDLE_CLOSE);
+    if (this.#state.phase === RESTING_PHASE) {
+      if (this.#canRelease(context)) this.#close(context, RELEASE_REASON);
       else this.invalidate(context);
     } else if (this.#canClose(context)) this.#close(context);
   }
@@ -203,20 +203,22 @@ export class WorkerRuntime {
     context.shutdown();
   }
 
-  #canIdle(context) {
+  #isAtRest(context) {
     const { sessionManager } = context;
     const sessionFile = sessionManager.getSessionFile();
     return this.#hasQuietSession(context) && sessionFile && existsSync(sessionFile)
       && sessionManager.getSessionId() && hasUnansweredTurn(sessionManager.getBranch()) && hasNoPendingWork(this.#pi);
   }
 
-  #canCloseIdle(context) {
-    if (!idleWorkerPolicy().enabled || !this.#canIdle(context) || !this.#isSameSession(context)) return false;
+  // The watcher writes the release receipt while the guest is short, and the worker samples the same signal once more before it goes.
+  #canRelease(context) {
+    if (!this.#isAtRest(context) || !this.#isSameSession(context)) return false;
     if (isStopped(this.#worker) || !hasNoUnreportedWork(completionFacts(this.#worker, context.cwd))) return false;
     const terminals = allTerminals();
     const terminal = terminals.find(candidate => candidate.address === this.#state.terminal);
-    const witness = terminal && idleWitness(this.#state, terminal, terminals);
-    return Boolean(witness && readJson(receiptPath(this.#worker))?.idleWitness === witness && !hasQueued(this.#worker.name));
+    const witness = terminal && restWitness(this.#state, terminal, terminals);
+    if (!(witness && readJson(receiptPath(this.#worker))?.restWitness === witness && !hasQueued(this.#worker.name))) return false;
+    return memoryShortage() !== undefined;
   }
 
   #isSameSession({ sessionManager }) {
@@ -251,7 +253,7 @@ export class WorkerRuntime {
   }
 
   stop() {
-    clearTimeout(this.#idleTimer);
+    clearTimeout(this.#restTimer);
     this.#cancelClose();
     this.#observer?.close();
     this.#removeInput?.();

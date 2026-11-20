@@ -38,7 +38,7 @@ const terminal = { address: 't-owned', name: 'owned', state: 'live', status: 'id
 process.env.HC_TERMINAL_ID = terminal.address;
 
 function inspect(terminals = [terminal], inspector = inspectWorker) {
-  return inspector(workers()[0], { terminals, now: Date.now(), queue: queued(), pending: new Set(queued().map(request => request.worker)) });
+  return inspector(workers()[0], { terminals, now: Date.now(), queue: queued(), resting: new Map(), pending: new Set(queued().map(request => request.worker)) });
 }
 
 function settle(current = worker) {

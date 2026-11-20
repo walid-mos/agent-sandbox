@@ -4,8 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import { sandboxFixture } from '../probes/fixtures/sandbox.mjs';
 
-const { home, sandbox } = sandboxFixture('pots-idle-');
-sandbox.idleWorkerMinutes = 1;
+const { home } = sandboxFixture('pots-rest-');
 const terminal = { address: 't-owned', name: 'owned', cwd: home, state: 'live', status: 'idle', status_ms: 1_000,
   turn: 1, labels: { 'pots.owner': 'proof', 'pots.launch': 'launch-1' } };
 let terminals;
@@ -13,6 +12,8 @@ let refuseWake;
 let wakes;
 let launches;
 let sends;
+let shortage;
+mock.module('./memory-signals.mjs', { exports: { memoryShortage: () => shortage } });
 mock.module('./run.mjs', { exports: { WITH_VAULT: '/unused', failureReason: error => error.message, command(binary, args) {
   if (binary === 'pots') {
     if (refuseWake) throw new Error('Pots unavailable');
@@ -39,6 +40,7 @@ const { healthyWorkerMemory } = await import('../probes/fixtures/worker-memory.m
 const { runOperation } = await import('./main.mjs');
 const { WorkerRuntime } = await import('./worker-runtime.mjs');
 const { receiptPath, statePath } = await import('./worker-lifecycle.mjs');
+const { requestRelease, RESTING_PHASE } = await import('./worker-release.mjs');
 const { readJson } = await import('./private-json.mjs');
 const { save, workers, WORKERS } = await import('./workers.mjs');
 const worker = { name: 'owned', owner: 'proof', launchId: 'launch-1', terminal: 't-owned', worktree: home,
@@ -52,12 +54,12 @@ let counts;
 let branch;
 let rawInput;
 let shutdowns;
-let idleWorkers;
+let resting;
 
 function inspect() {
   const queue = queued();
-  return inspectWorker(workers()[0], { terminals, now: Date.now(), monotonicNow: Date.now(), queue,
-    pending: new Set(queue.map(request => request.worker)), idleWorkers });
+  return inspectWorker(workers()[0], { terminals, now: Date.now(), queue, resting,
+    pending: new Set(queue.map(request => request.worker)) });
 }
 
 beforeEach(t => {
@@ -68,11 +70,12 @@ beforeEach(t => {
   writeFileSync(sessionFile, `{"type":"session","id":"${sessionId}"}\n`);
   terminals = [terminal];
   refuseWake = false;
+  shortage = undefined;
   wakes = [];
   launches = [];
   sends = [];
   shutdowns = 0;
-  idleWorkers = new Map();
+  resting = new Map();
   counts = { asyncRuns: 0, waitSubscriptions: 0, awaited: 0 };
   branch = [user];
   context = { cwd: home, isIdle: () => true, hasPendingMessages: () => false,
@@ -86,64 +89,76 @@ afterEach(() => {
   rmSync(worker.resultFile, { force: true });
 });
 
-function measure(timers) {
+function rest(timers) {
   timers.tick(5_000);
   inspect();
+  assert.equal(readJson(statePath(worker)).phase, RESTING_PHASE);
 }
 
-test('an unsettled session closes only after the full idle period and a successful open report', ({ mock: { timers } }) => {
+// The watcher writes this receipt when it decides on a release; the runtime rechecks the same decision before it goes.
+function released(timers) {
+  rest(timers);
+  assert.ok(resting.has(worker.name));
+  requestRelease(resting.get(worker.name));
+  assert.ok(readJson(receiptPath(worker)).restWitness);
+}
+
+test('a resting worker keeps its terminal while the guest has memory to spare', ({ mock: { timers } }) => {
+  rest(timers);
+  timers.tick(3_600_000);
+  inspect();
+  runtime.finish(context);
+  assert.equal(shutdowns, 0);
+  assert.equal(readJson(receiptPath(worker)), undefined);
+  assert.equal(wakes.at(-1).status, 'idle');
+});
+
+test('a guest short on memory releases the resting worker and keeps its session', ({ mock: { timers } }) => {
+  shortage = 'low available memory';
+  released(timers);
+  runtime.finish(context);
+  assert.equal(shutdowns, 1);
+  assert.equal(readJson(statePath(worker)).closeReason, 'memory');
+  assert.equal(wakes.at(-1).result, undefined);
+  terminals = [];
+  resting = new Map();
+  inspect();
+  inspect();
+  assert.equal(workers()[0].isClosed, true);
+  assert.equal(workers()[0].sessionFile, sessionFile);
+  assert.deepEqual(queued(), []);
+});
+
+test('a release the guest no longer needs is refused and its receipt withdrawn', ({ mock: { timers } }) => {
+  shortage = 'memory pressure stalls';
+  released(timers);
+  shortage = undefined;
+  runtime.finish(context);
+  assert.equal(shutdowns, 0);
+  assert.equal(readJson(receiptPath(worker)), undefined);
+});
+
+test('an unsettled open report holds the release until Pots has it', ({ mock: { timers } }) => {
+  shortage = 'low available memory';
   refuseWake = true;
   timers.tick(5_000);
   assert.throws(inspect, /Pots unavailable/);
   timers.tick(60_000);
   assert.throws(inspect, /Pots unavailable/);
-  runtime.finish(context);
-  assert.equal(shutdowns, 0);
   assert.equal(readJson(receiptPath(worker)), undefined);
   refuseWake = false;
-  inspect();
-  timers.tick(59_999);
-  inspect();
-  runtime.finish(context);
-  assert.equal(shutdowns, 0);
-  timers.tick(1);
-  inspect();
+  released(timers);
   runtime.finish(context);
   assert.equal(shutdowns, 1);
-  assert.equal(readJson(statePath(worker)).closeReason, 'idle');
-  assert.equal(wakes.length, 1);
-  assert.equal(wakes[0].result, undefined);
 });
 
-test('watcher restart remeasures idle and preserves intentional closure across reconciliation', ({ mock: { timers } }) => {
-  measure(timers);
-  timers.tick(59_999);
-  idleWorkers = new Map();
-  inspect();
-  timers.tick(1);
-  inspect();
-  runtime.finish(context);
-  assert.equal(shutdowns, 0);
-  timers.tick(59_999);
-  inspect();
+test('a dispatcher follow-up during a release resumes the exact saved session', async ({ mock: { timers } }) => {
+  shortage = 'low available memory';
+  released(timers);
   runtime.finish(context);
   assert.equal(shutdowns, 1);
-  terminals = [];
-  idleWorkers = new Map();
-  inspect();
-  inspect();
-  assert.equal(workers()[0].isClosed, true);
-  assert.equal(workers()[0].sessionFile, sessionFile);
-  assert.equal(workers()[0].sessionId, sessionId);
-  assert.deepEqual(queued(), []);
-});
-
-test('a dispatcher follow-up during idle shutdown resumes the exact saved session', async ({ mock: { timers } }) => {
-  measure(timers);
-  timers.tick(60_000);
-  inspect();
-  runtime.finish(context);
-  assert.equal(shutdowns, 1);
+  // The released worker gave its memory back, so the follow-up launch is admitted.
+  shortage = undefined;
   const messageFile = join(home, 'follow-up.md');
   writeFileSync(messageFile, 'Continue in the original conversation.');
   mock.module('./main.mjs', { exports: { runOperation, main: (_module, body) => body() } });
@@ -167,18 +182,9 @@ test('a dispatcher follow-up during idle shutdown resumes the exact saved sessio
   assert.equal(queued()[0].message, 'Continue in the original conversation.');
 });
 
-test('terminal input invalidates the remaining measured idle time and a close receipt', ({ mock: { timers } }) => {
-  measure(timers);
-  timers.tick(59_999);
-  rawInput('a');
-  timers.tick(1);
-  inspect();
-  runtime.finish(context);
-  assert.equal(shutdowns, 0);
-  measure(timers);
-  timers.tick(60_000);
-  inspect();
-  assert.ok(readJson(receiptPath(worker)));
+test('terminal input withdraws the release receipt', ({ mock: { timers } }) => {
+  shortage = 'low available memory';
+  released(timers);
   rawInput('b');
   runtime.finish(context);
   assert.equal(shutdowns, 0);
@@ -197,11 +203,9 @@ for (const [guard, apply] of Object.entries({
   'a new goal': () => { branch = [user, { type: 'custom', customType: 'pi-goal-state-v1', data: { items: [{ done: false }] } }]; },
   'assistant output': () => { branch = [user, { type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'Unread' }] } }]; },
 })) {
-  test(`${guard} appearing after an idle receipt keeps the terminal open`, ({ mock: { timers } }) => {
-    measure(timers);
-    timers.tick(60_000);
-    inspect();
-    assert.ok(readJson(receiptPath(worker)));
+  test(`${guard} appearing after a release receipt keeps the terminal open`, ({ mock: { timers } }) => {
+    shortage = 'low available memory';
+    released(timers);
     apply();
     runtime.finish(context);
     assert.equal(shutdowns, 0);

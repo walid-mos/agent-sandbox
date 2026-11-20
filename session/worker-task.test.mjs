@@ -55,7 +55,7 @@ function serve() {
 
 function inspect() {
   const queue = queued();
-  inspectWorker(worker, { terminals, now: Date.now(), queue, pending: new Set(queue.map(request => request.worker)) });
+  inspectWorker(worker, { terminals, now: Date.now(), queue, resting: new Map(), pending: new Set(queue.map(request => request.worker)) });
   worker = workers().find(candidate => candidate.name === worker.name);
 }
 

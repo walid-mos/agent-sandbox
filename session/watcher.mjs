@@ -4,13 +4,14 @@ import { createInterface } from 'node:readline';
 import { stopIdleStacks } from './idle-stacks.mjs';
 import { inspectWorker } from './inspect-worker.mjs';
 import { main } from './main.mjs';
+import { memoryShortage } from './memory-signals.mjs';
 import { isRequest, QUEUE, queued } from './queue.mjs';
 import { serveQueue } from './serve-queue.mjs';
 import { allTerminals, closeTerminal, isLive, isPublicationRecord, liveTerminals, terminalOf, WORKERS, workers } from './workers.mjs';
 import { botId } from './sandbox.mjs';
 import { createAdmission } from './worker-admission.mjs';
 import { LIFECYCLE } from './worker-lifecycle.mjs';
-import { idleWorkerPolicy } from './limits.mjs';
+import { RELEASE_RECHECK_MS, releaseOrder, requestRelease } from './worker-release.mjs';
 
 // One change of a terminal comes as several events, so a pass waits for the burst to end.
 const SETTLE_MS = 200;
@@ -33,13 +34,11 @@ function sweep(terminals, records, logged) {
 export function createWatcher({ readText, now, logFailure = writeFailure } = {}) {
   const admission = createAdmission({ readText, now, logFailure });
   let deadline;
-  const idleWorkers = new Map();
 
   function logged(subject, step) {
     try {
       return step();
     } catch (error) {
-      idleWorkers.delete(subject);
       logFailure(subject, error);
       return Date.now() + RESUBSCRIBE_MS;
     }
@@ -51,29 +50,47 @@ export function createWatcher({ readText, now, logFailure = writeFailure } = {})
     if (due.length > 0) deadline = setTimeout(pass, Math.max(0, Math.min(...due) - Date.now()));
   }
 
+  // An unreadable signal never closes a worker: the pass fails here, keeps every candidate, and waits for the next one.
+  function memoryReason() {
+    try {
+      return memoryShortage(readText);
+    } catch (error) {
+      logFailure('memory release', error);
+      return undefined;
+    }
+  }
+
+  // The kernel is short on memory, so the least recently active at-rest worker goes first, and one release per pass lets its memory return before the next.
+  function releaseOne(resting) {
+    if (resting.size === 0 || memoryReason() === undefined) return undefined;
+    const [candidate] = releaseOrder(resting.values());
+    logged(candidate.worker.name, () => requestRelease(candidate));
+    return Date.now() + RELEASE_RECHECK_MS;
+  }
+
   function pass() {
     try {
       const terminals = allTerminals();
       const records = workers();
       sweep(terminals, new Map(records.map(worker => [worker.name, worker])), logged);
       const queue = queued();
-      const view = { terminals, now: Date.now(), monotonicNow: performance.now(), idleWorkers,
+      const view = { terminals, now: Date.now(), resting: new Map(),
         queue, pending: new Set(queue.map(request => request.worker)) };
       const times = records.map(worker => logged(worker.name, () => inspectWorker(worker, view)));
       // Inspection can end terminals, so the queue is served from a fresh list.
       const live = liveTerminals();
       const retryAfter = serveQueue(live, logFailure, admission);
       const admissionDue = retryAfter === undefined ? undefined : Date.now() + retryAfter;
+      const releaseDue = releaseOne(view.resting);
       const idleStackDue = logged('idle stacks', () => stopIdleStacks(records.filter(worker => worker.kind !== 'task').map(worker => worker.worktree), live, logFailure));
-      lookAgainAt([...times, idleStackDue, admissionDue]);
+      lookAgainAt([...times, idleStackDue, admissionDue, releaseDue]);
     } catch (error) {
-      idleWorkers.clear();
       logFailure('workers', error);
       lookAgainAt([Date.now() + RESUBSCRIBE_MS]);
     }
   }
 
-  return Object.assign(pass, { resetIdle: () => idleWorkers.clear() });
+  return pass;
 }
 
 const pass = createWatcher();
@@ -90,10 +107,8 @@ function isWaking(line) {
   try {
     const { method, params } = JSON.parse(line);
     if (method === 'heartbeat') return false;
-    if (method !== 'event') pass.resetIdle();
     return method !== 'event' || WAKING_EVENTS.has(params?.type);
   } catch {
-    pass.resetIdle();
     return true;
   }
 }
@@ -105,10 +120,7 @@ function followTerminals() {
     if (isWaking(line)) passSoon();
   });
   events.on('error', error => writeFailure('hc events', error));
-  events.on('close', () => {
-    pass.resetIdle();
-    setTimeout(followTerminals, RESUBSCRIBE_MS);
-  });
+  events.on('close', () => setTimeout(followTerminals, RESUBSCRIBE_MS));
 }
 
 // Removing a request and writing its temporary file also stir the folder, and neither brings work.
@@ -120,8 +132,7 @@ function followQueue() {
 }
 
 main(import.meta, () => {
-  const policy = idleWorkerPolicy();
-  process.stdout.write(`pots-watcher: idle policy ${JSON.stringify(policy)}\n`);
+  process.stdout.write('pots-watcher: workers rest until the guest is short on memory\n');
   followQueue();
   mkdirSync(LIFECYCLE, { recursive: true });
   watch(LIFECYCLE, passSoon);
