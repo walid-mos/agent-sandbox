@@ -29,18 +29,35 @@ function replyOf(reference) {
     .filter(([, value]) => value !== undefined));
 }
 
-function sourceOf(message, route, id) {
-  if (message?.id !== id || message.channel_id !== route.channelId || (message.guild_id !== undefined && message.guild_id !== route.guildId)) return;
-  if (!message.author || message.author.system || message.webhook_id !== undefined || message.thread || message.flags) return;
-  if (![0, 19].includes(message.type) || UNSUPPORTED_FIELDS.some(field => message[field] !== undefined)) return;
-  if (message.stickers?.length || message.sticker_items?.length || (message.message_reference?.type ?? 0) !== 0) return;
+function isRoutedMessage(message, route, id) {
+  return message?.id === id && message.channel_id === route.channelId && (message.guild_id === undefined || message.guild_id === route.guildId);
+}
+
+function isPersonMessage(message) {
+  return Boolean(message.author) && !message.author.system && message.webhook_id === undefined && !message.thread && !message.flags;
+}
+
+function hasPlainContent(message) {
+  if (![0, 19].includes(message.type) || UNSUPPORTED_FIELDS.some(field => message[field] !== undefined)) return false;
+  return !message.stickers?.length && !message.sticker_items?.length && (message.message_reference?.type ?? 0) === 0;
+}
+
+function authorOf(message) {
   const { author } = message;
-  const attachments = message.attachments?.map(attachment => Object.fromEntries(Object.entries(attachment)
+  return { id: author.id, username: author.username, displayName: message.member?.nick ?? author.global_name ?? author.username, isBot: author.bot ?? false };
+}
+
+function attachmentsOf(message) {
+  return message.attachments?.map(attachment => Object.fromEntries(Object.entries(attachment)
     .map(([key, value]) => [ATTACHMENT_FIELDS[key] ?? key, value])));
+}
+
+function sourceOf(message, route, id) {
+  if (!isRoutedMessage(message, route, id) || !isPersonMessage(message) || !hasPlainContent(message)) return;
   return { id, channelId: route.channelId, guildId: route.guildId, type: message.type, content: message.content,
-    author: { id: author.id, username: author.username, displayName: message.member?.nick ?? author.global_name ?? author.username, isBot: author.bot ?? false },
-    createdAt: message.timestamp, editedAt: message.edited_timestamp ?? '', isPinned: message.pinned, webhookId: '', attachments,
-    components: message.components ?? [], embeds: message.embeds, reply: replyOf(message.message_reference), thread: {} };
+    author: authorOf(message), createdAt: message.timestamp, editedAt: message.edited_timestamp ?? '', isPinned: message.pinned,
+    webhookId: '', attachments: attachmentsOf(message), components: message.components ?? [], embeds: message.embeds,
+    reply: replyOf(message.message_reference), thread: {} };
 }
 
 function prepareArchive(snapshot) {
